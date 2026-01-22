@@ -2,19 +2,35 @@
 
 BetterCast is an open-source application designed to breathe new life into older Macs. It allows you to use an older Mac as an extended display for your primary computer, a feature similar to Sidecar or AirPlay Receiver but tailored for hardware that Apple no longer supports for these features.
 
+This project consists of two applications:
+*   **BetterCastSender**: Runs on your primary Mac (the one you want to extend the screen *from*).
+*   **BetterCastReceiver**: Runs on your older Mac (the one you want to use *as* the screen).
+
 This is perfect for repurposing devices like non-Apple Silicon Macs that can no longer serve as Sidecar receivers, effectively giving you a high-quality extra screen for free.
 
 ## Installation & Usage
 
-BetterCast is distributed as an unsigned application (ad-hoc signed). To run it, you need to bypass macOS Gatekeeper checks.
+BetterCast is distributed as unsigned applications (ad-hoc signed). To run them, you need to bypass macOS Gatekeeper checks on the respective machines.
 
-1.  **Download and Install**: Drag the `BetterCast.app` into your `/Applications` folder.
-2.  **Authorize the App**: Open your Terminal and run the following command to remove the quarantine attribute:
+### 1. Download and Install
+*   Drag **BetterCastSender.app** to the `/Applications` folder on your **primary Mac**.
+*   Drag **BetterCastReceiver.app** to the `/Applications` folder on your **older/secondary Mac**.
 
-    ```bash
-    xattr -cr /Applications/BetterCast.app
-    ```
-3.  **Launch**: Open BetterCast from your Applications folder.
+### 2. Authorize the Apps
+You must run the following command in Terminal to allow the apps to run.
+
+**For BetterCastSender (Primary Mac):**
+```bash
+xattr -cr /Applications/BetterCastSender.app
+```
+
+**For BetterCastReceiver (Secondary Mac):**
+```bash
+xattr -cr /Applications/BetterCastReceiver.app
+```
+
+### 3. Launch
+Open the respective app on each Mac to start the connection.
 
 ## Disclaimer
 
