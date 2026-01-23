@@ -10,27 +10,32 @@ This is perfect for repurposing devices like non-Apple Silicon Macs that can no 
 
 ## Installation & Usage
 
-BetterCast is distributed as unsigned applications (ad-hoc signed). To run them, you need to bypass macOS Gatekeeper checks on the respective machines.
+BetterCast is distributed as unsigned applications (ad-hoc signed). To run them, you need to bypass macOS Gatekeeper checks by following these steps exactly.
 
-### 1. Download and Install
-*   Drag **BetterCastSender.app** to the `/Applications` folder on your **primary Mac**.
-*   Drag **BetterCastReceiver.app** to the `/Applications` folder on your **older/secondary Mac**.
+### 1. Download and Move to Applications
+You **must** move the apps to your Applications folder first.
 
-### 2. Authorize the Apps
-You must run the following command in Terminal to allow the apps to run.
+*   **Primary Mac**: Drag **BetterCastSender.app** to the `/Applications` folder.
+*   **Secondary/Older Mac**: Drag **BetterCastReceiver.app** to the `/Applications` folder.
 
-**For BetterCastSender (Primary Mac):**
+### 2. Authorize the Apps (Terminal Command)
+Since the app is not signed by Apple, you need to remove the quarantine attribute.
+
+1.  Open the **Terminal** app (Command + Space, type "Terminal").
+2.  Run the command corresponding to the mac you are on:
+
+**For BetterCastSender (on your Primary Mac):**
 ```bash
 xattr -cr /Applications/BetterCastSender.app
 ```
 
-**For BetterCastReceiver (Secondary Mac):**
+**For BetterCastReceiver (on your Secondary Mac):**
 ```bash
 xattr -cr /Applications/BetterCastReceiver.app
 ```
 
 ### 3. Launch
-Open the respective app on each Mac to start the connection.
+Open the respective app from your Applications folder to start the connection.
 
 ## Disclaimer
 
