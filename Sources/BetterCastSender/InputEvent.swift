@@ -9,6 +9,7 @@ enum InputEventType: Int, Codable {
     case keyDown = 5
     case keyUp = 6
     case scrollWheel = 7
+    case command = 99 // Internal commands (e.g. Force Keyframe)
 }
 
 struct InputEvent: Codable {
@@ -18,4 +19,5 @@ struct InputEvent: Codable {
     let keyCode: UInt16
     let deltaX: Double
     let deltaY: Double
+    let eventId: UInt64 // Unique ID for deduplication of redundant UDP sends
 }

@@ -15,11 +15,11 @@ class VirtualDisplayManager {
     }
     
     static let defaultResolutions: [Resolution] = [
-        Resolution(width: 1920, height: 1080, ppi: 102, hiDPI: false, name: "1080p (16:9)"),
+        Resolution(width: 1920, height: 1080, ppi: 102, hiDPI: false, name: "1080p (FHD)"),
         Resolution(width: 1920, height: 1200, ppi: 113, hiDPI: false, name: "1200p (16:10)"),
-        Resolution(width: 2560, height: 1440, ppi: 109, hiDPI: false, name: "1440p (16:9)"),
+        Resolution(width: 2560, height: 1440, ppi: 109, hiDPI: false, name: "1440p (2K) - Balanced"),
         Resolution(width: 2560, height: 1600, ppi: 227, hiDPI: true, name: "1600p Retina (16:10)"),
-        Resolution(width: 3840, height: 2160, ppi: 163, hiDPI: false, name: "4K (16:9)"),
+        Resolution(width: 3840, height: 2160, ppi: 163, hiDPI: false, name: "4K (UHD)"),
         Resolution(width: 1440, height: 900, ppi: 127, hiDPI: false, name: "WXGA+ (16:10)"),
     ]
     

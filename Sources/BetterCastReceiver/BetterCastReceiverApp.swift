@@ -2,32 +2,30 @@ import SwiftUI
 import Network
 import CoreMedia
 import AppKit
+import Security
+
 
 @main
 struct BetterCastReceiverApp: App {
-    // Create dependencies at top level to observe them
+    @NSApplicationDelegateAdaptor(ReceiverAppDelegate.self) var appDelegate
+    
+    // Dependencies
     @StateObject private var videoDecoder = VideoDecoder()
     @StateObject private var networkListener = NetworkListener()
     @StateObject private var videoRenderer = VideoRenderer()
     
-    // Bridge network listener to renderer via a decoder
-    // Since App struct is created once, we need a coordinator or ViewModel.
-    // networkListener is already an ObservableObject. Let's make it own the decoder logic or bridge it.
-    
+    // v67: Logging
+    init() {
+        LogManager.shared.log("Receiver App Started - Version v80 (Full Screen Layout Fix)")
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
-                // Video Layer
-                GeometryReader { geometry in
-                    VideoRendererView(renderer: videoRenderer)
-                        .onAppear {
-                            videoRenderer.layout()
-                        }
-                        .onChange(of: geometry.size) { _ in
-                           videoRenderer.layout()
-                        }
-                        .edgesIgnoringSafeArea(.all) // Fix for "Dark Space" / Full Screen coverage
-                }
+                // Video Layer - Fills Screen completely
+                VideoRendererView(renderer: videoRenderer)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.all) // Critical for Full Screen
                 
                 // UI Overlay
                 VStack {
@@ -44,6 +42,7 @@ struct BetterCastReceiverApp: App {
                 .padding()
             }
             .frame(minWidth: 800, minHeight: 600)
+            .background(Color.black) // Ensure black background for letterboxing
             .onAppear {
                 networkListener.onDataReceived = { data in
                 }
@@ -59,10 +58,31 @@ struct BetterCastReceiverApp: App {
         }
         .commands {
             CommandGroup(replacing: .saveItem) {
+                Button("Restart Receiver 🔄") {
+                    restartApp()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                
                 Button("Save Logs...") {
                    saveLogs()
                 }
                 .keyboardShortcut("s", modifiers: .command)
+            }
+        }
+    }
+    
+    private func restartApp() {
+        let url = URL(fileURLWithPath: Bundle.main.bundlePath)
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { app, error in
+            if error == nil {
+                DispatchQueue.main.async {
+                    NSApplication.shared.terminate(nil)
+                }
+            } else {
+                LogManager.shared.log("Receiver: Failed to restart - \(error?.localizedDescription ?? "")")
             }
         }
     }
@@ -79,12 +99,27 @@ struct BetterCastReceiverApp: App {
     }
 }
 
+class ReceiverAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+}
+
 class NetworkListener: ObservableObject, VideoDecoderDelegate {
     private var tcpListener: NWListener?
     private var udpListener: NWListener?
+    private var quicListener: NWListener?
     
     @Published var status: String? = "Initializing..."
     @Published var connectedClients: [NWConnection] = []
+    
+    enum ConnectionType {
+        case tcp
+        case udp
+        case quic
+    }
+    
+    private let networkQueue = DispatchQueue(label: "com.bettercast.network", qos: .userInteractive)
     
     // Dependencies
     var videoRenderer: VideoRenderer?
@@ -102,6 +137,19 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     func start() {
         startTCP()
         startUDP()
+        startHeartbeat()
+    }
+    
+    private func startHeartbeat() {
+        // v69 Heartbeat
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let keepalive = Data([0xDE, 0xAD, 0xBE, 0xEF])
+            
+            for connection in self.connectedClients {
+                connection.send(content: keepalive, completion: .contentProcessed({ _ in }))
+            }
+        }
     }
     
     private func startTCP() {
@@ -110,6 +158,9 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
             tcpOptions.enableKeepalive = true
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
             parameters.includePeerToPeer = true
+            parameters.allowLocalEndpointReuse = true
+            // parameters.requiredInterfaceType = .wifi <--- REMOVED: Allow AWDL!
+            parameters.serviceClass = .responsiveData
             
             let listener = try NWListener(using: parameters)
             listener.service = NWListener.Service(name: "BetterCast Receiver", type: "_bettercast._tcp")
@@ -120,10 +171,10 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
             
             listener.newConnectionHandler = { [weak self] connection in
                 LogManager.shared.log("Receiver (TCP): New connection from \(connection.endpoint)")
-                self?.handleNewConnection(connection, isUDP: false)
+                self?.handleNewConnection(connection, type: .tcp)
             }
             
-            listener.start(queue: .main)
+            listener.start(queue: networkQueue)
             self.tcpListener = listener
         } catch {
             LogManager.shared.log("Receiver (TCP): Error \(error)")
@@ -134,6 +185,10 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         do {
             let parameters = NWParameters.udp
             parameters.includePeerToPeer = true
+            parameters.allowLocalEndpointReuse = true
+            // parameters.requiredInterfaceType = .wifi <--- REMOVED
+            parameters.serviceClass = .responsiveData // Reverted to generic for compatibility with older Macs
+            parameters.preferNoProxies = true
             
             let listener = try NWListener(using: parameters)
             listener.service = NWListener.Service(name: "BetterCast Receiver UDP", type: "_bettercast._udp")
@@ -144,10 +199,10 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
             
             listener.newConnectionHandler = { [weak self] connection in
                 LogManager.shared.log("Receiver (UDP): New connection from \(connection.endpoint)")
-                self?.handleNewConnection(connection, isUDP: true)
+                self?.handleNewConnection(connection, type: .udp)
             }
             
-            listener.start(queue: .main)
+            listener.start(queue: networkQueue)
             self.udpListener = listener
         } catch {
             LogManager.shared.log("Receiver (UDP): Error \(error)")
@@ -171,27 +226,22 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         }
     }
     
-    private func handleNewConnection(_ connection: NWConnection, isUDP: Bool) {
+    private func handleNewConnection(_ connection: NWConnection, type: ConnectionType) {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
-                LogManager.shared.log("Receiver: \(isUDP ? "UDP" : "TCP") Connection ready")
+                LogManager.shared.log("Receiver: \(type) Connection ready")
                 DispatchQueue.main.async {
                     if let self = self {
-                        // For UDP, we might have multiple streams or just one per client?
-                        // Just append for now so we can send input back via TCP potentially?
-                        // Actually, for Input Back channel, we probably prefer TCP (Reliable).
-                        // If this connection is UDP, we maybe shouldn't add it to 'connectedClients' used for Input?
-                        // Or we can send Input over UDP too? UDP input is fine (mouse movements). Key clicks maybe better TCP.
-                        // Let's treat them equal for now.
                         if !self.connectedClients.contains(where: { $0 === connection }) {
                             self.connectedClients.append(connection)
                         }
                     }
                 }
-                if isUDP {
+                if type == .udp {
                     self?.receiveUDP(on: connection)
                 } else {
+                    // TCP
                     self?.receiveTCP(on: connection)
                 }
             case .failed(let error):
@@ -203,11 +253,11 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
                 break
             }
         }
-        connection.start(queue: .main)
+        connection.start(queue: networkQueue)
     }
     
     private func receiveTCP(on connection: NWConnection) {
-        // TCP: Expect 4-byte length prefix
+        // TCP is reliable, no changes needed other than queue
         connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] content, contentContext, isComplete, error in
             if let error = error {
                 LogManager.shared.log("Receiver (TCP): Error \(error)")
@@ -255,6 +305,9 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         }
     }
     
+    private var lastDecodedFrameId: UInt32 = 0
+    private var lastKeyframeRequest = Date.distantPast
+    
     private func handleUDPPacket(_ data: Data) {
         guard data.count > 8 else { return } // Min header size
         
@@ -265,8 +318,12 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         let chunkID = header.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt16.self).bigEndian }
         let totalChunks = header.withUnsafeBytes { $0.load(fromByteOffset: 6, as: UInt16.self).bigEndian }
         
+        // Lock not strictly needed if we are on serial queue, but good for safety
         udpLock.lock()
         defer { udpLock.unlock() }
+        
+        // Init state on first frame
+        if lastDecodedFrameId == 0 { lastDecodedFrameId = frameID &- 1 }
         
         udpPacketsReceived += 1
         
@@ -281,13 +338,24 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         
         if udpBuffer[frameID] == nil {
             udpBuffer[frameID] = (total: Int(totalChunks), chunks: [:], time: Date())
-            // LogManager.shared.log("Receiver: Start Frame \(frameID)")
         }
         
         udpBuffer[frameID]?.chunks[chunkID] = payload
         
         if let entry = udpBuffer[frameID], entry.chunks.count == entry.total {
             udpFramesReassembled += 1
+            
+            // Gap Detection
+            let diff = Int(frameID) - Int(lastDecodedFrameId)
+            if diff > 1 && diff < 1000 { 
+                 // v62: Relaxed throttle to 2.0s to match Sender's limit
+                 if Date().timeIntervalSince(lastKeyframeRequest) > 2.0 {
+                     LogManager.shared.log("Receiver: Frame Gap Detected (\(lastDecodedFrameId) -> \(frameID)). Requesting IDR.")
+                     sendInputEvent(InputEvent(type: .command, keyCode: 999))
+                     lastKeyframeRequest = Date()
+                 }
+            }
+            lastDecodedFrameId = frameID
             
             // Reassembly complete
             let sortedChunks = entry.chunks.sorted { $0.key < $1.key }
@@ -296,18 +364,19 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
                 fullData.append(chunkData)
             }
             
+            // Decode on this serial queue (VideoDecoder uses Async Decompression, so it won't block long)
             self.videoDecoder?.decode(data: fullData)
             udpBuffer.removeValue(forKey: frameID)
             
         } else {
              // Incomplete
-             udpFramesIncomplete = udpBuffer.count // Rough metric of pending frames
+             udpFramesIncomplete = udpBuffer.count 
         }
         
-        // Periodic Cleanup (every 100 packets roughly to avoid heavy scan)
+        // Periodic Cleanup
         if udpPacketsReceived % 100 == 0 {
              for (key, val) in udpBuffer {
-                if val.time.timeIntervalSinceNow < -1.0 { // Faster cleanup (1s)
+                if val.time.timeIntervalSinceNow < -1.0 { 
                     udpBuffer.removeValue(forKey: key)
                 }
             }
@@ -320,38 +389,40 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         }
     }
     
+    // VideoDecoder Delegate (Called by VT callback usually, or our decode call)
     func didDecode(sampleBuffer: CMSampleBuffer) {
+        // VideoRenderer MUST be updated on Main Thread
         DispatchQueue.main.async {
             self.videoRenderer?.enqueue(sampleBuffer)
         }
     }
     
     func sendInputEvent(_ event: InputEvent) {
-        // Encode event
-        guard let data = try? JSONEncoder().encode(event) else { return }
+        // Reliability for UDP:
+        // Clicks and Key Presses are critical. If 1 packet drops, user is stuck.
+        // Send them 3 times.
+        let isCritical = (event.type == .leftMouseDown || event.type == .leftMouseUp || event.type == .rightMouseDown || event.type == .rightMouseUp || event.type == .keyDown || event.type == .keyUp || event.type == .command)
         
-        // Wrap with length header for TCP compatibility (UDP ignores it or treats as payload? No, receiver logic depends on it)
-        // Wait, if we send Input BACK to Sender.
-        // If connected via UDP, can we send reliable Input?
-        // UDP is unreliable. Input events (clicks) MUST be reliable.
-        // STRATEGY: Receive Video via UDP (Fast), Send Input via TCP (Reliable).
-        // BUT, if we only have a UDP connection open...
-        // For this v1 implementation: If connected via UDP, we send input via UDP.
-        // It might be lossy. Mouse move is okay. Clicks might be lost.
-        // Ideal: Parallel TCP connection for control.
-        // Simplification: Just send it. Mouse feedback is immediate so user will click again.
+        let repeatCount = isCritical ? 3 : 1
+        
+        guard let data = try? JSONEncoder().encode(event) else { return }
         
         var packet = Data()
         var length32 = UInt32(data.count).bigEndian
         packet.append(Data(bytes: &length32, count: 4))
         packet.append(data)
         
-        for connection in connectedClients {
-            connection.send(content: packet, completion: .contentProcessed { error in
-                if let error = error {
-                    LogManager.shared.log("Receiver: Send Input Error \(error)")
+        networkQueue.async { [weak self] in
+            guard let self = self else { return }
+            for connection in self.connectedClients {
+                for _ in 0..<repeatCount {
+                    connection.send(content: packet, completion: .contentProcessed { error in
+                        if let error = error {
+                            LogManager.shared.log("Receiver: Send Input Error \(error)")
+                        }
+                    })
                 }
-            })
+            }
         }
     }
 }

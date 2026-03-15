@@ -6,11 +6,13 @@ import PackageDescription
 let package = Package(
     name: "BetterCast",
     platforms: [
-        .macOS(.v14) // Target modern macOS for ScreenCaptureKit
+        .macOS(.v14), // Target modern macOS for ScreenCaptureKit
+        .iOS(.v12)    // Target iOS 12+ for Receiver
     ],
     products: [
         .executable(name: "BetterCastSender", targets: ["BetterCastSender"]),
         .executable(name: "BetterCastReceiver", targets: ["BetterCastReceiver"]),
+        .executable(name: "BetterCastReceiverIOS", targets: ["BetterCastReceiverIOS"]),
     ],
     targets: [
         // Static library for Objective-C VirtualDisplay code
@@ -40,6 +42,17 @@ let package = Package(
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("Network"),
+                .linkedFramework("AVFoundation")
+            ]
+        ),
+        .executableTarget(
+            name: "BetterCastReceiverIOS",
+            path: "Sources/BetterCastReceiverIOS",
+            linkerSettings: [
+                .linkedFramework("UIKit", .when(platforms: [.iOS])),
+                .linkedFramework("Network"),
+                .linkedFramework("VideoToolbox"),
+                .linkedFramework("CoreMedia"),
                 .linkedFramework("AVFoundation")
             ]
         ),

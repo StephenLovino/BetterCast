@@ -20,17 +20,35 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     
     func startCapture() async {
         do {
-            let content = try await SCShareableContent.current
+            // Retry logic for Virtual Display availability (Race condition fix)
+            var display: SCDisplay?
             
-            // Find the target display (virtual display if provided, otherwise main)
-            let display: SCDisplay?
             if let targetID = targetDisplayID {
-                display = content.displays.first { $0.displayID == targetID }
-                if display == nil {
-                    LogManager.shared.log("ScreenRecorder: Virtual display \(targetID) not found, falling back to main")
+                LogManager.shared.log("ScreenRecorder: Searching for target display \(targetID)...")
+                for i in 0..<10 { // Retry 10 times (2 seconds max)
+                    let content = try await SCShareableContent.current
+                    if let match = content.displays.first(where: { $0.displayID == targetID }) {
+                        display = match
+                        LogManager.shared.log("ScreenRecorder: Found target display on attempt \(i+1)")
+                        break
+                    }
+                    try await Task.sleep(nanoseconds: 200_000_000) // 200ms
                 }
-            } else {
-                display = content.displays.first
+                
+                if display == nil {
+                    LogManager.shared.log("ScreenRecorder: Target display \(targetID) NOT found after retries. Falling back to Main.")
+                }
+            }
+            
+            // Fallback to Main Display explicitly if target not found or not specified
+            if display == nil {
+                 let content = try await SCShareableContent.current
+                 // Use CGMainDisplayID to ensure we get the primary screen, not just 'first'
+                 let mainID = CGMainDisplayID()
+                 display = content.displays.first { $0.displayID == mainID }
+                 
+                 // Ultimate fallback
+                 if display == nil { display = content.displays.first }
             }
             
             guard let display = display else {
@@ -43,8 +61,8 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             let config = SCStreamConfiguration()
             config.width = width
             config.height = height
-            config.minimumFrameInterval = CMTime(value: 1, timescale: 60) // 60 fps
-            config.queueDepth = 5
+            config.minimumFrameInterval = CMTime(value: 1, timescale: 120) // Allow up to 120 fps for ProMotion smoothnes
+            config.queueDepth = 8 // Increase buffer for high FPS
             config.capturesAudio = false
             
             let stream = SCStream(filter: filter, configuration: config, delegate: self)

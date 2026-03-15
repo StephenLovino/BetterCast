@@ -17,6 +17,17 @@ class InputHandler {
         // LogManager.shared.log("InputHandler: Updated bounds to \(bounds)")
     }
     
+    func checkAccessibility() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(options)
+        if trusted {
+             LogManager.shared.log("InputHandler: Accessibility Permissions Granted. Direct Control Active.")
+        } else {
+             LogManager.shared.log("InputHandler: Accessibility Permissions MISSING. Mouse control will fail.")
+             // macOS will show prompt automatically due to options
+        }
+    }
+    
     func handle(event: InputEvent) {
         let x = displayOrigin.x + (CGFloat(event.x) * displayWidth)
         let y = displayOrigin.y + (CGFloat(event.y) * displayHeight)
@@ -38,10 +49,33 @@ class InputHandler {
         case .keyUp:
             postKeyboardEvent(keyCode: event.keyCode, keyDown: false)
         case .scrollWheel:
-            // Scroll wheel is complex in CGEvent, simplified here
-            if let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(event.deltaY), wheel2: Int32(event.deltaX), wheel3: 0) {
-                 event.post(tap: .cghidEventTap)
+            switch event.keyCode {
+            case 1:
+                // Pinch-to-zoom: simulate Cmd+scroll (standard zoom gesture for most apps)
+                if let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: Int32(event.deltaY), wheel2: 0, wheel3: 0) {
+                    scrollEvent.flags = .maskCommand
+                    scrollEvent.post(tap: .cghidEventTap)
+                }
+            case 2:
+                // Rotation: simulate as horizontal scroll with Ctrl (app-dependent)
+                if let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: Int32(event.deltaX), wheel3: 0) {
+                    scrollEvent.flags = .maskControl
+                    scrollEvent.post(tap: .cghidEventTap)
+                }
+            case 3:
+                // Smart zoom: simulate Ctrl+scroll-up as a zoom toggle
+                if let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: 5, wheel2: 0, wheel3: 0) {
+                    scrollEvent.flags = .maskCommand
+                    scrollEvent.post(tap: .cghidEventTap)
+                }
+            default:
+                // Normal two-finger scroll
+                if let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(event.deltaY), wheel2: Int32(event.deltaX), wheel3: 0) {
+                    scrollEvent.post(tap: .cghidEventTap)
+                }
             }
+        case .command:
+            break // Handled by NetworkClient
         }
     }
     

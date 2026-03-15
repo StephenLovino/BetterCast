@@ -10,31 +10,33 @@ This is perfect for repurposing devices like non-Apple Silicon Macs that can no 
 
 ## Installation & Usage
 
-BetterCast is distributed as unsigned applications (ad-hoc signed). To run them, you need to bypass macOS Gatekeeper checks by following these steps exactly.
+BetterCast is distributed as a DMG containing ad-hoc signed applications.
 
-### 1. Download and Move to Applications
-You **must** move the apps to your Applications folder first.
+### 1. Install from DMG
+1.  Open the `.dmg` file.
+2.  Drag **BetterCastSender.app** to the Applications folder (on your primary Mac).
+3.  Drag **BetterCastReceiver.app** to the Applications folder (on your secondary/older Mac).
 
-*   **Primary Mac**: Drag **BetterCastSender.app** to the `/Applications` folder.
-*   **Secondary/Older Mac**: Drag **BetterCastReceiver.app** to the `/Applications` folder.
+### 2. Allow the App to Open
+Since the apps are not signed with an Apple Developer certificate, macOS will block the first launch. No terminal commands are needed — just use System Settings:
 
-### 2. Authorize the Apps (Terminal Command)
-Since the app is not signed by Apple, you need to remove the quarantine attribute.
+1.  Try to open the app. macOS will show a warning that it cannot be opened.
+2.  Go to **System Settings > Privacy & Security**.
+3.  Scroll down — you will see a message about the blocked app.
+4.  Click **"Open Anyway"** and confirm.
 
-1.  Open the **Terminal** app (Command + Space, type "Terminal").
-2.  Run the command corresponding to the mac you are on:
+Alternatively, you can **right-click** the app and select **Open** on the first launch.
 
-**For BetterCastSender (on your Primary Mac):**
-```bash
-xattr -cr /Applications/BetterCastSender.app
-```
+You only need to do this once per app.
 
-**For BetterCastReceiver (on your Secondary Mac):**
-```bash
-xattr -cr /Applications/BetterCastReceiver.app
-```
+### 3. Grant Permissions (Sender only)
+The Sender app requires:
+*   **Screen Recording** — to capture your display for streaming.
+*   **Accessibility** — to inject mouse and keyboard input from the receiver.
 
-### 3. Launch
+macOS will prompt you to grant these on first launch.
+
+### 4. Launch
 Open the respective app from your Applications folder to start the connection.
 
 ## Disclaimer

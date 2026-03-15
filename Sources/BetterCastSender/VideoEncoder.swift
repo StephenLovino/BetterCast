@@ -16,6 +16,9 @@ class VideoEncoder {
     private var cachedSPS: Data?
     private var cachedPPS: Data?
     
+    private var pendingKeyFrameRequest = false
+    private var lastKeyFrameTime: Date = Date.distantPast
+    
     init(width: Int, height: Int, bitrate: Int = 20_000_000) {
         self.bitrate = bitrate
         
@@ -55,13 +58,18 @@ class VideoEncoder {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
         
         // Strict Keyframe Control
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: 60 as CFNumber)
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 1.0 as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: 600 as CFNumber) // 10 seconds
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 10.0 as CFNumber)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse) // Crucial for Real-Time
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: 60 as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: 120 as CFNumber) // Expect high FPS
 
         VTCompressionSessionPrepareToEncodeFrames(session)
-        LogManager.shared.log("VideoEncoder: Initialized (v41 - Dynamic Bitrate: \(bitrate/1_000_000)Mbps)")
+        LogManager.shared.log("VideoEncoder: Initialized (v52 - Dynamic Bitrate: \(bitrate/1_000_000)Mbps)")
+    }
+    
+    func forceKeyframe() {
+        LogManager.shared.log("VideoEncoder: Keyframe Requested")
+        pendingKeyFrameRequest = true
     }
     
     func encode(sampleBuffer: CMSampleBuffer) {
@@ -74,11 +82,19 @@ class VideoEncoder {
         frameCount += 1
         var frameProperties: [String: Any] = [:]
         
-        // Force keyframe every 60 frames (approx 1s) to ensure recovery
-        // The first frame (Frame 1) is forced to be a Keyframe to jumpstart the stream.
-        if frameCount == 1 || frameCount % 60 == 0 {
-             LogManager.shared.log("VideoEncoder: Forcing Keyframe request (Frame \(frameCount))")
+        // Force keyframe if requested or first frame
+        // v62: Strict Throttling (Max 1 forced keyframe every 2.0s)
+        let timeSinceLastKeyFrame = Date().timeIntervalSince(lastKeyFrameTime)
+        
+        if frameCount == 1 || (pendingKeyFrameRequest && timeSinceLastKeyFrame > 2.0) {
+             LogManager.shared.log("VideoEncoder: Forcing Keyframe (Frame \(frameCount))")
              frameProperties[kVTEncodeFrameOptionKey_ForceKeyFrame as String] = kCFBooleanTrue
+             pendingKeyFrameRequest = false
+             lastKeyFrameTime = Date()
+        } else if pendingKeyFrameRequest {
+             // Request ignored due to throttling
+             LogManager.shared.log("VideoEncoder: Keyframe Request Throttled (Last: \(timeSinceLastKeyFrame)s ago)")
+             pendingKeyFrameRequest = false // Clear it so we don't queue likely stale requests
         }
         
         let status = VTCompressionSessionEncodeFrame(
@@ -100,6 +116,9 @@ class VideoEncoder {
         guard let sampleBuffer = sampleBuffer, status == noErr else {
             return
         }
+        
+        // Extract timestamp
+        let presentationTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         
         // Check if keyframe using Swift casting (Safe)
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]]
@@ -178,9 +197,15 @@ class VideoEncoder {
             }
         }
         
-        // 4. Send One Megapacket
+        // 4. Send One Megapacket (with PTS Header)
         if !coalescedData.isEmpty {
-             delegate?.videoEncoder(self, didEncode: coalescedData)
+             var packetWithPTS = Data()
+             // Convert PTS to UInt64 nanoseconds (8 bytes)
+             var ptsNanos = UInt64(presentationTimeStamp.seconds * 1_000_000_000)
+             packetWithPTS.append(Data(bytes: &ptsNanos, count: 8))
+             packetWithPTS.append(coalescedData)
+            
+             delegate?.videoEncoder(self, didEncode: packetWithPTS)
         }
     }
     
