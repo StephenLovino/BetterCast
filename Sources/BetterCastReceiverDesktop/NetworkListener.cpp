@@ -125,6 +125,11 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
 }
 
 void NetworkListener::handleVideoData(const QByteArray& data) {
+    static int frameCount = 0;
+    frameCount++;
+    if (frameCount <= 3 || frameCount % 100 == 0) {
+        qDebug() << "NetworkListener: Received video data" << data.size() << "bytes (frame" << frameCount << ")";
+    }
     if (m_decoder) {
         m_decoder->decode(data);
     }

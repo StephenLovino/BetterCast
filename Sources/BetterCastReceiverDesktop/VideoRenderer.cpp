@@ -3,6 +3,7 @@
 
 extern "C" {
 #include <libavutil/frame.h>
+#include <libavutil/pixfmt.h>
 }
 
 // Vertex data: position (x,y) + texcoord (u,v)
@@ -14,14 +15,13 @@ static const float kVertexData[] = {
      1.0f, -1.0f,  1.0f, 1.0f,  // bottom-right
 };
 
-// NV12 YUV→RGB shader
+// NV12 YUV->RGB shader (Compatibility Profile / GLSL 1.20)
 static const char* kVertexShaderSource = R"(
     attribute vec4 aPosition;
     attribute vec2 aTexCoord;
     varying vec2 vTexCoord;
     uniform vec4 uViewport; // x_offset, y_offset, width, height (normalized)
     void main() {
-        // Apply aspect-ratio-correct viewport mapping
         vec2 pos = aPosition.xy * vec2(uViewport.z, uViewport.w) + vec2(uViewport.x, uViewport.y);
         gl_Position = vec4(pos, 0.0, 1.0);
         vTexCoord = aTexCoord;
@@ -65,15 +65,24 @@ VideoRenderer::~VideoRenderer() {
 void VideoRenderer::initializeGL() {
     initializeOpenGLFunctions();
 
+    qDebug() << "OpenGL version:" << reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    qDebug() << "OpenGL renderer:" << reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
     // Compile shaders
     m_program = new QOpenGLShaderProgram(this);
-    m_program->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertexShaderSource);
-    m_program->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShaderSource);
+    if (!m_program->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertexShaderSource)) {
+        qWarning() << "Vertex shader compile failed:" << m_program->log();
+    }
+    if (!m_program->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragmentShaderSource)) {
+        qWarning() << "Fragment shader compile failed:" << m_program->log();
+    }
     m_program->bindAttributeLocation("aPosition", 0);
     m_program->bindAttributeLocation("aTexCoord", 1);
-    m_program->link();
+    if (!m_program->link()) {
+        qWarning() << "Shader link failed:" << m_program->log();
+    }
 
     // Create VBO
     glGenBuffers(1, &m_vbo);
@@ -97,19 +106,16 @@ void VideoRenderer::paintGL() {
             createTextures(m_frameWidth, m_frameHeight);
         }
 
-        // Upload Y plane
+        // Upload Y plane (tightly packed, stride == width)
         glBindTexture(GL_TEXTURE_2D, m_textureY);
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, m_yStride);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_frameWidth, m_frameHeight,
                         GL_LUMINANCE, GL_UNSIGNED_BYTE, m_yBuffer);
 
-        // Upload UV plane (half width, half height, 2 components)
+        // Upload UV plane (tightly packed, half width, half height)
         glBindTexture(GL_TEXTURE_2D, m_textureUV);
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, m_uvStride / 2);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_frameWidth / 2, m_frameHeight / 2,
                         GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, m_uvBuffer);
 
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
         m_hasNewFrame = false;
     }
 
@@ -123,10 +129,8 @@ void VideoRenderer::paintGL() {
     float offsetX = 0.0f, offsetY = 0.0f;
 
     if (videoAspect > widgetAspect) {
-        // Video is wider — letterbox top/bottom
         scaleY = widgetAspect / videoAspect;
     } else {
-        // Video is taller — pillarbox left/right
         scaleX = videoAspect / widgetAspect;
     }
 
@@ -134,7 +138,6 @@ void VideoRenderer::paintGL() {
 
     m_program->bind();
 
-    // Set viewport uniform
     m_program->setUniformValue("uViewport", offsetX, offsetY, scaleX, scaleY);
 
     // Bind textures
@@ -165,10 +168,6 @@ void VideoRenderer::paintGL() {
 void VideoRenderer::onFrameDecoded(AVFrame* frame) {
     if (!frame || frame->width <= 0 || frame->height <= 0) return;
 
-    // FFmpeg NV12: frame->data[0] = Y, frame->data[1] = UV interleaved
-    // frame->linesize[0] = Y stride, frame->linesize[1] = UV stride
-    // Also handle YUV420P (data[0]=Y, data[1]=U, data[2]=V) — convert to NV12
-
     QMutexLocker lock(&m_frameMutex);
 
     int w = frame->width;
@@ -183,6 +182,8 @@ void VideoRenderer::onFrameDecoded(AVFrame* frame) {
         m_frameWidth = w;
         m_frameHeight = h;
 
+        qDebug() << "VideoRenderer: New frame size" << w << "x" << h << "format" << frame->format;
+
         QSize newSize(w, h);
         if (m_videoSize != newSize) {
             m_videoSize = newSize;
@@ -192,22 +193,25 @@ void VideoRenderer::onFrameDecoded(AVFrame* frame) {
         }
     }
 
-    if (frame->format == 23 /* AV_PIX_FMT_NV12 */) {
-        // Direct NV12 copy
-        m_yStride = frame->linesize[0];
-        m_uvStride = frame->linesize[1];
-        memcpy(m_yBuffer, frame->data[0], frame->linesize[0] * h);
-        memcpy(m_uvBuffer, frame->data[1], frame->linesize[1] * (h / 2));
-    } else if (frame->format == 0 /* AV_PIX_FMT_YUV420P */) {
-        // Convert YUV420P to NV12
-        // Y plane: direct copy
-        m_yStride = frame->linesize[0];
+    if (frame->format == AV_PIX_FMT_NV12) {
+        // NV12: copy row-by-row to produce tightly-packed buffers
+        // (FFmpeg stride may be larger than width due to alignment)
         for (int row = 0; row < h; row++) {
-            memcpy(m_yBuffer + row * w, frame->data[0] + row * frame->linesize[0], w);
+            memcpy(m_yBuffer + row * w,
+                   frame->data[0] + row * frame->linesize[0], w);
         }
-        m_yStride = w;
-
-        // Interleave U and V planes
+        int uvH = h / 2;
+        int uvW = w; // UV interleaved = w bytes per row (w/2 pairs * 2 bytes)
+        for (int row = 0; row < uvH; row++) {
+            memcpy(m_uvBuffer + row * uvW,
+                   frame->data[1] + row * frame->linesize[1], uvW);
+        }
+    } else if (frame->format == AV_PIX_FMT_YUV420P) {
+        // YUV420P: Y plane row-by-row, then interleave U+V into NV12
+        for (int row = 0; row < h; row++) {
+            memcpy(m_yBuffer + row * w,
+                   frame->data[0] + row * frame->linesize[0], w);
+        }
         int uvH = h / 2;
         int uvW = w / 2;
         for (int row = 0; row < uvH; row++) {
@@ -219,7 +223,6 @@ void VideoRenderer::onFrameDecoded(AVFrame* frame) {
                 dst[col * 2 + 1] = vRow[col];
             }
         }
-        m_uvStride = w;
     } else {
         qWarning() << "Unsupported pixel format:" << frame->format;
         return;

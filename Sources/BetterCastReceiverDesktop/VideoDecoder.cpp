@@ -48,10 +48,8 @@ void VideoDecoder::decode(const QByteArray& data) {
 
     // Initialize or reinitialize decoder if we have SPS/PPS
     if (!m_sps.isEmpty() && !m_pps.isEmpty()) {
-        // Parse SPS for dimensions to detect orientation changes
-        // FFmpeg will handle this when we feed the SPS, but we check manually
-        // for the scrcpy-style dimension-change-triggers-reinit pattern
         if (!m_codecCtx) {
+            qDebug() << "VideoDecoder: Have SPS" << m_sps.size() << "bytes, PPS" << m_pps.size() << "bytes, initializing decoder";
             initDecoder(reinterpret_cast<const uint8_t*>(m_sps.constData()), m_sps.size(),
                         reinterpret_cast<const uint8_t*>(m_pps.constData()), m_pps.size());
         }

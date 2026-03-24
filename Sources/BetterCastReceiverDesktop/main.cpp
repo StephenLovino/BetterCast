@@ -3,10 +3,11 @@
 #include "MainWindow.h"
 
 int main(int argc, char* argv[]) {
-    // Request OpenGL 3.0+ for texture support
+    // Use Compatibility Profile for GL_LUMINANCE/GL_LUMINANCE_ALPHA support
+    // Core Profile removes these, breaking NV12 texture uploads on Windows
     QSurfaceFormat format;
-    format.setVersion(3, 0);
-    format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setVersion(2, 1);
+    format.setProfile(QSurfaceFormat::CompatibilityProfile);
     format.setSwapInterval(1); // VSync
     QSurfaceFormat::setDefaultFormat(format);
 
