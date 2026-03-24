@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QSurfaceFormat>
+#include <QIcon>
 #include "MainWindow.h"
 
 int main(int argc, char* argv[]) {
@@ -15,6 +16,7 @@ int main(int argc, char* argv[]) {
     app.setApplicationName("BetterCast Receiver");
     app.setOrganizationName("BetterCast");
     app.setApplicationVersion("1.0.0");
+    app.setWindowIcon(QIcon(":/appicon.png"));
 
     MainWindow window;
     window.show();

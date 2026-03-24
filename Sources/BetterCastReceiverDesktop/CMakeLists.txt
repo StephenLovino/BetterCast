@@ -98,7 +98,15 @@ set(HEADERS
     ServiceDiscovery.h
 )
 
-add_executable(BetterCastReceiver ${SOURCES} ${HEADERS})
+# Qt resource file (embeds app icon PNG)
+qt_add_resources(RESOURCES resources.qrc)
+
+# Windows .exe icon via resource file
+if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/appicon.ico")
+    list(APPEND SOURCES app.rc)
+endif()
+
+add_executable(BetterCastReceiver ${SOURCES} ${HEADERS} ${RESOURCES})
 
 target_include_directories(BetterCastReceiver PRIVATE
     ${FFMPEG_ALL_INCLUDE_DIRS}

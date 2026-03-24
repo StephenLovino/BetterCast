@@ -30,6 +30,7 @@ private slots:
 private:
     void setupUi();
     void resizeToFitVideo(int videoWidth, int videoHeight);
+    void updateLocalIpDisplay();
 
     // Core components
     VideoDecoder* m_decoder = nullptr;
@@ -45,4 +46,5 @@ private:
     QLineEdit* m_portEdit = nullptr;
     QPushButton* m_connectBtn = nullptr;
     QLabel* m_statusLabel = nullptr;
+    QLabel* m_ipLabel = nullptr;
 };

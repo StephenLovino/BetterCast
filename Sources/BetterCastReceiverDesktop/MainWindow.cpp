@@ -10,6 +10,7 @@
 #include <QScreen>
 #include <QApplication>
 #include <QDebug>
+#include <QNetworkInterface>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -87,6 +88,14 @@ void MainWindow::setupUi() {
     m_statusLabel->setStyleSheet("color: orange; font-size: 16px; font-weight: bold;");
     m_statusLabel->setAlignment(Qt::AlignCenter);
     connectLayout->addWidget(m_statusLabel);
+
+    // Show local IP addresses so the user knows what to enter on the sender
+    m_ipLabel = new QLabel();
+    m_ipLabel->setStyleSheet("color: #aaaaaa; font-size: 13px;");
+    m_ipLabel->setAlignment(Qt::AlignCenter);
+    m_ipLabel->setWordWrap(true);
+    updateLocalIpDisplay();
+    connectLayout->addWidget(m_ipLabel);
 
     connectLayout->addSpacing(20);
 
@@ -185,4 +194,25 @@ void MainWindow::resizeToFitVideo(int videoWidth, int videoHeight) {
              << "for video" << videoWidth << "x" << videoHeight;
 
     setGeometry(x, y, winW, winH);
+}
+
+void MainWindow::updateLocalIpDisplay() {
+    QStringList ips;
+    for (const auto& iface : QNetworkInterface::allInterfaces()) {
+        if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
+            iface.flags().testFlag(QNetworkInterface::IsRunning) &&
+            !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+            for (const auto& entry : iface.addressEntries()) {
+                if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+                    ips.append(entry.ip().toString());
+                }
+            }
+        }
+    }
+
+    if (ips.isEmpty()) {
+        m_ipLabel->setText("No network detected");
+    } else {
+        m_ipLabel->setText("This device: " + ips.join(" / ") + " : 51820");
+    }
 }
