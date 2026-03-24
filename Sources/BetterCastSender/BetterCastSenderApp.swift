@@ -11,56 +11,241 @@ struct BetterCastSenderApp: App {
     var body: some Scene {
         WindowGroup {
             ScrollView {
-                VStack {
-                    Text("BetterCast Sender")
-                        .font(.largeTitle)
-                        .padding()
-                    
-                    Text("Status: \(networkClient.status)")
-                        .foregroundStyle(.gray)
-                        .padding()
-                    
-                    List(networkClient.foundServices, id: \.name) { service in
-                        HStack {
-                            Text(service.name)
-                            Spacer()
-                            if networkClient.connectedServices.contains(where: { $0.name == service.name }) {
+                VStack(spacing: 20) {
+                    // Header
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("BetterCast")
+                                .font(.system(size: 28, weight: .bold))
+                            Text("Sender")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        StatusBadge(status: networkClient.status, isConnected: networkClient.isConnected)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+
+                    // Devices Card
+                    DashboardCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Devices", systemImage: "display.2")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+
+                            if networkClient.foundServices.isEmpty {
                                 HStack {
-                                    Text("Connected").foregroundStyle(.green)
-                                    Button("Disconnect") {
-                                        networkClient.disconnectService(service)
+                                    Spacer()
+                                    VStack(spacing: 8) {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                        Text("Searching for receivers...")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.tertiary)
                                     }
-                                    .foregroundStyle(.red)
+                                    .padding(.vertical, 24)
+                                    Spacer()
                                 }
                             } else {
-                                Button("Connect") {
-                                    networkClient.connect(to: service)
+                                ForEach(networkClient.foundServices, id: \.name) { service in
+                                    ServiceRow(service: service, client: networkClient)
+                                    if service.name != networkClient.foundServices.last?.name {
+                                        Divider()
+                                    }
+                                }
+                            }
+
+                            Divider()
+
+                            // Manual connection
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Manual Connect")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    TextField("IP / hostname", text: $networkClient.manualHost)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 13))
+                                    TextField("Port", text: $networkClient.manualPort)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 13))
+                                        .frame(width: 70)
+                                    Button("Connect") {
+                                        networkClient.connectManual()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .tint(.accentColor)
+                                    .disabled(networkClient.manualHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                }
+                            }
+
+                            Divider()
+
+                            // ADB Wireless (Android)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Android (ADB)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    Button(networkClient.adbInProgress ? "Setting up..." : "ADB Wireless") {
+                                        networkClient.connectADBWireless()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .tint(.green)
+                                    .disabled(networkClient.adbInProgress)
+
+                                    Button("ADB USB") {
+                                        networkClient.connectADBUSB()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .tint(.blue)
+
+                                    if !networkClient.adbStatus.isEmpty {
+                                        Text(networkClient.adbStatus)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
                                 }
                             }
                         }
                     }
-                    .frame(height: 150) // Restrict list height to prevent it expanding too much
-                    
-                    Divider()
-                    
-                    SettingsView(client: networkClient)
-                        .padding()
-                    
-                    Spacer()
+                    .padding(.horizontal, 24)
+
+                    // Display & Connection Settings — side by side cards
+                    HStack(alignment: .top, spacing: 16) {
+                        // Display Settings Card
+                        DashboardCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Label("Display", systemImage: "display")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+
+                                SettingsRow(label: "Virtual Display") {
+                                    Toggle("", isOn: $networkClient.useVirtualDisplay)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                }
+
+                                SettingsRow(label: "Resolution") {
+                                    Picker("", selection: $networkClient.selectedResolution) {
+                                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
+                                            Text(res.name).tag(res)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 140)
+                                    .disabled(!networkClient.useVirtualDisplay)
+                                }
+
+                                SettingsRow(label: "Retina (HiDPI)") {
+                                    Toggle("", isOn: $networkClient.isRetina)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                        .disabled(!networkClient.useVirtualDisplay)
+                                }
+                            }
+                        }
+
+                        // Connection Settings Card
+                        DashboardCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Label("Connection", systemImage: "network")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+
+                                SettingsRow(label: "Mode") {
+                                    Picker("", selection: $networkClient.interfacePreference) {
+                                        ForEach(NetworkInterfacePreference.allCases) { pref in
+                                            Text(pref.rawValue).tag(pref)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 160)
+                                    .disabled(networkClient.isConnected)
+                                }
+
+                                SettingsRow(label: "Protocol") {
+                                    Picker("", selection: $networkClient.connectionType) {
+                                        Text("TCP (Recommended)").tag("TCP")
+                                        Text("UDP (Faster, P2P only)").tag("UDP")
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 140)
+                                }
+
+                                SettingsRow(label: "Quality") {
+                                    Picker("", selection: $networkClient.selectedQuality) {
+                                        ForEach(StreamQuality.allCases) { quality in
+                                            Text(quality.name).tag(quality)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .frame(width: 140)
+                                }
+
+                                if networkClient.isConnected {
+                                    SettingsRow(label: "Transfer Speed") {
+                                        Text(networkClient.transferRate)
+                                            .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(.green)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+
+                    // Controls Card
+                    DashboardCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Controls", systemImage: "gearshape")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+
+                            HStack(spacing: 10) {
+                                CardButton(title: "Apply Settings", color: .accentColor) {
+                                    if networkClient.isConnected {
+                                        networkClient.updateStreamResolution()
+                                    }
+                                }
+                                .disabled(!networkClient.isConnected)
+
+                                CardButton(title: "Screen Recording Settings", color: .blue) {
+                                    networkClient.openPrivacySettings()
+                                }
+
+                                CardButton(title: "Reset Permissions", color: .orange) {
+                                    networkClient.resetScreenCapturePermissions()
+                                }
+
+                                CardButton(title: "Restart App", color: Color(.secondaryLabelColor)) {
+                                    networkClient.restartApp()
+                                }
+
+                                CardButton(title: "Quit", color: .red) {
+                                    networkClient.quitApp()
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+
+                    // Logs Card
                     LogView()
-                        .frame(height: 100)
+                        .padding(.horizontal, 24)
                 }
-                .padding()
+                .padding(.bottom, 20)
             }
-            .frame(minWidth: 500, minHeight: 700)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .frame(minWidth: 580, minHeight: 720)
             .onAppear {
-                // 1. Prioritize Screen Recording Permission (Critical for Streaming)
                 networkClient.checkScreenRecordingPermission()
-                
-                // 2. Start Network
                 networkClient.startBrowsing()
-                
-                // 3. Delay Accessibility Check (Secondary) so Screen Recording prompt appears first if needed
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                      InputHandler.shared.checkAccessibility()
                 }
@@ -69,82 +254,139 @@ struct BetterCastSenderApp: App {
     }
 }
 
-struct SettingsView: View {
-    @ObservedObject var client: NetworkClient
-    
+// MARK: - Dashboard Card Container
+
+struct DashboardCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
     var body: some View {
-        Form {
-            Section(header: Text("Virtual Display Settings")) {
-                Toggle("Use Virtual Display", isOn: $client.useVirtualDisplay)
-                
-                Picker("Resolution", selection: $client.selectedResolution) {
-                    ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                        Text(res.name).tag(res)
-                    }
+        content
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 2)
+            )
+    }
+}
+
+// Extension for cards that need outer padding (standalone cards)
+extension DashboardCard {
+    init(padded: Bool = true, @ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+}
+
+// MARK: - Status Badge
+
+struct StatusBadge: View {
+    let status: String
+    let isConnected: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isConnected ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+            Text(status)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 1)
+        )
+    }
+}
+
+// MARK: - Service Row
+
+struct ServiceRow: View {
+    let service: DiscoveredService
+    @ObservedObject var client: NetworkClient
+
+    private var isConnected: Bool {
+        client.connectedServices.contains(where: { $0.name == service.name })
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isConnected ? "display" : "display.trianglebadge.exclamationmark")
+                .font(.system(size: 16))
+                .foregroundStyle(isConnected ? .green : .secondary)
+                .frame(width: 24)
+            Text(service.name)
+                .font(.system(size: 14, weight: .medium))
+            Spacer()
+            if isConnected {
+                Text("Connected")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.green)
+                Button("Disconnect") {
+                    client.disconnectService(service)
                 }
-                .disabled(!client.useVirtualDisplay)
-                
-                Toggle("Retina Mode (HiDPI)", isOn: $client.isRetina)
-                    .disabled(!client.useVirtualDisplay)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(.red)
+            } else {
+                Button("Connect") {
+                    client.connect(to: service)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(.accentColor)
             }
-            
-            Section(header: Text("Connection")) {
-                Picker("Connection Mode", selection: $client.interfacePreference) {
-                     ForEach(NetworkInterfacePreference.allCases) { pref in
-                         Text(pref.rawValue).tag(pref)
-                     }
-                }
-                .disabled(client.isConnected) 
-                
-                Picker("Type", selection: $client.connectionType) {
-                    Text("TCP (Reliable)").tag("TCP")
-                    Text("UDP (Fast)").tag("UDP")
-                }
-                
-                Picker("Quality", selection: $client.selectedQuality) {
-                    ForEach(StreamQuality.allCases) { quality in
-                        Text(quality.name).tag(quality)
-                    }
-                }
-                
-                if client.isConnected {
-                     HStack {
-                         Text("Transfer Speed")
-                         Spacer()
-                         Text(client.transferRate)
-                             .foregroundStyle(.green)
-                     }
-                }
-            }
-            
-            Section(header: Text("Troubleshooting & Controls")) {
-                Button("Reset Screen Recording Permissions (Popup) 🔒") {
-                    client.resetScreenCapturePermissions()
-                }
-                .foregroundStyle(.orange)
-                .help("Resets the system decision, forcing the 'Allow BetterCast to record screen?' popup to appear again on restart.")
-                
-                HStack {
-                    Button("Restart App 🔄") {
-                        client.restartApp()
-                    }
-                    Button("Force Quit ❌") {
-                        client.quitApp()
-                    }
-                }
-            }
-            
-            Button("Apply Settings & Update Stream") {
-                if client.isConnected {
-                    // Smart Update
-                     client.updateStreamResolution()
-                } else {
-                    // Just Restart Browsing/Connect logic handled by state
-                }
-            }
-            .disabled(!client.isConnected) // Only useful if connected to restart the stream with new settings
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Settings Row
+
+struct SettingsRow<Content: View>: View {
+    let label: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+            Spacer()
+            content
         }
     }
+}
+
+// MARK: - Card Button
+
+struct CardButton: View {
+    let title: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(color, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Settings View (kept for backwards compatibility but now unused inline)
+
+struct SettingsView: View {
+    @ObservedObject var client: NetworkClient
+    var body: some View { EmptyView() }
 }
 
 struct DiscoveredService: Identifiable {
@@ -181,20 +423,35 @@ enum NetworkInterfacePreference: String, CaseIterable, Identifiable {
     var id: String { self.rawValue }
 }
 
-// Connection tracking for multi-display
-struct ConnectionInfo {
+// Per-connection pipeline: each device gets its own virtual display, screen capture, and encoder
+struct ConnectionPipeline {
     let id: UUID
     let connection: NWConnection
     let service: DiscoveredService
     var lastHeartbeat: Date
+
+    // Per-connection components (isolated pipeline)
+    var virtualDisplayManager: VirtualDisplayManager?
+    var screenRecorder: ScreenRecorder?
+    var videoEncoder: VideoEncoder?
+
+    // Adaptive: P2P (AWDL) connections get full quality; infrastructure gets throttled
+    var isP2P: Bool = false
+    // Loopback connections (ADB tunnel via lo0) — high bandwidth, skip backpressure
+    var isLoopback: Bool = false
+    // TCP backpressure: skip frames while a send is still in flight
+    var sendInProgress: Bool = false
+    // Time-based send pacing for WiFi ADB (prevents kernel buffer bloat)
+    var lastSendTimeNs: UInt64 = 0
+    // WiFi ADB vs USB ADB — WiFi has much less bandwidth, needs throttling
+    var isWiFiADB: Bool = false
+    // ADB/localhost connections always use TCP framing regardless of global protocol setting
+    var forceTCP: Bool = false
 }
 
 class NetworkClient: ObservableObject, VideoEncoderDelegate {
     private var browser: NWBrowser?
-    private var connections: [UUID: ConnectionInfo] = [:]
-    private var screenRecorder: ScreenRecorder?
-    private var videoEncoder: VideoEncoder?
-    private var virtualDisplayManager: VirtualDisplayManager?
+    private var pipelines: [UUID: ConnectionPipeline] = [:]
 
     @Published var status: String = "Idle"
     @Published var foundServices: [DiscoveredService] = []
@@ -228,9 +485,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     private var lastStatsTime: Date = Date()
     
     // Settings
-    @Published var selectedResolution: VirtualDisplayManager.Resolution = VirtualDisplayManager.defaultResolutions[0]
+    @Published var selectedResolution: VirtualDisplayManager.Resolution = VirtualDisplayManager.defaultResolutions[1]
     @Published var isRetina: Bool = false
-    @Published var connectionType: String = "UDP" {
+    @Published var connectionType: String = "TCP" {
         didSet {
             // Restart browsing if type changes
             browser?.cancel()
@@ -242,8 +499,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     
     // v67: Manual Interface Toggle
     @Published var interfacePreference: NetworkInterfacePreference = .p2pOnly
-    
-    var isConnected: Bool { !connections.isEmpty }
+
+    // Manual connection
+    @Published var manualHost: String = ""
+    @Published var manualPort: String = "51820"
+
+    var isConnected: Bool { !pipelines.isEmpty }
 
 
     func startBrowsing() {
@@ -263,6 +524,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
             typeVal = "_bettercast._tcp"
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
+            tcpOptions.noDelay = true
             parameters = NWParameters(tls: nil, tcp: tcpOptions)
         }
         
@@ -289,14 +551,22 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         
         browser.browseResultsChangedHandler = { [weak self] results, changes in
             DispatchQueue.main.async {
-                // If we are currently connected, do NOT overwrite the specific service we are connected to.
-                // Just update the list.
-                self?.foundServices = results.compactMap { result in
+                guard let self = self else { return }
+                // Build list from mDNS browse results
+                var services = results.compactMap { result -> DiscoveredService? in
                     if case .service(let name, _, _, _) = result.endpoint {
                         return DiscoveredService(name: name, endpoint: result.endpoint)
                     }
                     return nil
                 }
+                // Preserve manual connections that aren't from mDNS
+                for existing in self.foundServices {
+                    if case .hostPort = existing.endpoint,
+                       !services.contains(where: { $0.name == existing.name }) {
+                        services.append(existing)
+                    }
+                }
+                self.foundServices = services
             }
         }
         
@@ -334,10 +604,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                          }
                     }
                 }
-                // Cache Infra WiFi (en0 typically)
+                // Cache Infra WiFi (en0 typically) — only log on first discovery
                 if interface.type == .wifi && !interface.name.contains("awdl") && !interface.name.contains("llw") {
+                     let isNew = self?.cachedInfraInterface == nil
                      self?.cachedInfraInterface = interface
-                     LogManager.shared.log("Network: Found Infra Interface: \(interface.name) (\(interface.type))")
+                     if isNew {
+                         LogManager.shared.log("Network: Found Infra Interface: \(interface.name) (\(interface.type))")
+                     }
                 }
             }
         }
@@ -389,7 +662,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
              parameters.preferNoProxies = true
             
         case .routerOnly:
-            parameters.serviceClass = .bestEffort
+            parameters.serviceClass = .interactiveVideo
             parameters.prohibitedInterfaceTypes = [.loopback]
             // Allow standard routing
 
@@ -411,10 +684,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
             LogManager.shared.log("Sender: Already connected to \(service.name)")
             return
         }
-        
-        let deviceCount = connections.count + 1
+
+        let deviceCount = pipelines.count + 1
         self.status = "Connecting to \(service.name) (Device #\(deviceCount))..."
-        
+
         let parameters: NWParameters
         switch connectionType {
         case "UDP":
@@ -422,66 +695,74 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         default: // TCP
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
-            tcpOptions.noDelay = true // Keep our optimization
+            tcpOptions.noDelay = true
+            tcpOptions.connectionTimeout = 10
             parameters = NWParameters(tls: nil, tcp: tcpOptions)
+            parameters.serviceClass = .interactiveVideo
         }
-        
+
         configureParameters(parameters)
         LogManager.shared.log("Sender: Connecting with Pref: \(interfacePreference.rawValue)")
-        
-        // v70: Update Browser params too? No, usually not needed for connection.
-        
+
         let connection = NWConnection(to: service.endpoint, using: parameters)
         let connectionId = UUID()
-        
+
         connection.stateUpdateHandler = { [weak self] state in
             DispatchQueue.main.async {
                 switch state {
                 case .ready:
-                    // Add to connections dictionary
-                    let info = ConnectionInfo(
+                    // Detect link type before creating pipeline
+                    var isP2P = false
+                    var isLoopback = false
+                    if let path = connection.currentPath {
+                        let interfaces = path.availableInterfaces.map { $0.debugDescription }.joined(separator: ", ")
+                        LogManager.shared.log("Sender: Connected via Path: \(path)")
+                        LogManager.shared.log("Sender: Interfaces: \(interfaces)")
+
+                        if interfaces.contains("awdl") {
+                            isP2P = true
+                            LogManager.shared.log("Sender: P2P Direct Link (AWDL) Active ✅")
+                        } else if interfaces.contains("lo0") || interfaces.contains("loopback") {
+                            isLoopback = true
+                            LogManager.shared.log("Sender: Loopback/ADB tunnel — high bandwidth mode 🔌")
+                        } else {
+                            LogManager.shared.log("Sender: Likely using Router/Infrastructure ⚠️")
+                        }
+                    }
+
+                    // Create pipeline for this connection
+                    var pipeline = ConnectionPipeline(
                         id: connectionId,
                         connection: connection,
                         service: service,
                         lastHeartbeat: Date()
                     )
-                    self?.connections[connectionId] = info
+                    pipeline.isP2P = isP2P
+                    pipeline.isLoopback = isLoopback
+                    self?.pipelines[connectionId] = pipeline
                     self?.connectedServices.append(service)
-                    
-                    let count = self?.connections.count ?? 0
+
+                    let count = self?.pipelines.count ?? 0
                     self?.status = "Connected to \(count) device(s)"
-                    LogManager.shared.log("Sender: Connected to \(service.name) (Total: \(count))")
-                    
-                    // Start streaming if this is first connection
+                    LogManager.shared.log("Sender: Connected to \(service.name) (Total: \(count), P2P: \(isP2P))")
+
+                    // Start per-connection pipeline (each device gets its own display/encoder/recorder)
+                    self?.startPipeline(for: connectionId)
+
+                    // Start shared services on first connection
                     if count == 1 {
-                        self?.startStreaming()
                         self?.startHeartbeatMonitor()
                         self?.startStatsTimer()
                     }
-                    
+
                     self?.receive(on: connection, connectionId: connectionId)
-                    
-                    // v64: Debug Connection Path (Router vs P2P)
-                    if let path = connection.currentPath {
-                        let interfaces = path.availableInterfaces.map { $0.debugDescription }.joined(separator: ", ")
-                        LogManager.shared.log("Sender: Connected via Path: \(path)")
-                        LogManager.shared.log("Sender: Interfaces: \(interfaces)")
-                        
-                        // Check for AWDL (usually shows as awdl0 in description or has specific flags)
-                        if interfaces.contains("awdl") {
-                            LogManager.shared.log("Sender: P2P Direct Link (AWDL) Active ✅")
-                        } else {
-                            LogManager.shared.log("Sender: Likely using Router/Infrastructure ⚠️")
-                        }
-                    }
                 case .failed(let error):
                     LogManager.shared.log("Sender: Connection to \(service.name) failed: \(error)")
                     self?.removeConnection(connectionId)
-                    
-                    let remaining = self?.connections.count ?? 0
+
+                    let remaining = self?.pipelines.count ?? 0
                     if remaining == 0 {
                         self?.status = "All connections failed"
-                        self?.stopStreaming()
                     } else {
                         self?.status = "Connected to \(remaining) device(s)"
                     }
@@ -492,10 +773,421 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                 }
             }
         }
-        
+
         connection.start(queue: .main)
     }
-    
+
+    func connectManual() {
+        let host = manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else { return }
+        guard let portNum = UInt16(manualPort), portNum > 0 else {
+            LogManager.shared.log("Sender: Invalid port '\(manualPort)'")
+            return
+        }
+
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(rawValue: portNum)!
+        )
+        let service = DiscoveredService(name: "\(host):\(portNum)", endpoint: endpoint)
+
+        // Add to foundServices so it appears in the Devices list with status/disconnect
+        if !foundServices.contains(where: { $0.name == service.name }) {
+            foundServices.append(service)
+        }
+
+        // For manual connections, use plain TCP with no interface restrictions
+        // This allows localhost/ADB forwarding to work regardless of Mode setting
+        let isLocalhost = host == "localhost" || host == "127.0.0.1"
+
+        if isLocalhost {
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.enableKeepalive = true
+            tcpOptions.noDelay = true
+            let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+            parameters.serviceClass = .interactiveVideo
+            LogManager.shared.log("Sender: Manual connect to \(host):\(portNum) (localhost/ADB mode, no interface restrictions)")
+            connectWithParameters(service: service, parameters: parameters, forceTCP: true)
+        } else {
+            // Non-localhost manual connect: use plain TCP without interface restrictions
+            // This ensures connections to Windows/Linux receivers on the LAN work
+            // regardless of the Mode setting (which may force P2P/AWDL)
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.enableKeepalive = true
+            tcpOptions.noDelay = true
+            let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+            parameters.serviceClass = .interactiveVideo
+            LogManager.shared.log("Sender: Manual connect to \(host):\(portNum) (LAN mode, no interface restrictions)")
+            connectWithParameters(service: service, parameters: parameters, forceTCP: false)
+        }
+    }
+
+    // MARK: - ADB Wireless
+
+    @Published var adbStatus: String = ""
+    @Published var adbInProgress: Bool = false
+
+    /// Run an ADB shell command and return trimmed stdout
+    private func runAdb(_ args: [String]) -> (output: String, success: Bool) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/adb")
+        process.arguments = args
+        let pipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = errPipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return (output, process.terminationStatus == 0)
+        } catch {
+            return ("", false)
+        }
+    }
+
+    /// Get the Android device's WiFi IP address via ADB
+    /// - Parameter serial: Optional device serial to target (required when multiple devices connected)
+    private func getDeviceIP(serial: String? = nil) -> String? {
+        let deviceArgs: [String] = serial.map { ["-s", $0] } ?? []
+
+        // Method 1: ip route — look for wlan0 specifically (not cellular)
+        let routeResult = runAdb(deviceArgs + ["shell", "ip", "route"])
+        if routeResult.success {
+            let lines = routeResult.output.components(separatedBy: "\n")
+            for line in lines {
+                // Must be wlan0 to avoid picking up cellular IP
+                if line.contains("wlan0") && line.contains("src") {
+                    let parts = line.components(separatedBy: " ")
+                    if let srcIdx = parts.firstIndex(of: "src"), srcIdx + 1 < parts.count {
+                        let ip = parts[srcIdx + 1]
+                        if isPrivateIP(ip) { return ip }
+                    }
+                }
+            }
+        }
+
+        // Method 2: ip addr show wlan0 — parse inet line
+        let addrResult = runAdb(deviceArgs + ["shell", "ip", "addr", "show", "wlan0"])
+        if addrResult.success {
+            let lines = addrResult.output.components(separatedBy: "\n")
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("inet ") {
+                    // "inet 192.168.1.100/24 ..."
+                    let parts = trimmed.components(separatedBy: " ")
+                    if parts.count >= 2 {
+                        let ip = parts[1].components(separatedBy: "/").first ?? ""
+                        if isPrivateIP(ip) { return ip }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Check if IP is a private/local address (not cellular)
+    private func isPrivateIP(_ ip: String) -> Bool {
+        let parts = ip.split(separator: ".")
+        guard parts.count == 4 else { return false }
+        // 192.168.x.x, 10.x.x.x, 172.16-31.x.x
+        if ip.hasPrefix("192.168.") || ip.hasPrefix("10.") { return true }
+        if ip.hasPrefix("172."), let second = Int(parts[1]), (16...31).contains(second) { return true }
+        return false
+    }
+
+    /// Full ADB wireless handoff: USB → tcpip → forward → connect
+    func connectADBWireless() {
+        guard !adbInProgress else { return }
+        adbInProgress = true
+        adbStatus = "Checking device..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            // 1. Check for connected devices (USB and/or WiFi)
+            let devices = self.runAdb(["devices"])
+            let allLines = devices.output.components(separatedBy: "\n").filter { $0.contains("\tdevice") }
+            let usbLines = allLines.filter { !$0.contains(":") }
+            let wifiLines = allLines.filter { $0.contains(":") }
+
+            // If already connected via WiFi ADB, just set up port forwarding directly
+            if let wifiLine = wifiLines.first {
+                let wifiSerial = wifiLine.components(separatedBy: "\t").first ?? ""
+                LogManager.shared.log("ADB Wireless: Already connected via WiFi: \(wifiSerial)")
+
+                // Disconnect existing streaming pipeline
+                DispatchQueue.main.async {
+                    self.adbStatus = "Setting up wireless tunnel..."
+                    let adbNames = ["Android (USB)", "Android (WiFi ADB)", "localhost:51820"]
+                    for name in adbNames {
+                        if let entry = self.pipelines.first(where: { $0.value.service.name == name }) {
+                            self.removeConnection(entry.key)
+                            LogManager.shared.log("ADB Wireless: Disconnected existing '\(name)'")
+                        }
+                    }
+                }
+                Thread.sleep(forTimeInterval: 0.3)
+
+                // Set up port forwarding through existing WiFi connection
+                let forwardResult = self.runAdb(["-s", wifiSerial, "forward", "tcp:51820", "tcp:51820"])
+                LogManager.shared.log("ADB Wireless: forward result: \(forwardResult.output)")
+
+                DispatchQueue.main.async {
+                    self.adbStatus = "Connecting stream..."
+                    LogManager.shared.log("ADB Wireless: Tunnel ready via existing WiFi — connecting to localhost:51820")
+                    self.connectADBTunnel(displayName: "Android (WiFi ADB)")
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.adbStatus = "Wireless ADB active"
+                        self.adbInProgress = false
+                    }
+                }
+                return
+            }
+
+            // No WiFi ADB — need USB device to do the handoff
+            guard !usbLines.isEmpty else {
+                DispatchQueue.main.async {
+                    self.adbStatus = "No USB or WiFi device found"
+                    self.adbInProgress = false
+                    LogManager.shared.log("ADB Wireless: No USB or WiFi ADB device connected")
+                }
+                return
+            }
+
+            let serial = usbLines[0].components(separatedBy: "\t").first ?? ""
+            DispatchQueue.main.async {
+                self.adbStatus = "Found: \(serial)"
+                LogManager.shared.log("ADB Wireless: Found USB device \(serial)")
+            }
+
+            // 2. Get device IP over USB (pass serial to avoid "more than one device" error)
+            guard let deviceIP = self.getDeviceIP(serial: serial) else {
+                DispatchQueue.main.async {
+                    self.adbStatus = "Cannot get device IP"
+                    self.adbInProgress = false
+                    LogManager.shared.log("ADB Wireless: Failed to get device IP via 'ip route'")
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                self.adbStatus = "Device IP: \(deviceIP)"
+                LogManager.shared.log("ADB Wireless: Device IP is \(deviceIP)")
+            }
+
+            // 3. Disconnect existing ADB connection first (tcpip will kill USB tunnel anyway)
+            DispatchQueue.main.async {
+                self.adbStatus = "Switching to wireless — disconnecting USB..."
+                let adbNames = ["Android (USB)", "Android (WiFi ADB)", "localhost:51820"]
+                for name in adbNames {
+                    if let entry = self.pipelines.first(where: { $0.value.service.name == name }) {
+                        self.removeConnection(entry.key)
+                        LogManager.shared.log("ADB Wireless: Disconnected existing '\(name)' before switching")
+                    }
+                }
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+
+            // 4. Enable TCP/IP mode on device
+            DispatchQueue.main.async {
+                self.adbStatus = "Switching to wireless — enabling TCP mode..."
+                LogManager.shared.log("ADB Wireless: Running 'adb tcpip 5555'...")
+            }
+            let tcpipResult = self.runAdb(["-s", serial, "tcpip", "5555"])
+            LogManager.shared.log("ADB Wireless: tcpip result: \(tcpipResult.output)")
+
+            // Wait for ADB daemon to restart
+            Thread.sleep(forTimeInterval: 3.0)
+
+            // 5. Connect to device over WiFi
+            DispatchQueue.main.async {
+                self.adbStatus = "Switching to wireless — connecting \(deviceIP)..."
+                LogManager.shared.log("ADB Wireless: Connecting to \(deviceIP):5555...")
+            }
+
+            var connected = false
+            for attempt in 1...10 {
+                let connectResult = self.runAdb(["connect", "\(deviceIP):5555"])
+                LogManager.shared.log("ADB Wireless: connect attempt \(attempt): \(connectResult.output)")
+                if connectResult.output.contains("connected") {
+                    connected = true
+                    break
+                }
+                Thread.sleep(forTimeInterval: 1.5)
+            }
+
+            guard connected else {
+                DispatchQueue.main.async {
+                    self.adbStatus = "WiFi connect failed — check WiFi"
+                    self.adbInProgress = false
+                    LogManager.shared.log("ADB Wireless: Failed to connect over WiFi after 10 attempts")
+                }
+                return
+            }
+
+            // 6. Set up port forwarding (through the WiFi ADB connection)
+            DispatchQueue.main.async {
+                self.adbStatus = "Switching to wireless — setting up tunnel..."
+                LogManager.shared.log("ADB Wireless: Setting up port forward on \(deviceIP):5555...")
+            }
+            let forwardResult = self.runAdb(["-s", "\(deviceIP):5555", "forward", "tcp:51820", "tcp:51820"])
+            LogManager.shared.log("ADB Wireless: forward result: \(forwardResult.output)")
+
+            // 7. Connect sender to localhost:51820 (tunneled through WiFi ADB)
+            DispatchQueue.main.async {
+                self.adbStatus = "Connecting stream..."
+                LogManager.shared.log("ADB Wireless: Tunnel ready — connecting to localhost:51820")
+                self.connectADBTunnel(displayName: "Android (WiFi ADB)")
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.adbStatus = "Wireless ADB active"
+                    self.adbInProgress = false
+                    LogManager.shared.log("ADB Wireless: Setup complete — streaming via WiFi ADB tunnel")
+                }
+            }
+        }
+    }
+
+    /// Quick ADB USB-only: just forward port and connect (no wireless handoff)
+    func connectADBUSB() {
+        adbStatus = "Forwarding port..."
+        LogManager.shared.log("ADB USB: Setting up port forward...")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            // Find USB device serial (filter out wireless connections which contain ":")
+            let devices = self.runAdb(["devices"])
+            let usbLines = devices.output.components(separatedBy: "\n").filter {
+                $0.contains("\tdevice") && !$0.contains(":")
+            }
+            let serial = usbLines.first?.components(separatedBy: "\t").first
+
+            // Use -s serial if available (handles multiple-device case)
+            let deviceArgs: [String] = serial.map { ["-s", $0] } ?? []
+            let forwardResult = self.runAdb(deviceArgs + ["forward", "tcp:51820", "tcp:51820"])
+            LogManager.shared.log("ADB USB: forward result: \(forwardResult.output)")
+
+            DispatchQueue.main.async {
+                self.adbStatus = "Connecting..."
+                self.connectADBTunnel(displayName: "Android (USB)")
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.adbStatus = "USB ADB active"
+                    LogManager.shared.log("ADB USB: Connected via USB tunnel")
+                }
+            }
+        }
+    }
+
+    /// Connect to ADB-forwarded port with a proper device name that shows in the device list
+    private func connectADBTunnel(displayName: String) {
+        let endpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host("localhost"),
+            port: NWEndpoint.Port(rawValue: 51820)!
+        )
+        let service = DiscoveredService(name: displayName, endpoint: endpoint)
+
+        // Add to foundServices so it shows in the device list
+        if !foundServices.contains(where: { $0.name == displayName }) {
+            foundServices.append(service)
+        }
+
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.enableKeepalive = true
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+        parameters.serviceClass = .interactiveVideo
+
+        LogManager.shared.log("Sender: ADB connect '\(displayName)' via localhost:51820")
+        connectWithParameters(service: service, parameters: parameters, forceTCP: true)
+    }
+
+    private func connectWithParameters(service: DiscoveredService, parameters: NWParameters, forceTCP: Bool = false) {
+        if connectedServices.contains(where: { $0.name == service.name }) {
+            LogManager.shared.log("Sender: Already connected to \(service.name)")
+            return
+        }
+
+        let deviceCount = pipelines.count + 1
+        self.status = "Connecting to \(service.name) (Device #\(deviceCount))..."
+
+        let connection = NWConnection(to: service.endpoint, using: parameters)
+        let connectionId = UUID()
+
+        connection.stateUpdateHandler = { [weak self] state in
+            DispatchQueue.main.async {
+                switch state {
+                case .ready:
+                    // Detect link type
+                    var isP2P = false
+                    var isLoopback = false
+                    if let path = connection.currentPath {
+                        let interfaces = path.availableInterfaces.map { $0.debugDescription }.joined(separator: ", ")
+                        LogManager.shared.log("Sender: Connected via Path: \(path)")
+                        LogManager.shared.log("Sender: Interfaces: \(interfaces)")
+
+                        if interfaces.contains("awdl") {
+                            isP2P = true
+                            LogManager.shared.log("Sender: P2P Direct Link (AWDL) Active ✅")
+                        } else if interfaces.contains("lo0") || interfaces.contains("loopback") {
+                            isLoopback = true
+                            LogManager.shared.log("Sender: Loopback/ADB tunnel — high bandwidth mode 🔌")
+                        } else {
+                            LogManager.shared.log("Sender: Likely using Router/Infrastructure ⚠️")
+                        }
+                    }
+
+                    var pipeline = ConnectionPipeline(
+                        id: connectionId,
+                        connection: connection,
+                        service: service,
+                        lastHeartbeat: Date()
+                    )
+                    pipeline.isP2P = isP2P
+                    pipeline.isLoopback = isLoopback
+                    pipeline.forceTCP = forceTCP
+                    pipeline.isWiFiADB = isLoopback && service.name.contains("WiFi")
+                    self?.pipelines[connectionId] = pipeline
+                    self?.connectedServices.append(service)
+
+                    let count = self?.pipelines.count ?? 0
+                    self?.status = "Connected to \(count) device(s)"
+                    LogManager.shared.log("Sender: Connected to \(service.name) (Total: \(count), P2P: \(isP2P))")
+
+                    self?.startPipeline(for: connectionId)
+
+                    if count == 1 {
+                        self?.startHeartbeatMonitor()
+                        self?.startStatsTimer()
+                    }
+
+                    self?.receive(on: connection, connectionId: connectionId)
+                case .failed(let error):
+                    LogManager.shared.log("Sender: Connection to \(service.name) failed: \(error)")
+                    self?.removeConnection(connectionId)
+
+                    let remaining = self?.pipelines.count ?? 0
+                    if remaining == 0 {
+                        self?.status = "All connections failed"
+                    } else {
+                        self?.status = "Connected to \(remaining) device(s)"
+                    }
+                case .waiting(let error):
+                    self?.status = "Waiting... \(error.localizedDescription)"
+                default:
+                    break
+                }
+            }
+        }
+
+        connection.start(queue: .main)
+    }
+
     // MARK: - App Controls
     func checkScreenRecordingPermission() {
         // Trigger generic check.
@@ -523,27 +1215,54 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     }
     
     func resetScreenCapturePermissions() {
-        LogManager.shared.log("Permissions: Attempting to reset TCC database for ScreenCapture...")
-        
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        process.arguments = ["reset", "ScreenCapture", "com.bettercast.sender"]
-        
+        LogManager.shared.log("Permissions: Resetting ScreenCapture and Accessibility permissions...")
+
+        var allSuccess = true
+
+        // Reset Screen Recording
+        let screenCapture = Process()
+        screenCapture.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        screenCapture.arguments = ["reset", "ScreenCapture", "com.bettercast.sender"]
         do {
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                 LogManager.shared.log("Permissions: Reset Successful! Restarting app will trigger the System Popup again.")
-                 // Auto-restart?
-                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                     self.restartApp()
-                 }
+            try screenCapture.run()
+            screenCapture.waitUntilExit()
+            if screenCapture.terminationStatus == 0 {
+                LogManager.shared.log("Permissions: Screen Recording reset OK")
             } else {
-                 LogManager.shared.log("Permissions: Reset Failed (Code \(process.terminationStatus)). You may need to remove it manually in Settings.")
-                 openPrivacySettings()
+                LogManager.shared.log("Permissions: Screen Recording reset failed (Code \(screenCapture.terminationStatus))")
+                allSuccess = false
             }
         } catch {
-             LogManager.shared.log("Permissions: Error executing tccutil - \(error)")
+            LogManager.shared.log("Permissions: Error resetting Screen Recording - \(error)")
+            allSuccess = false
+        }
+
+        // Reset Accessibility (for mouse/keyboard control)
+        let accessibility = Process()
+        accessibility.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        accessibility.arguments = ["reset", "Accessibility", "com.bettercast.sender"]
+        do {
+            try accessibility.run()
+            accessibility.waitUntilExit()
+            if accessibility.terminationStatus == 0 {
+                LogManager.shared.log("Permissions: Accessibility reset OK")
+            } else {
+                LogManager.shared.log("Permissions: Accessibility reset failed (Code \(accessibility.terminationStatus))")
+                allSuccess = false
+            }
+        } catch {
+            LogManager.shared.log("Permissions: Error resetting Accessibility - \(error)")
+            allSuccess = false
+        }
+
+        if allSuccess {
+            LogManager.shared.log("Permissions: All reset! Restarting to re-prompt...")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.restartApp()
+            }
+        } else {
+            LogManager.shared.log("Permissions: Some resets failed. Check Settings manually.")
+            openPrivacySettings()
         }
     }
     
@@ -569,20 +1288,25 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     
     // MARK: - Dynamic Updates
     func updateStreamResolution() {
-        // Seamlessly update resolution while keeping connection alive.
-        LogManager.shared.log("Sender: Updating Resolution dynamically...")
-        
-        // 1. Stop components
-        screenRecorder?.stopCapture()
-        screenRecorder = nil
-        videoEncoder = nil
-        virtualDisplayManager?.destroyDisplay()
-        virtualDisplayManager = nil
-        
-        // 2. Restart components (startStreaming logic)
-        // We use a slight delay to allow destruction to complete
+        // Seamlessly update resolution while keeping connections alive.
+        LogManager.shared.log("Sender: Updating Resolution dynamically for all pipelines...")
+
+        // 1. Stop all pipeline components
+        for (id, pipeline) in pipelines {
+            pipeline.screenRecorder?.stopCapture()
+            pipeline.virtualDisplayManager?.destroyDisplay()
+            InputHandler.shared.removeDisplayBounds(for: id)
+            pipelines[id]?.screenRecorder = nil
+            pipelines[id]?.videoEncoder = nil
+            pipelines[id]?.virtualDisplayManager = nil
+        }
+
+        // 2. Restart all pipelines with new settings
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-             self?.startStreaming()
+            guard let self = self else { return }
+            for id in self.pipelines.keys {
+                self.startPipeline(for: id)
+            }
         }
     }
     
@@ -590,18 +1314,18 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         heartbeatTimer?.invalidate()
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            if !self.connections.isEmpty {
+            if !self.pipelines.isEmpty {
                 let now = Date()
                 var disconnectedIds: [UUID] = []
-                
-                for (id, info) in self.connections {
-                    let interval = now.timeIntervalSince(info.lastHeartbeat)
+
+                for (id, pipeline) in self.pipelines {
+                    let interval = now.timeIntervalSince(pipeline.lastHeartbeat)
                     if interval > 15.0 {
-                        LogManager.shared.log("Sender: Connection to \(info.service.name) timed out (No Heartbeat for 15s)")
+                        LogManager.shared.log("Sender: Connection to \(pipeline.service.name) timed out (No Heartbeat for 15s)")
                         disconnectedIds.append(id)
                     }
                 }
-                
+
                 for id in disconnectedIds {
                     self.removeConnection(id)
                 }
@@ -610,37 +1334,43 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     }
     
     func removeConnection(_ connectionId: UUID) {
-        guard let info = connections[connectionId] else { return }
-        
-        info.connection.cancel()
-        connections.removeValue(forKey: connectionId)
-        connectedServices.removeAll { $0.name == info.service.name }
-        
-        let remaining = connections.count
-        LogManager.shared.log("Sender: Disconnected from \(info.service.name). Remaining: \(remaining)")
-        
+        guard let pipeline = pipelines[connectionId] else { return }
+
+        // Tear down this connection's pipeline
+        pipeline.screenRecorder?.stopCapture()
+        pipeline.virtualDisplayManager?.destroyDisplay()
+        pipeline.connection.cancel()
+        InputHandler.shared.removeDisplayBounds(for: connectionId)
+
+        pipelines.removeValue(forKey: connectionId)
+        connectedServices.removeAll { $0.name == pipeline.service.name }
+
+        let remaining = pipelines.count
+        LogManager.shared.log("Sender: Disconnected from \(pipeline.service.name). Remaining: \(remaining)")
+
         if remaining == 0 {
-            stopStreaming()
             status = "Disconnected"
             heartbeatTimer?.invalidate()
         } else {
             status = "Connected to \(remaining) device(s)"
         }
     }
-    
+
     func disconnect() {
-        for (_, info) in connections {
-            info.connection.cancel()
+        for (id, pipeline) in pipelines {
+            pipeline.screenRecorder?.stopCapture()
+            pipeline.virtualDisplayManager?.destroyDisplay()
+            pipeline.connection.cancel()
+            InputHandler.shared.removeDisplayBounds(for: id)
         }
-        connections.removeAll()
+        pipelines.removeAll()
         connectedServices.removeAll()
-        stopStreaming()
         status = "Disconnected"
         heartbeatTimer?.invalidate()
     }
-    
+
     func disconnectService(_ service: DiscoveredService) {
-        if let entry = connections.first(where: { $0.value.service.name == service.name }) {
+        if let entry = pipelines.first(where: { $0.value.service.name == service.name }) {
             removeConnection(entry.key)
         }
     }
@@ -649,7 +1379,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         // Simple timer to update transfer rate UI
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
-            if self.connections.isEmpty { timer.invalidate(); return }
+            if self.pipelines.isEmpty { timer.invalidate(); return }
             
             let bytes = self.bytesSentWindow
             self.bytesSentWindow = 0
@@ -660,261 +1390,305 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     }
     
     private func receive(on connection: NWConnection, connectionId: UUID) {
-         if connectionType == "UDP" {
-             receiveUDP(on: connection, connectionId: connectionId)
-         } else {
+        let useTCP = (pipelines[connectionId]?.forceTCP == true) || connectionType != "UDP"
+        if useTCP {
              receiveTCP(on: connection, connectionId: connectionId)
+         } else {
+             receiveUDP(on: connection, connectionId: connectionId)
          }
     }
     
     private func receiveTCP(on connection: NWConnection, connectionId: UUID) {
-        // Read 4-byte length
+        // Don't schedule receives on dead connections
+        guard pipelines[connectionId] != nil else { return }
+
         connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] content, contentContext, isComplete, error in
             if let error = error {
-                LogManager.shared.log("Sender: Receive error \(error)")
+                // Fatal errors: connection is truly dead
+                if case let NWError.posix(code) = error,
+                   (code == .ECONNRESET || code == .ENOTCONN || code == .ECANCELED) {
+                    LogManager.shared.log("Sender: Receive error (fatal): \(error)")
+                    return
+                }
+                // Non-fatal (e.g. ENODATA/96): keep receiving, don't spam logs
+                self?.receiveTCP(on: connection, connectionId: connectionId)
                 return
             }
-            
-            // Update heartbeat for this specific connection
-            if var info = self?.connections[connectionId] {
-                info.lastHeartbeat = Date()
-                self?.connections[connectionId] = info
-            }
-            
+
             if let content = content, content.count == 4 {
                 let length = content.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
                 let bodyLength = Int(length)
-                
+
                 connection.receive(minimumIncompleteLength: bodyLength, maximumLength: bodyLength) { body, bodyContext, isComplete, error in
-                    if let body = body {
-                        // Decode InputEvent
-                        if let event = try? JSONDecoder().decode(InputEvent.self, from: body) {
-                            if event.type == .command && event.keyCode == 888 {
-                                // Heartbeat message - ignore
-                            } else if event.type == .command && event.keyCode == 999 {
-                                self?.videoEncoder?.forceKeyframe()
-                            } else if self?.isDuplicateEvent(event.eventId) == false {
-                                InputHandler.shared.handle(event: event)
+                    // All pipelines access must happen on main thread to avoid dictionary races
+                    DispatchQueue.main.async {
+                        // Update heartbeat
+                        self?.pipelines[connectionId]?.lastHeartbeat = Date()
+
+                        if let body = body {
+                            if let event = try? JSONDecoder().decode(InputEvent.self, from: body) {
+                                if event.type == .command && event.keyCode == 888 {
+                                    // Heartbeat - ignore
+                                } else if event.type == .command && event.keyCode == 999 {
+                                    self?.pipelines[connectionId]?.videoEncoder?.forceKeyframe()
+                                } else if self?.isDuplicateEvent(event.eventId) == false {
+                                    InputHandler.shared.handle(event: event, for: connectionId)
+                                }
                             }
                         }
                     }
                     self?.receiveTCP(on: connection, connectionId: connectionId)
                 }
             } else {
-                 self?.receiveTCP(on: connection, connectionId: connectionId)
+                self?.receiveTCP(on: connection, connectionId: connectionId)
             }
         }
     }
-    
+
     private func receiveUDP(on connection: NWConnection, connectionId: UUID) {
         connection.receiveMessage { [weak self] content, contentContext, isComplete, error in
-             if let error = error {
-                 LogManager.shared.log("Sender: Receive UDP error \(error)")
-                 
-                 // Check for straight up rejection (Firewall or Port Closed)
-                 if case let NWError.posix(code) = error, code == .ECONNREFUSED {
-                     DispatchQueue.main.async { [weak self] in
-                         self?.connectionRefusedCount += 1
-                         if (self?.connectionRefusedCount ?? 0) > 5 {
-                             LogManager.shared.log("Sender: CRITICAL - Receiver is refusing connection (Firewall?). Stopping.")
-                             self?.removeConnection(connectionId)
-                         }
-                     }
-                 }
-                 return
-             }
-             
-             // Update heartbeat for this specific connection
-             if var info = self?.connections[connectionId] {
-                 info.lastHeartbeat = Date()
-                 self?.connections[connectionId] = info
-             }
-             
-             if let content = content {
-                 if content.count > 4 {
-                     let body = content.subdata(in: 4..<content.count)
-                     if let event = try? JSONDecoder().decode(InputEvent.self, from: body) {
-                         if event.type == .command && event.keyCode == 888 {
-                             // Heartbeat message - ignore
-                         } else if event.type == .command && event.keyCode == 999 {
-                             self?.videoEncoder?.forceKeyframe()
-                         } else if self?.isDuplicateEvent(event.eventId) == false {
-                             InputHandler.shared.handle(event: event)
-                         }
-                     }
-                 }
-             }
-             self?.receiveUDP(on: connection, connectionId: connectionId)
+            if let error = error {
+                LogManager.shared.log("Sender: Receive UDP error \(error)")
+
+                if case let NWError.posix(code) = error, code == .ECONNREFUSED {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.connectionRefusedCount += 1
+                        if (self?.connectionRefusedCount ?? 0) > 5 {
+                            LogManager.shared.log("Sender: CRITICAL - Receiver is refusing connection (Firewall?). Stopping.")
+                            self?.removeConnection(connectionId)
+                        }
+                    }
+                }
+                return
+            }
+
+            // All pipelines access must happen on main thread to avoid dictionary races
+            DispatchQueue.main.async {
+                self?.pipelines[connectionId]?.lastHeartbeat = Date()
+
+                if let content = content {
+                    if content.count > 4 {
+                        let body = content.subdata(in: 4..<content.count)
+                        if let event = try? JSONDecoder().decode(InputEvent.self, from: body) {
+                            if event.type == .command && event.keyCode == 888 {
+                                // Heartbeat - ignore
+                            } else if event.type == .command && event.keyCode == 999 {
+                                self?.pipelines[connectionId]?.videoEncoder?.forceKeyframe()
+                            } else if self?.isDuplicateEvent(event.eventId) == false {
+                                InputHandler.shared.handle(event: event, for: connectionId)
+                            }
+                        }
+                    }
+                }
+            }
+            self?.receiveUDP(on: connection, connectionId: connectionId)
         }
     }
     
-     func startStreaming() {
-        LogManager.shared.log("Sender: Starting Screen Capture & Encoding...")
-        
+    func startPipeline(for connectionId: UUID) {
+        guard pipelines[connectionId] != nil else { return }
+
+        let serviceName = pipelines[connectionId]?.service.name ?? "unknown"
+        LogManager.shared.log("Sender: Starting pipeline for \(serviceName)...")
+
         var targetDisplayID: CGDirectDisplayID? = nil
-        
+
         // Create virtual display if enabled
         if useVirtualDisplay {
-            LogManager.shared.log("Sender: Creating virtual display for extended desktop...")
+            LogManager.shared.log("Sender: Creating virtual display for \(serviceName)...")
             let displayManager = VirtualDisplayManager()
-            
-            // Override with UI settings
+
             let res = selectedResolution
             let resolution = VirtualDisplayManager.Resolution(
                 width: res.width,
                 height: res.height,
-                ppi: isRetina ? min(220, res.ppi * 2) : res.ppi, 
+                ppi: isRetina ? min(220, res.ppi * 2) : res.ppi,
                 hiDPI: isRetina,
-                name: "BetterCast Retina Display"
+                name: "BetterCast Display (\(serviceName))"
             )
-            
+
             if let displayID = displayManager.createDisplay(resolution: resolution) {
                 targetDisplayID = displayID
-                virtualDisplayManager = displayManager
-                
-                // Update Input Handler with new display bounds
-                // Add specific delay to ensure display is registered by WindowServer
+                pipelines[connectionId]?.virtualDisplayManager = displayManager
+
+                // Update InputHandler with this connection's display bounds
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     let bounds = CGDisplayBounds(displayID)
-                    InputHandler.shared.updateDisplayBounds(bounds: bounds)
-                    LogManager.shared.log("Sender: Virtual display bounds: \(bounds)")
+                    InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
+                    LogManager.shared.log("Sender: Virtual display for \(serviceName) bounds: \(bounds)")
                 }
-                
-                LogManager.shared.log("Sender: Virtual display created with ID \(displayID)")
+
+                LogManager.shared.log("Sender: Virtual display created for \(serviceName) with ID \(displayID)")
                 LogManager.shared.log("Sender: Go to System Settings > Displays to arrange it")
             } else {
-                LogManager.shared.log("Sender: Failed to create virtual display, using main screen (mirroring)")
+                LogManager.shared.log("Sender: Failed to create virtual display for \(serviceName), using main screen")
             }
         } else {
-            LogManager.shared.log("Sender: Using main screen (mirroring mode)")
+            LogManager.shared.log("Sender: Using main screen (mirroring mode) for \(serviceName)")
         }
-        
+
         // Calculate Physical Capture Resolution
-        // If Retina Mode is enabled, we want to capture at 2x scale (e.g. 1920x1080 -> 3840x2160)
         let scale = isRetina ? 2 : 1
         let captureWidth = selectedResolution.width * scale
         let captureHeight = selectedResolution.height * scale
-        
-        LogManager.shared.log("Sender: Configuring Encoder/Capture for \(captureWidth)x\(captureHeight) (Scale: \(scale)x) @ \(selectedQuality.name)")
-        
-        let encoder = VideoEncoder(width: captureWidth, height: captureHeight, bitrate: selectedQuality.rawValue)
+
+        // Adaptive quality: P2P gets full, loopback (ADB) gets medium-high, infrastructure gets capped
+        let isP2P = pipelines[connectionId]?.isP2P ?? false
+        let isLoopback = pipelines[connectionId]?.isLoopback ?? false
+        let fps: Int
+        let bitrate: Int
+        let keyframeInterval: Double
+        if isP2P {
+            fps = 120
+            bitrate = selectedQuality.rawValue
+            keyframeInterval = 10.0 // P2P is reliable, long interval is fine
+        } else if isLoopback {
+            let isWiFiADB = pipelines[connectionId]?.isWiFiADB ?? false
+            if isWiFiADB {
+                // WiFi ADB — receiver queues all frames (no drops), so 60fps is safe.
+                // Bitrate capped to fit WiFi bandwidth; shorter KF interval for faster recovery.
+                fps = 60
+                bitrate = min(selectedQuality.rawValue, 10_000_000) // Cap at 10 Mbps
+                keyframeInterval = 3.0
+                LogManager.shared.log("Sender: WiFi ADB mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 3s for \(serviceName)")
+            } else {
+                // USB ADB — ~280Mbps, plenty of headroom
+                fps = 60
+                bitrate = selectedQuality.rawValue
+                keyframeInterval = 10.0
+                LogManager.shared.log("Sender: USB ADB mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 10s for \(serviceName)")
+            }
+        } else {
+            // Infrastructure (WiFi router, future Linux/Windows)
+            // Cap to reduce TCP congestion and jitter
+            fps = 30
+            bitrate = min(selectedQuality.rawValue, 10_000_000) // Cap at 10 Mbps
+            keyframeInterval = 5.0  // More frequent than P2P since infrastructure has more jitter
+            LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 5s for \(serviceName)")
+        }
+
+        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight) (Scale: \(scale)x) @ \(selectedQuality.name) [\(fps) FPS, P2P: \(isP2P)]")
+
+        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval)
         encoder.delegate = self
-        self.videoEncoder = encoder
-        
+        pipelines[connectionId]?.videoEncoder = encoder
+
         let recorder = ScreenRecorder(
             videoEncoder: encoder,
             targetDisplayID: targetDisplayID,
             width: captureWidth,
-            height: captureHeight
+            height: captureHeight,
+            captureFPS: Int32(fps)
         )
-        self.screenRecorder = recorder
-        
+        pipelines[connectionId]?.screenRecorder = recorder
+
         Task {
             await recorder.startCapture()
         }
     }
     
-     func stopStreaming() {
-        LogManager.shared.log("Sender: Stopping streaming")
-        screenRecorder?.stopCapture()
-        screenRecorder = nil
-        videoEncoder = nil
-        
-        // Clean up virtual display
-        virtualDisplayManager?.destroyDisplay()
-        virtualDisplayManager = nil
-    }
-    
-        // Let's wrap EVERY send in a custom 4-byte length header for simplicity on the receiver side.
-        // The receiver strictly reads 4 bytes, then N bytes.
-        
-    // VideoEncoderDelegate - BROADCAST to all connections
-    func videoEncoder(_ encoder: VideoEncoder, didEncode data: Data) {
-        guard !connections.isEmpty else { return }
-        
-        if connectionType == "UDP" {
-            // UDP: Fragmentation Logic - Send to ALL connections
-            let mtu = 1000 
+    // VideoEncoderDelegate - Send to the specific connection that owns this encoder
+    func videoEncoder(_ encoder: VideoEncoder, didEncode data: Data, for connectionId: UUID, isKeyframe: Bool) {
+        guard let pipeline = pipelines[connectionId] else { return }
+
+        // Determine if this connection uses TCP framing (ADB/localhost always TCP, else follow global)
+        let useTCP = pipeline.forceTCP || connectionType != "UDP"
+
+        // TCP backpressure: skip P-frame if previous send still in flight
+        // NEVER drop keyframes — the decoder needs them to display anything
+        // ADB (USB or WiFi): NEVER drop P-frames — dropping breaks the decoder's
+        // reference chain causing pixelation. Instead, we control bandwidth via
+        // lower bitrate/FPS settings. TCP flow control handles the rest.
+        // Only infrastructure connections use completion-based backpressure.
+        if !pipeline.isP2P && !pipeline.isLoopback && useTCP && !isKeyframe {
+            if pipeline.sendInProgress {
+                return // Infrastructure only: completion-based backpressure
+            }
+        }
+
+        if !useTCP {
+            let mtu = 1000
             let headerSize = 8
             let maxPayload = mtu - headerSize
-            
+
             udpFrameId &+= 1
             let thisFrameId = udpFrameId
-            
+
             let totalData = data
             let totalCount = totalData.count
-            
-            // Track bandwidth
-            bytesSentWindow += totalCount * connections.count // Multiply by receiver count
-            
+
+            bytesSentWindow += totalCount
+
             let totalChunks = UInt16((totalCount + maxPayload - 1) / maxPayload)
-            
+
             for chunkIndex in 0..<totalChunks {
                 let start = Int(chunkIndex) * maxPayload
                 let end = min(start + maxPayload, totalCount)
                 let chunkData = totalData.subdata(in: start..<end)
-                
+
                 var header = Data()
                 var fid = thisFrameId.bigEndian
                 var cid = chunkIndex.bigEndian
                 var tot = totalChunks.bigEndian
-                
+
                 header.append(Data(bytes: &fid, count: 4))
                 header.append(Data(bytes: &cid, count: 2))
                 header.append(Data(bytes: &tot, count: 2))
-                
+
                 var finalPacket = header
                 finalPacket.append(chunkData)
-                
+
                 let isLargeFrame = totalChunks > 10
                 let pacingMicroseconds: useconds_t = 120
-                
-                // Broadcast to ALL connections
-                for (connectionId, info) in connections {
-                    info.connection.send(content: finalPacket, completion: .contentProcessed { [weak self] error in
-                        if let error = error {
-                            // Check for specific error codes
-                            if case let NWError.posix(code) = error {
-                                switch code {
-                                case .ECANCELED:
-                                    // iOS disconnected or connection was canceled
-                                    LogManager.shared.log("Sender: Connection to \(info.service.name) canceled (Device disconnected)")
-                                    DispatchQueue.main.async {
-                                        self?.removeConnection(connectionId)
-                                    }
-                                    return
-                                case .ECONNREFUSED:
-                                    LogManager.shared.log("Sender: Connection refused by \(info.service.name)")
-                                    return
-                                default:
-                                    break
+
+                pipeline.connection.send(content: finalPacket, completion: .contentProcessed { [weak self] error in
+                    if let error = error {
+                        if case let NWError.posix(code) = error {
+                            switch code {
+                            case .ECANCELED:
+                                LogManager.shared.log("Sender: Connection to \(pipeline.service.name) canceled (Device disconnected)")
+                                DispatchQueue.main.async {
+                                    self?.removeConnection(connectionId)
                                 }
+                                return
+                            case .ECONNREFUSED:
+                                LogManager.shared.log("Sender: Connection refused by \(pipeline.service.name)")
+                                return
+                            default:
+                                break
                             }
-                            LogManager.shared.log("Sender: UDP Chunk Error to \(info.service.name): \(error)")
                         }
-                    })
-                }
-                
+                        LogManager.shared.log("Sender: UDP Chunk Error to \(pipeline.service.name): \(error)")
+                    }
+                })
+
                 if isLargeFrame && chunkIndex < totalChunks - 1 {
                     usleep(pacingMicroseconds)
                 }
             }
         } else {
-            // TCP: Length-prefixed framing - Send to ALL connections
+            // TCP: Length-prefixed framing - Send to this connection only
             var lengthPrefix = UInt32(data.count).bigEndian
             var packet = Data(bytes: &lengthPrefix, count: 4)
             packet.append(data)
-            
-            bytesSentWindow += packet.count * connections.count
-            
-            // Broadcast to ALL connections
-            for (_, info) in connections {
-                info.connection.send(content: packet, completion: .contentProcessed { error in
-                    if let error = error {
-                        LogManager.shared.log("Sender: TCP Send Error to \(info.service.name): \(error)")
-                    }
-                })
+
+            bytesSentWindow += packet.count
+
+            // Mark send in progress for backpressure (infrastructure)
+            // Track send time for ADB loopback time-based pacing
+            if !pipeline.isP2P {
+                pipelines[connectionId]?.sendInProgress = true
+                pipelines[connectionId]?.lastSendTimeNs = DispatchTime.now().uptimeNanoseconds
             }
+
+            pipeline.connection.send(content: packet, completion: .contentProcessed { [weak self] error in
+                DispatchQueue.main.async {
+                    self?.pipelines[connectionId]?.sendInProgress = false
+                }
+                if let error = error {
+                    LogManager.shared.log("Sender: TCP Send Error to \(pipeline.service.name): \(error)")
+                }
+            })
         }
     }
 }
