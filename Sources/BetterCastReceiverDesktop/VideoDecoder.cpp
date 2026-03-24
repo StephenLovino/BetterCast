@@ -1,5 +1,6 @@
 #include "VideoDecoder.h"
 #include <QDebug>
+#include <QtEndian>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
