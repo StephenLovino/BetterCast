@@ -7,6 +7,10 @@ on:
       - '.github/workflows/build-windows-receiver.yml'
   workflow_dispatch:  # Manual trigger from GitHub UI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  QT_VERSION: '6.7.0'
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -15,43 +19,57 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          version: '6.7.0'
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2019_64'
-          modules: 'qtopengl'
-          cache: true
+          arch: x64
+
+      - name: Install Qt 6 via aqtinstall
+        shell: pwsh
+        run: |
+          pip install aqtinstall
+          python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2019_64 `
+            --outputdir C:/Qt `
+            --modules qtopengl
+          echo "Qt6_DIR=C:/Qt/${{ env.QT_VERSION }}/msvc2019_64" >> $env:GITHUB_ENV
+          echo "C:/Qt/${{ env.QT_VERSION }}/msvc2019_64/bin" >> $env:GITHUB_PATH
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/vcpkg/installed
+            C:/vcpkg/buildtrees
+            C:/vcpkg/packages
+          key: vcpkg-ffmpeg-x64-windows-${{ hashFiles('.github/workflows/build-windows-receiver.yml') }}
+          restore-keys: |
+            vcpkg-ffmpeg-x64-windows-
 
       - name: Install FFmpeg via vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '01f602195983451bc83e72f4214af2cbc495aa94'
-          runVcpkgInstall: false
-
-      - name: Install FFmpeg packages
+        shell: pwsh
         run: |
           vcpkg install ffmpeg[avcodec,avutil,swscale]:x64-windows
         env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows
+          VCPKG_ROOT: C:/vcpkg
 
       - name: Configure CMake
+        shell: pwsh
         run: |
           cd Sources/BetterCastReceiverDesktop
           mkdir build
           cd build
           cmake .. -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" `
-            -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}"
+            -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
 
       - name: Build
+        shell: pwsh
         run: |
           cd Sources/BetterCastReceiverDesktop/build
           cmake --build . --config Release
 
       - name: Package artifact
+        shell: pwsh
         run: |
           mkdir artifact
 
@@ -63,7 +81,7 @@ jobs:
             --no-opengl-sw "artifact/BetterCastReceiver.exe"
 
           # Copy FFmpeg DLLs
-          $vcpkgBin = "$env:VCPKG_ROOT/installed/x64-windows/bin"
+          $vcpkgBin = "C:/vcpkg/installed/x64-windows/bin"
           if (Test-Path $vcpkgBin) {
             Get-ChildItem "$vcpkgBin/*.dll" | ForEach-Object {
               Copy-Item $_.FullName "artifact/"
