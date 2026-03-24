@@ -6,15 +6,19 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var videoEncoder: VideoEncoder?
     private var targetDisplayID: CGDirectDisplayID?
-    
+    var audioEncoder: AudioEncoder?
+    var captureAudio: Bool = false
+
     private var width: Int
     private var height: Int
-    
-    init(videoEncoder: VideoEncoder, targetDisplayID: CGDirectDisplayID? = nil, width: Int = 1920, height: Int = 1080) {
+    private var captureFPS: Int32
+
+    init(videoEncoder: VideoEncoder, targetDisplayID: CGDirectDisplayID? = nil, width: Int = 1920, height: Int = 1080, captureFPS: Int32 = 120) {
         self.videoEncoder = videoEncoder
         self.targetDisplayID = targetDisplayID
         self.width = width
         self.height = height
+        self.captureFPS = captureFPS
         super.init()
     }
     
@@ -61,12 +65,16 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             let config = SCStreamConfiguration()
             config.width = width
             config.height = height
-            config.minimumFrameInterval = CMTime(value: 1, timescale: 120) // Allow up to 120 fps for ProMotion smoothnes
-            config.queueDepth = 8 // Increase buffer for high FPS
-            config.capturesAudio = false
-            
+            config.minimumFrameInterval = CMTime(value: 1, timescale: captureFPS)
+            config.queueDepth = captureFPS > 60 ? 8 : 4
+            config.capturesAudio = captureAudio
+
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global(qos: .userInitiated))
+            if captureAudio {
+                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .global(qos: .userInitiated))
+                LogManager.shared.log("ScreenRecorder: Audio capture enabled")
+            }
             
             try await stream.startCapture()
             self.stream = stream
@@ -92,16 +100,26 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     
     // SCStreamOutput
     private var frameCount = 0
+    private var audioFrameCount = 0
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen else { return }
-        
-        frameCount += 1
-        if frameCount % 60 == 0 {
-            LogManager.shared.log("ScreenRecorder: Captured frame \(frameCount)")
+        switch type {
+        case .screen:
+            frameCount += 1
+            if frameCount % 300 == 0 {
+                LogManager.shared.log("ScreenRecorder: Captured frame \(frameCount)")
+            }
+            videoEncoder?.encode(sampleBuffer: sampleBuffer)
+
+        case .audio:
+            audioFrameCount += 1
+            if audioFrameCount % 200 == 1 {
+                LogManager.shared.log("ScreenRecorder: Audio frame \(audioFrameCount)")
+            }
+            audioEncoder?.encode(sampleBuffer: sampleBuffer)
+
+        @unknown default:
+            break
         }
-        
-        // Send to encoder
-        videoEncoder?.encode(sampleBuffer: sampleBuffer)
     }
     
     // SCStreamDelegate

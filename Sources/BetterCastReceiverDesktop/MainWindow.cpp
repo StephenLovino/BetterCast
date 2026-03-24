@@ -4,6 +4,8 @@
 #include "NetworkListener.h"
 #include "InputHandler.h"
 #include "ServiceDiscovery.h"
+#include "AudioDecoder.h"
+#include "AudioPlayer.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -24,9 +26,15 @@ MainWindow::MainWindow(QWidget* parent)
     m_network = new NetworkListener(this);
     m_inputHandler = new InputHandler(this);
     m_discovery = new ServiceDiscovery(this);
+    m_audioDecoder = new AudioDecoder(this);
+    m_audioPlayer = new AudioPlayer(this);
 
     // Wire up
-    m_network->setup(m_decoder, m_renderer);
+    m_network->setup(m_decoder, m_renderer, m_audioDecoder);
+
+    // Audio: decoder → player
+    connect(m_audioDecoder, &AudioDecoder::pcmDecoded,
+            m_audioPlayer, &AudioPlayer::onPcmDecoded);
 
     // Decoder → Renderer
     connect(m_decoder, &VideoDecoder::frameDecoded,

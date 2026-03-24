@@ -14,6 +14,7 @@
 
 class VideoDecoder;
 class VideoRenderer;
+class AudioDecoder;
 
 class NetworkListener : public QObject {
     Q_OBJECT
@@ -22,7 +23,7 @@ public:
     explicit NetworkListener(QObject* parent = nullptr);
     ~NetworkListener();
 
-    void setup(VideoDecoder* decoder, VideoRenderer* renderer);
+    void setup(VideoDecoder* decoder, VideoRenderer* renderer, AudioDecoder* audioDecoder = nullptr);
     void start();
     void connectTo(const QString& host, uint16_t port);
 
@@ -44,6 +45,7 @@ private slots:
 private:
     void processTcpBuffer(QTcpSocket* socket);
     void handleVideoData(const QByteArray& data);
+    void handleAudioData(const QByteArray& data);
     void handleUdpPacket(const QByteArray& data);
 
     // TCP
@@ -73,6 +75,7 @@ private:
     // Dependencies
     VideoDecoder* m_decoder = nullptr;
     VideoRenderer* m_renderer = nullptr;
+    AudioDecoder* m_audioDecoder = nullptr;
 
     // Stats
     int m_udpPacketsReceived = 0;

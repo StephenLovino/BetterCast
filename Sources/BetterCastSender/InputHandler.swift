@@ -4,17 +4,30 @@ import Cocoa
 
 class InputHandler {
     static let shared = InputHandler()
-    
-    // Screen resolution management
-    var displayOrigin: CGPoint = .zero
-    var displayWidth: CGFloat = 1920
-    var displayHeight: CGFloat = 1080
-    
-    func updateDisplayBounds(bounds: CGRect) {
-        self.displayOrigin = bounds.origin
-        self.displayWidth = bounds.width
-        self.displayHeight = bounds.height
-        // LogManager.shared.log("InputHandler: Updated bounds to \(bounds)")
+
+    // Per-connection display bounds for multi-display routing
+    private var displayBoundsMap: [UUID: CGRect] = [:]
+
+    // Fallback bounds if no connection-specific bounds found
+    private var fallbackOrigin: CGPoint = .zero
+    private var fallbackWidth: CGFloat = 1920
+    private var fallbackHeight: CGFloat = 1080
+
+    func updateDisplayBounds(bounds: CGRect, for connectionId: UUID) {
+        displayBoundsMap[connectionId] = bounds
+        LogManager.shared.log("InputHandler: Updated bounds for connection \(connectionId.uuidString.prefix(8)): \(bounds)")
+    }
+
+    func removeDisplayBounds(for connectionId: UUID) {
+        displayBoundsMap.removeValue(forKey: connectionId)
+    }
+
+    func getDisplayBounds(for connectionId: UUID) -> CGRect {
+        return displayBoundsMap[connectionId] ?? .zero
+    }
+
+    func removeAllDisplayBounds() {
+        displayBoundsMap.removeAll()
     }
     
     func checkAccessibility() {
@@ -28,10 +41,30 @@ class InputHandler {
         }
     }
     
-    func handle(event: InputEvent) {
-        let x = displayOrigin.x + (CGFloat(event.x) * displayWidth)
-        let y = displayOrigin.y + (CGFloat(event.y) * displayHeight)
+    private var logThrottle = 0
+
+    func handle(event: InputEvent, for connectionId: UUID) {
+        let bounds: CGRect
+        let usingFallback: Bool
+        if let b = displayBoundsMap[connectionId] {
+            bounds = b
+            usingFallback = false
+        } else {
+            bounds = CGRect(origin: fallbackOrigin, size: CGSize(width: fallbackWidth, height: fallbackHeight))
+            usingFallback = true
+        }
+
+        let x = bounds.origin.x + (CGFloat(event.x) * bounds.width)
+        let y = bounds.origin.y + (CGFloat(event.y) * bounds.height)
         let point = CGPoint(x: x, y: y)
+
+        // Log every 60th mouse event to avoid spam
+        if event.type == .mouseMove {
+            logThrottle += 1
+            if logThrottle % 60 == 1 {
+                LogManager.shared.log("InputHandler: move → (\(Int(x)),\(Int(y))) bounds=\(bounds) fallback=\(usingFallback) conn=\(connectionId.uuidString.prefix(8))")
+            }
+        }
         
         switch event.type {
         case .mouseMove:

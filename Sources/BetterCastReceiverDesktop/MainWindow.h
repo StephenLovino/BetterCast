@@ -12,6 +12,8 @@ class VideoDecoder;
 class NetworkListener;
 class InputHandler;
 class ServiceDiscovery;
+class AudioDecoder;
+class AudioPlayer;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -38,6 +40,8 @@ private:
     NetworkListener* m_network = nullptr;
     InputHandler* m_inputHandler = nullptr;
     ServiceDiscovery* m_discovery = nullptr;
+    AudioDecoder* m_audioDecoder = nullptr;
+    AudioPlayer* m_audioPlayer = nullptr;
 
     // UI
     QStackedWidget* m_stack = nullptr;

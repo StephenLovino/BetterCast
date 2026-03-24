@@ -29,6 +29,7 @@ jobs:
         run: |
           pip install aqtinstall
           python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2019_64 `
+            --modules qtmultimedia `
             --outputdir C:/Qt
           echo "Qt6_DIR=C:/Qt/${{ env.QT_VERSION }}/msvc2019_64" >> $env:GITHUB_ENV
           echo "C:/Qt/${{ env.QT_VERSION }}/msvc2019_64/bin" >> $env:GITHUB_PATH

@@ -1,6 +1,7 @@
 #include "NetworkListener.h"
 #include "VideoDecoder.h"
 #include "VideoRenderer.h"
+#include "AudioDecoder.h"
 
 #include <QHostAddress>
 #include <QtEndian>
@@ -19,9 +20,10 @@ NetworkListener::~NetworkListener() {
     }
 }
 
-void NetworkListener::setup(VideoDecoder* decoder, VideoRenderer* renderer) {
+void NetworkListener::setup(VideoDecoder* decoder, VideoRenderer* renderer, AudioDecoder* audioDecoder) {
     m_decoder = decoder;
     m_renderer = renderer;
+    m_audioDecoder = audioDecoder;
 }
 
 void NetworkListener::start() {
@@ -120,6 +122,20 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
         QByteArray body = buffer.mid(4, static_cast<int>(length));
         buffer.remove(0, totalNeeded);
 
+        // Check for packet type byte (new framing: first byte is type)
+        if (body.size() > 1) {
+            uint8_t typeByte = static_cast<uint8_t>(body[0]);
+            if (typeByte == 0x01) {
+                // Video packet — strip type byte
+                handleVideoData(body.mid(1));
+                continue;
+            } else if (typeByte == 0x02) {
+                // Audio packet — strip type byte
+                handleAudioData(body.mid(1));
+                continue;
+            }
+        }
+        // Legacy: no type byte, treat as video (backward compat)
         handleVideoData(body);
     }
 }
@@ -132,6 +148,17 @@ void NetworkListener::handleVideoData(const QByteArray& data) {
     }
     if (m_decoder) {
         m_decoder->decode(data);
+    }
+}
+
+void NetworkListener::handleAudioData(const QByteArray& data) {
+    static int audioCount = 0;
+    audioCount++;
+    if (audioCount <= 3 || audioCount % 200 == 0) {
+        qDebug() << "NetworkListener: Received audio data" << data.size() << "bytes (packet" << audioCount << ")";
+    }
+    if (m_audioDecoder) {
+        m_audioDecoder->decode(data);
     }
 }
 

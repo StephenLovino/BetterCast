@@ -8,7 +8,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 # Qt6 components
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network OpenGLWidgets Multimedia)
 
 # FFmpeg — try multiple discovery methods
 # 1. vcpkg / CMake find_package (works on Windows CI)
@@ -86,6 +86,8 @@ set(SOURCES
     VideoRenderer.cpp
     InputHandler.cpp
     ServiceDiscovery.cpp
+    AudioDecoder.cpp
+    AudioPlayer.cpp
 )
 
 set(HEADERS
@@ -96,6 +98,8 @@ set(HEADERS
     InputHandler.h
     InputEvent.h
     ServiceDiscovery.h
+    AudioDecoder.h
+    AudioPlayer.h
 )
 
 # Qt resource file (embeds app icon PNG)
@@ -124,6 +128,7 @@ target_link_libraries(BetterCastReceiver PRIVATE
     Qt6::Widgets
     Qt6::Network
     Qt6::OpenGLWidgets
+    Qt6::Multimedia
     ${FFMPEG_ALL_LIBRARIES}
 )
 

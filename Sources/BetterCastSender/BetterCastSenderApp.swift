@@ -12,29 +12,24 @@ struct BetterCastSenderApp: App {
         WindowGroup {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Header
-                    HStack(alignment: .center) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("BetterCast")
-                                .font(.system(size: 28, weight: .bold))
-                            Text("Sender")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
+                    // Status bar
+                    HStack {
                         Spacer()
                         StatusBadge(status: networkClient.status, isConnected: networkClient.isConnected)
                     }
                     .padding(.horizontal, 24)
-                    .padding(.top, 16)
+                    .padding(.top, 8)
 
                     // Devices Card
                     DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("Devices", systemImage: "display.2")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                            SectionHeader(
+                                title: "Devices",
+                                icon: "display.2",
+                                info: "Receivers on your network appear here automatically. Use Manual Connect for Windows/Linux receivers if they don't show up. Android devices connect via ADB."
+                            )
 
-                            if networkClient.foundServices.isEmpty {
+                            if networkClient.foundServices.isEmpty && networkClient.connectedServices.isEmpty {
                                 HStack {
                                     Spacer()
                                     VStack(spacing: 8) {
@@ -116,14 +111,37 @@ struct BetterCastSenderApp: App {
                     }
                     .padding(.horizontal, 24)
 
+                    // Connected Displays Card (shown when devices are connected)
+                    if !networkClient.connectedDisplays.isEmpty {
+                        DashboardCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                SectionHeader(
+                                    title: "Connected Displays",
+                                    icon: "rectangle.on.rectangle",
+                                    info: "Each connected device gets its own virtual display. Arrange displays in System Settings > Displays. Toggle the speaker icon to enable/disable audio output per device."
+                                )
+
+                                ForEach(networkClient.connectedDisplays) { display in
+                                    ConnectedDisplayRow(display: display, client: networkClient)
+                                    if display.id != networkClient.connectedDisplays.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+
                     // Display & Connection Settings — side by side cards
                     HStack(alignment: .top, spacing: 16) {
                         // Display Settings Card
                         DashboardCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                Label("Display", systemImage: "display")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                                SectionHeader(
+                                    title: "Display",
+                                    icon: "display",
+                                    info: "Virtual Display creates an extra monitor for each receiver. Resolution applies to new connections. Retina doubles the pixel density (sharper but more bandwidth). Audio Streaming sends system sound to receivers."
+                                )
 
                                 SettingsRow(label: "Virtual Display") {
                                     Toggle("", isOn: $networkClient.useVirtualDisplay)
@@ -148,15 +166,23 @@ struct BetterCastSenderApp: App {
                                         .toggleStyle(.switch)
                                         .disabled(!networkClient.useVirtualDisplay)
                                 }
+
+                                SettingsRow(label: "Audio Streaming") {
+                                    Toggle("", isOn: $networkClient.audioStreamingEnabled)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                }
                             }
                         }
 
                         // Connection Settings Card
                         DashboardCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                Label("Connection", systemImage: "network")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                                SectionHeader(
+                                    title: "Connection",
+                                    icon: "network",
+                                    info: "Auto works with all platforms (Windows, Linux, Android, Apple). Force P2P uses WiFi Direct for lowest latency but only works between Apple devices. Force Router/WiFi uses your local network. TCP is recommended for reliability."
+                                )
 
                                 SettingsRow(label: "Mode") {
                                     Picker("", selection: $networkClient.interfacePreference) {
@@ -203,9 +229,11 @@ struct BetterCastSenderApp: App {
                     // Controls Card
                     DashboardCard {
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("Controls", systemImage: "gearshape")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                            SectionHeader(
+                                title: "Controls",
+                                icon: "gearshape",
+                                info: "Apply Settings updates resolution/quality on active connections. Screen Recording permission is required for capturing your display."
+                            )
 
                             HStack(spacing: 10) {
                                 CardButton(title: "Apply Settings", color: .accentColor) {
@@ -242,6 +270,7 @@ struct BetterCastSenderApp: App {
                 .padding(.bottom, 20)
             }
             .background(Color(nsColor: .windowBackgroundColor))
+            .navigationTitle("BetterCast")
             .frame(minWidth: 580, minHeight: 720)
             .onAppear {
                 networkClient.checkScreenRecordingPermission()
@@ -345,6 +374,63 @@ struct ServiceRow: View {
     }
 }
 
+// MARK: - Connected Display Info
+
+struct ConnectedDisplayInfo: Identifiable {
+    let id: UUID  // connectionId
+    let name: String
+    let resolution: String
+    let displayBounds: CGRect
+    var audioEnabled: Bool
+}
+
+// MARK: - Connected Display Row
+
+struct ConnectedDisplayRow: View {
+    let display: ConnectedDisplayInfo
+    @ObservedObject var client: NetworkClient
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "display")
+                .font(.system(size: 16))
+                .foregroundStyle(.green)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(display.name)
+                    .font(.system(size: 13, weight: .medium))
+                Text(display.resolution)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                if display.displayBounds != .zero {
+                    Text("Position: (\(Int(display.displayBounds.origin.x)), \(Int(display.displayBounds.origin.y)))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { display.audioEnabled },
+                set: { client.setAudioEnabled($0, for: display.id) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .help("Audio output to this display")
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(display.audioEnabled ? .primary : .tertiary)
+            Button("Disconnect") {
+                client.disconnectConnection(display.id)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.red)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 // MARK: - Settings Row
 
 struct SettingsRow<Content: View>: View {
@@ -379,6 +465,46 @@ struct CardButton: View {
                 .background(color, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Info Button (click to show popover)
+
+struct InfoButton: View {
+    let text: String
+    @State private var showPopover = false
+
+    var body: some View {
+        Button(action: { showPopover.toggle() }) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            Text(text)
+                .font(.system(size: 12))
+                .padding(12)
+                .frame(maxWidth: 280)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - Section Header with Info
+
+struct SectionHeader: View {
+    let title: String
+    let icon: String
+    let info: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+            InfoButton(text: info)
+        }
     }
 }
 
@@ -434,6 +560,7 @@ struct ConnectionPipeline {
     var virtualDisplayManager: VirtualDisplayManager?
     var screenRecorder: ScreenRecorder?
     var videoEncoder: VideoEncoder?
+    var audioEncoder: AudioEncoder?
 
     // Adaptive: P2P (AWDL) connections get full quality; infrastructure gets throttled
     var isP2P: Bool = false
@@ -449,7 +576,7 @@ struct ConnectionPipeline {
     var forceTCP: Bool = false
 }
 
-class NetworkClient: ObservableObject, VideoEncoderDelegate {
+class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegate {
     private var browser: NWBrowser?
     private var pipelines: [UUID: ConnectionPipeline] = [:]
 
@@ -457,6 +584,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     @Published var foundServices: [DiscoveredService] = []
     @Published var connectedServices: [DiscoveredService] = []
     @Published var useVirtualDisplay: Bool = true // Toggle between mirroring and extended display
+    @Published var audioStreamingEnabled: Bool = false // Master toggle for audio streaming
+    @Published var connectedDisplays: [ConnectedDisplayInfo] = [] // Per-device display info
 
     // Input event deduplication (receiver sends critical events 3x over UDP for reliability)
     private var recentEventIds: Set<UInt64> = []
@@ -497,8 +626,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     
     @Published var selectedQuality: StreamQuality = .high
     
-    // v67: Manual Interface Toggle
-    @Published var interfacePreference: NetworkInterfacePreference = .p2pOnly
+    // v67: Manual Interface Toggle — default Auto so Windows/Linux/Android receivers work out of the box
+    @Published var interfacePreference: NetworkInterfacePreference = .auto
 
     // Manual connection
     @Published var manualHost: String = ""
@@ -741,6 +870,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                     pipeline.isLoopback = isLoopback
                     self?.pipelines[connectionId] = pipeline
                     self?.connectedServices.append(service)
+                    self?.updateConnectedDisplays()
 
                     let count = self?.pipelines.count ?? 0
                     self?.status = "Connected to \(count) device(s)"
@@ -1154,6 +1284,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                     pipeline.isWiFiADB = isLoopback && service.name.contains("WiFi")
                     self?.pipelines[connectionId] = pipeline
                     self?.connectedServices.append(service)
+                    self?.updateConnectedDisplays()
 
                     let count = self?.pipelines.count ?? 0
                     self?.status = "Connected to \(count) device(s)"
@@ -1354,6 +1485,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         } else {
             status = "Connected to \(remaining) device(s)"
         }
+        updateConnectedDisplays()
     }
 
     func disconnect() {
@@ -1365,6 +1497,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         }
         pipelines.removeAll()
         connectedServices.removeAll()
+        connectedDisplays.removeAll()
         status = "Disconnected"
         heartbeatTimer?.invalidate()
     }
@@ -1372,6 +1505,32 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
     func disconnectService(_ service: DiscoveredService) {
         if let entry = pipelines.first(where: { $0.value.service.name == service.name }) {
             removeConnection(entry.key)
+        }
+    }
+
+    func disconnectConnection(_ connectionId: UUID) {
+        removeConnection(connectionId)
+    }
+
+    func setAudioEnabled(_ enabled: Bool, for connectionId: UUID) {
+        if let idx = connectedDisplays.firstIndex(where: { $0.id == connectionId }) {
+            connectedDisplays[idx].audioEnabled = enabled
+            let name = connectedDisplays[idx].name
+            LogManager.shared.log("Sender: Audio \(enabled ? "enabled" : "disabled") for \(name)")
+        }
+    }
+
+    func updateConnectedDisplays() {
+        connectedDisplays = pipelines.map { (id, pipeline) in
+            let bounds = InputHandler.shared.getDisplayBounds(for: id)
+            let res = bounds.width > 0 ? "\(Int(bounds.width))x\(Int(bounds.height))" : "Initializing..."
+            return ConnectedDisplayInfo(
+                id: id,
+                name: pipeline.service.name,
+                resolution: res,
+                displayBounds: bounds,
+                audioEnabled: connectedDisplays.first(where: { $0.id == id })?.audioEnabled ?? audioStreamingEnabled
+            )
         }
     }
     
@@ -1512,10 +1671,27 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                 pipelines[connectionId]?.virtualDisplayManager = displayManager
 
                 // Update InputHandler with this connection's display bounds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                // Retry with increasing delays — macOS may take time to register the virtual display
+                func pollDisplayBounds(attempt: Int) {
                     let bounds = CGDisplayBounds(displayID)
-                    InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
-                    LogManager.shared.log("Sender: Virtual display for \(serviceName) bounds: \(bounds)")
+                    if bounds.width > 0 && bounds.height > 0 {
+                        InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
+                        LogManager.shared.log("Sender: Virtual display for \(serviceName) bounds: \(bounds) (attempt \(attempt))")
+                        self.updateConnectedDisplays()
+                    } else if attempt < 10 {
+                        // Retry after increasing delay (0.5s, 1s, 1.5s, ...)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt) * 0.5) {
+                            pollDisplayBounds(attempt: attempt + 1)
+                        }
+                    } else {
+                        // Fallback: use the resolution we requested
+                        let fallbackBounds = CGRect(x: 0, y: 0, width: res.width, height: res.height)
+                        InputHandler.shared.updateDisplayBounds(bounds: fallbackBounds, for: connectionId)
+                        LogManager.shared.log("Sender: Virtual display bounds unavailable after retries, using fallback: \(fallbackBounds)")
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    pollDisplayBounds(attempt: 1)
                 }
 
                 LogManager.shared.log("Sender: Virtual display created for \(serviceName) with ID \(displayID)")
@@ -1573,6 +1749,17 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
         encoder.delegate = self
         pipelines[connectionId]?.videoEncoder = encoder
 
+        // Audio encoder (if audio streaming enabled for this connection)
+        let audioEnabled = connectedDisplays.first(where: { $0.id == connectionId })?.audioEnabled ?? audioStreamingEnabled
+        var audioEnc: AudioEncoder? = nil
+        if audioEnabled {
+            let ae = AudioEncoder(connectionId: connectionId)
+            ae.delegate = self
+            pipelines[connectionId]?.audioEncoder = ae
+            audioEnc = ae
+            LogManager.shared.log("Sender: Audio encoder created for \(serviceName)")
+        }
+
         let recorder = ScreenRecorder(
             videoEncoder: encoder,
             targetDisplayID: targetDisplayID,
@@ -1580,6 +1767,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
             height: captureHeight,
             captureFPS: Int32(fps)
         )
+        recorder.captureAudio = audioEnabled
+        recorder.audioEncoder = audioEnc
         pipelines[connectionId]?.screenRecorder = recorder
 
         Task {
@@ -1667,10 +1856,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                 }
             }
         } else {
-            // TCP: Length-prefixed framing - Send to this connection only
-            var lengthPrefix = UInt32(data.count).bigEndian
+            // TCP: Length-prefixed framing with type byte - Send to this connection only
+            // Format: [4-byte length][1-byte type: 0x01=video][payload]
+            var typedPayload = Data([0x01]) // Video packet type
+            typedPayload.append(data)
+            var lengthPrefix = UInt32(typedPayload.count).bigEndian
             var packet = Data(bytes: &lengthPrefix, count: 4)
-            packet.append(data)
+            packet.append(typedPayload)
 
             bytesSentWindow += packet.count
 
@@ -1690,5 +1882,26 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate {
                 }
             })
         }
+    }
+
+    // AudioEncoderDelegate - Send AAC audio to the specific connection
+    func audioEncoder(_ encoder: AudioEncoder, didEncode data: Data, for connectionId: UUID) {
+        guard let pipeline = pipelines[connectionId] else { return }
+
+        // Audio always uses TCP framing
+        // Format: [4-byte length][1-byte type: 0x02=audio][AAC data]
+        var typedPayload = Data([0x02]) // Audio packet type
+        typedPayload.append(data)
+        var lengthPrefix = UInt32(typedPayload.count).bigEndian
+        var packet = Data(bytes: &lengthPrefix, count: 4)
+        packet.append(typedPayload)
+
+        bytesSentWindow += packet.count
+
+        pipeline.connection.send(content: packet, completion: .contentProcessed { error in
+            if let error = error {
+                LogManager.shared.log("Sender: Audio send error to \(pipeline.service.name): \(error)")
+            }
+        })
     }
 }

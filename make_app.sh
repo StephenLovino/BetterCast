@@ -3,7 +3,15 @@
 # Exit on error
 set -e
 
-VERSION="v89"
+VERSION="v93"
+
+# Code signing identity (Developer ID Application certificate)
+# Set to "-" for ad-hoc signing (local use), or your Developer ID for distribution
+SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: STEPHEN JAN LOVINO (TQ8F92XYBL)}"
+
+# Apple ID for notarization (set via environment or here)
+APPLE_ID="${APPLE_ID:-}"
+TEAM_ID="TQ8F92XYBL"
 
 echo "============================================"
 echo "  Building BetterCast $VERSION (Universal Binary)"
@@ -14,7 +22,7 @@ swift build -c release --arch arm64 --arch x86_64
 BUILD_DIR=".build/apple/Products/Release"
 SENDER_APP="BetterCastSender.app"
 RECEIVER_APP="BetterCastReceiver.app"
-DMG_NAME="BetterCast_${VERSION}.dmg"
+DMG_NAME="BetterCast.dmg"
 DMG_STAGING="dmg_staging"
 
 # Clean old artifacts
@@ -30,11 +38,8 @@ cp "$BUILD_DIR/BetterCastSender" "$SENDER_APP/Contents/MacOS/"
 cp "BetterCastSender-Info.plist" "$SENDER_APP/Contents/Info.plist"
 cp "BetterCastIcon.icns" "$SENDER_APP/Contents/Resources/AppIcon.icns"
 
-# Ad-hoc sign with entitlements
-codesign --force --deep --sign - --entitlements "BetterCastSender.entitlements" "$SENDER_APP"
-
-# Strip quarantine attribute (prevents "damaged" error for local builds)
-xattr -cr "$SENDER_APP" 2>/dev/null || true
+# Code sign with entitlements
+codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" --entitlements "BetterCastSender-Release.entitlements" "$SENDER_APP"
 
 # ============================================
 # Receiver App
@@ -76,11 +81,8 @@ cat <<PLIST > "$RECEIVER_APP/Contents/Info.plist"
 </plist>
 PLIST
 
-# Ad-hoc sign receiver
-codesign --force --deep --sign - "$RECEIVER_APP"
-
-# Strip quarantine attribute
-xattr -cr "$RECEIVER_APP" 2>/dev/null || true
+# Code sign receiver
+codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$RECEIVER_APP"
 
 # ============================================
 # Create DMG
@@ -94,7 +96,7 @@ cp -R "$RECEIVER_APP" "$DMG_STAGING/"
 ln -s /Applications "$DMG_STAGING/Applications"
 
 # Create DMG from staging folder
-hdiutil create -volname "BetterCast $VERSION" \
+hdiutil create -volname "BetterCast" \
     -srcfolder "$DMG_STAGING" \
     -ov -format UDZO \
     "$DMG_NAME"
@@ -102,19 +104,35 @@ hdiutil create -volname "BetterCast $VERSION" \
 # Clean up staging
 rm -rf "$DMG_STAGING"
 
+# ============================================
+# Notarize DMG (if Apple ID is set)
+# ============================================
+if [ -n "$APPLE_ID" ]; then
+    echo "Notarizing DMG..."
+    xcrun notarytool submit "$DMG_NAME" \
+        --apple-id "$APPLE_ID" \
+        --team-id "$TEAM_ID" \
+        --password "$APP_PASSWORD" \
+        --wait
+
+    echo "Stapling notarization ticket..."
+    xcrun stapler staple "$DMG_NAME"
+else
+    echo ""
+    echo "Skipping notarization (set APPLE_ID and APP_PASSWORD to enable)"
+fi
+
 echo ""
 echo "============================================"
 echo "  Build Complete!"
 echo "============================================"
 echo "Apps:"
-echo "  - $SENDER_APP"
-echo "  - $RECEIVER_APP"
+echo "  - $SENDER_APP (signed: $SIGN_IDENTITY)"
+echo "  - $RECEIVER_APP (signed: $SIGN_IDENTITY)"
 echo "DMG:"
 echo "  - $DMG_NAME"
 echo ""
 echo "Installation:"
 echo "  1. Open the DMG and drag apps to Applications"
-echo "  2. First launch: right-click the app > Open"
-echo "     (or go to Settings > Privacy & Security > Open Anyway)"
-echo "  3. Grant Screen Recording permission when prompted (Sender)"
-echo "  4. Grant Accessibility permission when prompted (Sender)"
+echo "  2. Grant Screen Recording permission when prompted (Sender)"
+echo "  3. Grant Accessibility permission when prompted (Sender)"
