@@ -34,7 +34,10 @@ static const char* kFragmentShaderSource = R"(
     uniform sampler2D uTextureUV;
     void main() {
         highp float y = texture2D(uTextureY, vTexCoord).r;
-        highp vec2 uv = texture2D(uTextureUV, vTexCoord).rg;
+        // GL_LUMINANCE_ALPHA: luminance->rgb, alpha->a
+        // NV12 interleaved: first byte=U(Cb), second byte=V(Cr)
+        // So .r = U (luminance), .a = V (alpha)
+        highp vec2 uv = texture2D(uTextureUV, vTexCoord).ra;
 
         // BT.601 YCbCr -> RGB
         highp float r = y + 1.402 * (uv.y - 0.5);
