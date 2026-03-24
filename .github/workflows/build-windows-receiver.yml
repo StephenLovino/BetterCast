@@ -1,0 +1,78 @@
+name: Build Windows Receiver
+
+on:
+  push:
+    paths:
+      - 'Sources/BetterCastReceiverDesktop/**'
+      - '.github/workflows/build-windows-receiver.yml'
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          modules: 'qtopengl'
+          cache: true
+
+      - name: Install FFmpeg via vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '01f602195983451bc83e72f4214af2cbc495aa94'
+          runVcpkgInstall: false
+
+      - name: Install FFmpeg packages
+        run: |
+          vcpkg install ffmpeg[avcodec,avutil,swscale]:x64-windows
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows
+
+      - name: Configure CMake
+        run: |
+          cd Sources/BetterCastReceiverDesktop
+          mkdir build
+          cd build
+          cmake .. -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}"
+
+      - name: Build
+        run: |
+          cd Sources/BetterCastReceiverDesktop/build
+          cmake --build . --config Release
+
+      - name: Package artifact
+        run: |
+          mkdir artifact
+
+          # Copy the exe
+          Copy-Item "Sources/BetterCastReceiverDesktop/build/Release/BetterCastReceiver.exe" "artifact/"
+
+          # Run windeployqt to bundle Qt DLLs
+          windeployqt --release --no-translations --no-system-d3d-compiler `
+            --no-opengl-sw "artifact/BetterCastReceiver.exe"
+
+          # Copy FFmpeg DLLs
+          $vcpkgBin = "$env:VCPKG_ROOT/installed/x64-windows/bin"
+          if (Test-Path $vcpkgBin) {
+            Get-ChildItem "$vcpkgBin/*.dll" | ForEach-Object {
+              Copy-Item $_.FullName "artifact/"
+            }
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterCastReceiver-Windows-x64
+          path: artifact/
+          retention-days: 30
