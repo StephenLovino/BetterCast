@@ -3,10 +3,9 @@
 #include <QObject>
 #include <QString>
 #include <QList>
-
-// mDNS service discovery abstraction.
-// Uses Bonjour SDK on Windows, Avahi on Linux.
-// Falls back to manual connection if mDNS is unavailable.
+#include <QUdpSocket>
+#include <QTimer>
+#include <QHostAddress>
 
 struct DiscoveredService {
     QString name;
@@ -25,7 +24,7 @@ public:
     void startAdvertising(uint16_t tcpPort);
     void stopAdvertising();
 
-    // Browse for BetterCast senders
+    // Browse for BetterCast senders (not needed — sender browses for us)
     void startBrowsing();
     void stopBrowsing();
 
@@ -33,10 +32,26 @@ signals:
     void serviceFound(const DiscoveredService& service);
     void serviceLost(const QString& name);
 
+private slots:
+    void onMdnsReadyRead();
+    void sendAnnouncement();
+
 private:
+    void handleMdnsQuery(const QByteArray& packet, const QHostAddress& sender, uint16_t senderPort);
+    QByteArray buildMdnsResponse(uint16_t transactionId, const QHostAddress& targetAddr);
+    QByteArray encodeDnsName(const QString& name);
+    QString getHostname();
+    QList<QHostAddress> getLocalAddresses();
+
 #ifdef HAS_MDNS
-    // Platform-specific handles
     void* m_registerRef = nullptr;
     void* m_browseRef = nullptr;
 #endif
+
+    // Embedded mDNS responder
+    QUdpSocket* m_mdnsSocket = nullptr;
+    QTimer* m_announceTimer = nullptr;
+    uint16_t m_advertisedPort = 0;
+    QString m_serviceName;
+    bool m_advertising = false;
 };
