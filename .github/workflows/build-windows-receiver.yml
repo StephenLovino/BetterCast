@@ -77,7 +77,15 @@ jobs:
         shell: pwsh
         run: |
           cd Sources/BetterCastReceiverDesktop/build
-          cmake --build . --config Release
+          cmake --build . --config Release 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE/build.log"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
 
       - name: Package artifact
         shell: pwsh
