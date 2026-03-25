@@ -3,6 +3,7 @@
 #include <QNetworkInterface>
 #include <QHostInfo>
 #include <QtEndian>
+#include <QVariant>
 
 // mDNS constants
 static const QHostAddress kMdnsAddress("224.0.0.251");
@@ -101,7 +102,7 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
         m_mdnsSocket->joinMulticastGroup(kMdnsAddress);
     }
 
-    m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastTtlOption, 255);
+    m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastTtlOption, QVariant(255));
 
     connect(m_mdnsSocket, &QUdpSocket::readyRead, this, &ServiceDiscovery::onMdnsReadyRead);
 
