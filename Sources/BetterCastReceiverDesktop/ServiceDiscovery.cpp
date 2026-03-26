@@ -7,6 +7,9 @@
 
 #ifdef HAS_MDNS
 #include <dns_sd.h>
+#ifdef __linux__
+#include <arpa/inet.h>  // htons
+#endif
 #endif
 
 // mDNS constants
