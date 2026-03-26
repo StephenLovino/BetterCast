@@ -67,7 +67,11 @@ void AudioDecoder::decode(const QByteArray& aacData) {
         }
 
         // Convert decoded audio to interleaved float32 PCM
+#if LIBAVUTIL_VERSION_MAJOR >= 58
         int channels = m_frame->ch_layout.nb_channels;
+#else
+        int channels = m_frame->channels;
+#endif
         int samples = m_frame->nb_samples;
         int sampleRate = m_frame->sample_rate;
 

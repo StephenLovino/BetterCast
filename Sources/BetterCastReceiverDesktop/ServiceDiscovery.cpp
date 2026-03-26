@@ -5,6 +5,10 @@
 #include <QtEndian>
 #include <QVariant>
 
+#ifdef HAS_MDNS
+#include <dns_sd.h>
+#endif
+
 // mDNS constants
 static const QHostAddress kMdnsAddress("224.0.0.251");
 static const uint16_t kMdnsPort = 5353;
