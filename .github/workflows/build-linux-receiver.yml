@@ -44,7 +44,8 @@ jobs:
             libswscale-dev \
             libavahi-compat-libdnssd-dev \
             libpulse-dev \
-            libasound2-dev
+            libasound2-dev \
+            libfuse2
 
       - name: Install Qt 6 via aqtinstall
         run: |
@@ -63,25 +64,25 @@ jobs:
           cd build
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$Qt6_DIR"
+            -DCMAKE_PREFIX_PATH="$Qt6_DIR" \
+            -DCMAKE_INSTALL_PREFIX=/usr
 
       - name: Build
         run: |
           cd Sources/BetterCastReceiverDesktop/build
           cmake --build . --config Release -- -j$(nproc)
 
-      - name: Package artifact
+      - name: Install to AppDir
         run: |
-          mkdir -p artifact
+          cd Sources/BetterCastReceiverDesktop/build
+          DESTDIR=$GITHUB_WORKSPACE/AppDir cmake --install . --config Release
 
-          # Copy the binary
-          cp Sources/BetterCastReceiverDesktop/build/BetterCastReceiver artifact/
+      - name: Prepare AppImage structure
+        run: |
+          APPDIR=$GITHUB_WORKSPACE/AppDir
 
-          # Copy app icon
-          cp Sources/BetterCastReceiverDesktop/icon_256x256.png artifact/bettercast-receiver.png
-
-          # Create a simple .desktop file for Linux
-          cat > artifact/BetterCastReceiver.desktop << 'DESKTOP'
+          # Create .desktop file (must NOT have leading whitespace)
+          cat > "$APPDIR/usr/share/applications/BetterCastReceiver.desktop" << 'EOF'
           [Desktop Entry]
           Name=BetterCast Receiver
           Comment=Receive screen cast from BetterCast Sender
@@ -89,52 +90,66 @@ jobs:
           Icon=bettercast-receiver
           Type=Application
           Categories=Utility;Network;
-          DESKTOP
+          EOF
+          # Strip leading whitespace from heredoc (desktop files are whitespace-sensitive)
+          sed -i 's/^          //' "$APPDIR/usr/share/applications/BetterCastReceiver.desktop"
 
-          # Create a run script that sets up library paths
-          cat > artifact/run.sh << 'SCRIPT'
+          # Symlink .desktop and icon to AppDir root (required by AppImage)
+          cp "$APPDIR/usr/share/applications/BetterCastReceiver.desktop" "$APPDIR/"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp Sources/BetterCastReceiverDesktop/icon_256x256.png \
+            "$APPDIR/usr/share/icons/hicolor/256x256/apps/bettercast-receiver.png"
+          cp "$APPDIR/usr/share/icons/hicolor/256x256/apps/bettercast-receiver.png" "$APPDIR/"
+
+          # Create AppRun script
+          cat > "$APPDIR/AppRun" << 'SCRIPT'
           #!/bin/bash
-          DIR="$(cd "$(dirname "$0")" && pwd)"
-          export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
-          exec "$DIR/BetterCastReceiver" "$@"
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="$HERE/usr/bin:$PATH"
+          export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+          export QT_PLUGIN_PATH="$HERE/usr/plugins"
+          export QT_QPA_PLATFORM_PLUGIN_PATH="$HERE/usr/plugins/platforms"
+          exec "$HERE/usr/bin/BetterCastReceiver" "$@"
           SCRIPT
-          chmod +x artifact/run.sh
+          chmod +x "$APPDIR/AppRun"
 
-          # Bundle Qt libraries needed at runtime
-          mkdir -p artifact/lib
-          mkdir -p artifact/plugins/platforms
-          mkdir -p artifact/plugins/multimedia
-          mkdir -p artifact/plugins/xcbglintegrations
+      - name: Bundle Qt libraries into AppDir
+        run: |
+          APPDIR=$GITHUB_WORKSPACE/AppDir
+          mkdir -p "$APPDIR/usr/lib"
+          mkdir -p "$APPDIR/usr/plugins/platforms"
+          mkdir -p "$APPDIR/usr/plugins/xcbglintegrations"
 
-          # Copy Qt platform plugin
-          QT_PLUGIN_DIR="$Qt6_DIR/plugins"
-          cp "$Qt6_DIR/lib/libQt6Core.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6Gui.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6Widgets.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6Network.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6OpenGLWidgets.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6OpenGL.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6Multimedia.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6DBus.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libQt6XcbQpa.so.6" artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libicui18n.so."* artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libicuuc.so."* artifact/lib/ || true
-          cp "$Qt6_DIR/lib/libicudata.so."* artifact/lib/ || true
+          # Qt shared libraries
+          for lib in Core Gui Widgets Network OpenGL OpenGLWidgets Multimedia DBus XcbQpa; do
+            cp "$Qt6_DIR/lib/libQt6${lib}.so.6" "$APPDIR/usr/lib/" 2>/dev/null || true
+          done
 
-          # Copy platform plugins
-          cp "$QT_PLUGIN_DIR/platforms/libqxcb.so" artifact/plugins/platforms/ || true
-          cp "$QT_PLUGIN_DIR/xcbglintegrations/"*.so artifact/plugins/xcbglintegrations/ || true
+          # ICU libraries (required by Qt)
+          cp "$Qt6_DIR/lib/libicui18n.so."* "$APPDIR/usr/lib/" 2>/dev/null || true
+          cp "$Qt6_DIR/lib/libicuuc.so."* "$APPDIR/usr/lib/" 2>/dev/null || true
+          cp "$Qt6_DIR/lib/libicudata.so."* "$APPDIR/usr/lib/" 2>/dev/null || true
 
-          # Create qt.conf to point to bundled plugins
-          cat > artifact/qt.conf << 'QTCONF'
-          [Paths]
-          Plugins = plugins
-          Libraries = lib
-          QTCONF
+          # Platform plugins
+          cp "$Qt6_DIR/plugins/platforms/libqxcb.so" "$APPDIR/usr/plugins/platforms/" 2>/dev/null || true
+          cp "$Qt6_DIR/plugins/xcbglintegrations/"*.so "$APPDIR/usr/plugins/xcbglintegrations/" 2>/dev/null || true
 
-      - name: Upload artifact
+      - name: Download linuxdeploy and build AppImage
+        run: |
+          # Download linuxdeploy AppImage tool
+          wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          # Build the AppImage
+          export LDAI_OUTPUT="BetterCastReceiver-x86_64.AppImage"
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir "$GITHUB_WORKSPACE/AppDir" \
+            --output appimage
+
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: BetterCastReceiver-Linux-x64
-          path: artifact/
+          path: BetterCastReceiver-x86_64.AppImage
           retention-days: 30

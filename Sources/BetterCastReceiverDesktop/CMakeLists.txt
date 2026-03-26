@@ -159,3 +159,7 @@ endif()
 
 # Install
 install(TARGETS BetterCastReceiver RUNTIME DESTINATION bin)
+install(FILES icon_256x256.png DESTINATION share/icons/hicolor/256x256/apps RENAME bettercast-receiver.png OPTIONAL)
+
+# Install .desktop file directory (created at build time by CI)
+install(DIRECTORY DESTINATION share/applications)
