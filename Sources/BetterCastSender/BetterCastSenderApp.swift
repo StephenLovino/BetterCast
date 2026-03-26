@@ -342,9 +342,13 @@ struct ServiceRow: View {
         client.connectedServices.contains(where: { $0.name == service.name })
     }
 
+    private var isAndroid: Bool {
+        service.name.lowercased().contains("android")
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: isConnected ? "display" : "display.trianglebadge.exclamationmark")
+            Image(systemName: isConnected ? "display" : (isAndroid ? "apps.iphone" : "display.trianglebadge.exclamationmark"))
                 .font(.system(size: 16))
                 .foregroundStyle(isConnected ? .green : .secondary)
                 .frame(width: 24)
@@ -362,6 +366,15 @@ struct ServiceRow: View {
                 .controlSize(.small)
                 .tint(.red)
             } else {
+                if isAndroid {
+                    Button("ADB") {
+                        client.connectADBUSB()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.blue)
+                    .help("Connect via ADB for better performance (60 FPS)")
+                }
                 Button("Connect") {
                     client.connect(to: service)
                 }
@@ -836,10 +849,36 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let connection = NWConnection(to: service.endpoint, using: parameters)
         let connectionId = UUID()
 
+        // Timeout: if connection is still not ready after 5s, retry without P2P
+        // This handles non-Apple devices (Android/Windows/Linux) discovered via mDNS
+        // where AWDL negotiation hangs indefinitely
+        var connectionTimedOut = false
+        let timeoutWork = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            // Only retry if still not connected (no pipeline created yet)
+            if self.pipelines[connectionId] == nil && !connectionTimedOut {
+                connectionTimedOut = true
+                LogManager.shared.log("Sender: Connection to \(service.name) timed out — retrying without P2P")
+                connection.cancel()
+
+                // Retry with plain TCP (no interface restrictions, like manual connect)
+                let tcpOptions = NWProtocolTCP.Options()
+                tcpOptions.enableKeepalive = true
+                tcpOptions.noDelay = true
+                tcpOptions.connectionTimeout = 10
+                let fallbackParams = NWParameters(tls: nil, tcp: tcpOptions)
+                fallbackParams.serviceClass = .interactiveVideo
+                self.connectWithParameters(service: service, parameters: fallbackParams, forceTCP: false)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeoutWork)
+
         connection.stateUpdateHandler = { [weak self] state in
             DispatchQueue.main.async {
                 switch state {
                 case .ready:
+                    timeoutWork.cancel() // Connection succeeded, cancel timeout
+
                     // Detect link type before creating pipeline
                     var isP2P = false
                     var isLoopback = false
@@ -887,6 +926,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
                     self?.receive(on: connection, connectionId: connectionId)
                 case .failed(let error):
+                    timeoutWork.cancel()
                     LogManager.shared.log("Sender: Connection to \(service.name) failed: \(error)")
                     self?.removeConnection(connectionId)
 
