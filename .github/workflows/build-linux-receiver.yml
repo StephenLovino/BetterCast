@@ -1,0 +1,140 @@
+name: Build Linux Receiver
+
+on:
+  push:
+    paths:
+      - 'Sources/BetterCastReceiverDesktop/**'
+      - '.github/workflows/build-linux-receiver.yml'
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  QT_VERSION: '6.7.0'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            pkg-config \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libegl1-mesa-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0 \
+            libxcb-xinerama0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libavcodec-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libavahi-compat-libdnssd-dev \
+            libpulse-dev \
+            libasound2-dev
+
+      - name: Install Qt 6 via aqtinstall
+        run: |
+          pip install aqtinstall
+          python3 -m aqt install-qt linux desktop ${{ env.QT_VERSION }} linux_gcc_64 \
+            --modules qtmultimedia \
+            --outputdir $HOME/Qt
+          echo "Qt6_DIR=$HOME/Qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
+          echo "$HOME/Qt/${{ env.QT_VERSION }}/gcc_64/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=$HOME/Qt/${{ env.QT_VERSION }}/gcc_64/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          cd Sources/BetterCastReceiverDesktop
+          mkdir build
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$Qt6_DIR"
+
+      - name: Build
+        run: |
+          cd Sources/BetterCastReceiverDesktop/build
+          cmake --build . --config Release -- -j$(nproc)
+
+      - name: Package artifact
+        run: |
+          mkdir -p artifact
+
+          # Copy the binary
+          cp Sources/BetterCastReceiverDesktop/build/BetterCastReceiver artifact/
+
+          # Copy app icon
+          cp Sources/BetterCastReceiverDesktop/icon_256x256.png artifact/bettercast-receiver.png
+
+          # Create a simple .desktop file for Linux
+          cat > artifact/BetterCastReceiver.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=BetterCast Receiver
+          Comment=Receive screen cast from BetterCast Sender
+          Exec=BetterCastReceiver
+          Icon=bettercast-receiver
+          Type=Application
+          Categories=Utility;Network;
+          DESKTOP
+
+          # Create a run script that sets up library paths
+          cat > artifact/run.sh << 'SCRIPT'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
+          exec "$DIR/BetterCastReceiver" "$@"
+          SCRIPT
+          chmod +x artifact/run.sh
+
+          # Bundle Qt libraries needed at runtime
+          mkdir -p artifact/lib
+          mkdir -p artifact/plugins/platforms
+          mkdir -p artifact/plugins/multimedia
+          mkdir -p artifact/plugins/xcbglintegrations
+
+          # Copy Qt platform plugin
+          QT_PLUGIN_DIR="$Qt6_DIR/plugins"
+          cp "$Qt6_DIR/lib/libQt6Core.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6Gui.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6Widgets.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6Network.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6OpenGLWidgets.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6OpenGL.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6Multimedia.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6DBus.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libQt6XcbQpa.so.6" artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libicui18n.so."* artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libicuuc.so."* artifact/lib/ || true
+          cp "$Qt6_DIR/lib/libicudata.so."* artifact/lib/ || true
+
+          # Copy platform plugins
+          cp "$QT_PLUGIN_DIR/platforms/libqxcb.so" artifact/plugins/platforms/ || true
+          cp "$QT_PLUGIN_DIR/xcbglintegrations/"*.so artifact/plugins/xcbglintegrations/ || true
+
+          # Create qt.conf to point to bundled plugins
+          cat > artifact/qt.conf << 'QTCONF'
+          [Paths]
+          Plugins = plugins
+          Libraries = lib
+          QTCONF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterCastReceiver-Linux-x64
+          path: artifact/
+          retention-days: 30
