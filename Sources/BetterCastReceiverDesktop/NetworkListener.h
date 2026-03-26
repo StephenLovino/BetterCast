@@ -57,6 +57,8 @@ private:
     QUdpSocket* m_udpSocket = nullptr;
     static constexpr uint16_t kDefaultTcpPort = 51820;
     static constexpr uint16_t kDefaultUdpPort = 51821;
+    static constexpr uint32_t kMaxPacketSize = 8 * 1024 * 1024;   // 8MB per frame max
+    static constexpr int kMaxBufferSize = 32 * 1024 * 1024;       // 32MB buffer limit
 
     // UDP reassembly
     struct UdpFrameEntry {

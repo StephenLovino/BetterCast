@@ -102,25 +102,45 @@ void NetworkListener::onTcpReadyRead() {
     auto* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
 
-    m_tcpBuffers[socket].append(socket->readAll());
+    QByteArray& buffer = m_tcpBuffers[socket];
+    buffer.append(socket->readAll());
+
+    // Safety: if buffer grows beyond 32MB, framing is likely desynced — reset
+    if (buffer.size() > kMaxBufferSize) {
+        qWarning() << "TCP buffer exceeded" << (kMaxBufferSize / (1024*1024))
+                    << "MB — likely framing desync, resetting";
+        buffer.clear();
+        return;
+    }
+
     processTcpBuffer(socket);
 }
 
 void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
     QByteArray& buffer = m_tcpBuffers[socket];
+    int consumed = 0;
 
     // Length-prefixed framing: [uint32_be length][body]
-    while (buffer.size() >= 4) {
+    while (buffer.size() - consumed >= 4) {
         uint32_t length = qFromBigEndian<uint32_t>(
-            reinterpret_cast<const uchar*>(buffer.constData()));
+            reinterpret_cast<const uchar*>(buffer.constData() + consumed));
+
+        // Sanity check: single frame should never exceed 8MB
+        if (length > kMaxPacketSize) {
+            qWarning() << "TCP framing error: packet length" << length
+                        << "exceeds max" << kMaxPacketSize << "— resetting buffer";
+            buffer.clear();
+            consumed = 0;
+            return;
+        }
 
         int totalNeeded = 4 + static_cast<int>(length);
-        if (buffer.size() < totalNeeded) {
+        if (buffer.size() - consumed < totalNeeded) {
             break; // Wait for more data
         }
 
-        QByteArray body = buffer.mid(4, static_cast<int>(length));
-        buffer.remove(0, totalNeeded);
+        QByteArray body = buffer.mid(consumed + 4, static_cast<int>(length));
+        consumed += totalNeeded;
 
         // Check for packet type byte (new framing: first byte is type)
         if (body.size() > 1) {
@@ -137,6 +157,11 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
         }
         // Legacy: no type byte, treat as video (backward compat)
         handleVideoData(body);
+    }
+
+    // Remove all consumed bytes at once (avoids repeated O(n) shifts)
+    if (consumed > 0) {
+        buffer.remove(0, consumed);
     }
 }
 

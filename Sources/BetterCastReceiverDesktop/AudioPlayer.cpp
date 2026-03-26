@@ -51,7 +51,12 @@ void AudioPlayer::ensureSink(int sampleRate, int channels) {
 void AudioPlayer::onPcmDecoded(const QByteArray& pcmData, int sampleRate, int channels) {
     ensureSink(sampleRate, channels);
 
-    if (m_ioDevice) {
+    if (m_ioDevice && m_sink) {
+        // Drop audio if buffer is too full to prevent unbounded memory growth
+        if (m_sink->bytesFree() < pcmData.size()) {
+            // Buffer full — drop this chunk rather than accumulating
+            return;
+        }
         m_ioDevice->write(pcmData);
     }
 }
