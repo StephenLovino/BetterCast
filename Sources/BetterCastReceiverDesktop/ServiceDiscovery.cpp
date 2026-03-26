@@ -72,7 +72,11 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
 
     // Embedded mDNS responder — no external dependencies needed
     m_advertisedPort = tcpPort;
-    m_serviceName = "BetterCast Receiver";
+#ifdef _WIN32
+    m_serviceName = "BetterCast Receiver Windows";
+#else
+    m_serviceName = "BetterCast Receiver Linux";
+#endif
     m_advertising = true;
 
     m_mdnsSocket = new QUdpSocket(this);
@@ -116,7 +120,8 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     // Send gratuitous announcement so the Mac sender discovers us immediately
     m_announceTimer = new QTimer(this);
     connect(m_announceTimer, &QTimer::timeout, this, &ServiceDiscovery::sendAnnouncement);
-    // Announce 3 times at startup, then every 60s to stay discoverable
+    // Announce frequently at startup (every 1s for first 5), then every 20s
+    // macOS NWBrowser needs to see announcements within its browse window
     m_announceTimer->start(1000);
     sendAnnouncement();
 
@@ -216,8 +221,9 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
         uint16_t qtype = qFromBigEndian<uint16_t>(d + offset);
         offset += 4; // skip qtype + qclass
 
-        // Check if this query is for our service type
+        // Check if this query is for our service type or a general service browse
         if (qname.contains("_bettercast._tcp") ||
+            (qtype == kTypePTR && qname.contains("_services._dns-sd")) ||
             (qtype == kTypePTR && qname.contains("_tcp.local"))) {
             // Send our response
             auto addrs = getLocalAddresses();
@@ -236,9 +242,10 @@ void ServiceDiscovery::sendAnnouncement() {
     static int announceCount = 0;
     announceCount++;
 
-    // After initial burst (3 announcements), slow down to every 60s
-    if (announceCount == 3 && m_announceTimer) {
-        m_announceTimer->setInterval(60000);
+    // After initial burst (5 announcements at 1s), slow to every 20s
+    // 20s keeps us reliably visible in macOS NWBrowser's cache
+    if (announceCount == 5 && m_announceTimer) {
+        m_announceTimer->setInterval(20000);
     }
 
     auto addrs = getLocalAddresses();
