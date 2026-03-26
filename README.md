@@ -1,43 +1,74 @@
 # BetterCast
 
-BetterCast is an open-source application designed to breathe new life into older Macs. It allows you to use an older Mac as an extended display for your primary computer, a feature similar to Sidecar or AirPlay Receiver but tailored for hardware that Apple no longer supports for these features.
+BetterCast is an open-source screen extension app that turns almost any device into a wireless extra display for your Mac. Think Sidecar or AirPlay Receiver — but cross-platform and built for hardware Apple no longer supports.
 
-This project consists of two applications:
-*   **BetterCastSender**: Runs on your primary Mac (the one you want to extend the screen *from*).
-*   **BetterCastReceiver**: Runs on your older Mac (the one you want to use *as* the screen).
+## How It Works
 
-This is perfect for repurposing devices like non-Apple Silicon Macs that can no longer serve as Sidecar receivers, effectively giving you a high-quality extra screen for free.
+- **BetterCast Sender** runs on your primary Mac and creates a virtual display that streams over your network.
+- **BetterCast Receiver** runs on the device you want to use as the extra screen.
 
-## Installation & Usage
+Each receiver gets its own virtual display with independent resolution, input handling, and optional audio streaming.
 
-BetterCast is distributed as a DMG containing ad-hoc signed applications.
+## Supported Platforms
 
-### 1. Install from DMG
-1.  Open the `.dmg` file.
-2.  Drag **BetterCastSender.app** to the Applications folder (on your primary Mac).
-3.  Drag **BetterCastReceiver.app** to the Applications folder (on your secondary/older Mac).
+| Platform | Role | Connection | Download |
+|----------|------|------------|----------|
+| **macOS** | Sender + Receiver | P2P Direct / WiFi | [bettercast.online](https://bettercast.online/#install) |
+| **iOS / iPadOS** | Receiver | P2P Direct (AWDL) / WiFi | [bettercast.online](https://bettercast.online/#install) |
+| **Windows** | Receiver | WiFi | [GitHub Actions artifact](../../actions/workflows/build-windows-receiver.yml) |
+| **Linux** | Receiver | WiFi | [GitHub Actions artifact](../../actions/workflows/build-linux-receiver.yml) |
+| **Android** | Receiver | WiFi / ADB USB | [bettercast.online](https://bettercast.online/#install) |
 
-### 2. Allow the App to Open
-Since the apps are not signed with an Apple Developer certificate, macOS will block the first launch. No terminal commands are needed — just use System Settings:
+> The macOS DMG is notarized and signed with an Apple Developer certificate.
 
-1.  Try to open the app. macOS will show a warning that it cannot be opened.
-2.  Go to **System Settings > Privacy & Security**.
-3.  Scroll down — you will see a message about the blocked app.
-4.  Click **"Open Anyway"** and confirm.
+## Features
 
-Alternatively, you can **right-click** the app and select **Open** on the first launch.
+- **Multi-device** — Connect multiple receivers simultaneously, each with its own virtual display
+- **Cross-platform input** — Mouse and keyboard pass-through from any receiver back to the Mac
+- **Audio streaming** — Optional per-device AAC audio forwarding
+- **Adaptive quality** — P2P links get 120 FPS / full bitrate; WiFi connections auto-throttle to 30 FPS / 10 Mbps
+- **Zero-config for Apple devices** — iOS/Mac receivers are discovered automatically via AWDL (no WiFi network needed)
+- **mDNS discovery** — Windows/Linux/Android receivers are discovered automatically when on the same network
 
-You only need to do this once per app.
+## Installation
 
-### 3. Grant Permissions (Sender only)
-The Sender app requires:
-*   **Screen Recording** — to capture your display for streaming.
-*   **Accessibility** — to inject mouse and keyboard input from the receiver.
+### macOS (Sender + Receiver)
 
-macOS will prompt you to grant these on first launch.
+1. Download the latest DMG from [bettercast.online](https://bettercast.online/#install)
+2. Open the DMG and drag both apps to your Applications folder
+3. Launch **BetterCastSender** and grant the required permissions:
+   - **Screen Recording** — to capture your display
+   - **Accessibility** — to relay mouse and keyboard input from receivers
 
-### 4. Launch
-Open the respective app from your Applications folder to start the connection.
+### iOS / iPadOS
+
+The iOS receiver is available via TestFlight. Visit [bettercast.online](https://bettercast.online/#install) for the install link.
+
+### Windows
+
+Download the latest build artifact from [GitHub Actions](../../actions/workflows/build-windows-receiver.yml). Extract and run `BetterCastReceiver.exe`. Both devices must be on the same WiFi network.
+
+### Linux
+
+Download the latest AppImage from [GitHub Actions](../../actions/workflows/build-linux-receiver.yml). Make it executable (`chmod +x`) and run. Both devices must be on the same WiFi network.
+
+### Android
+
+Visit [bettercast.online](https://bettercast.online/#install) for the latest APK. Supports WiFi and USB via ADB tunnel.
+
+## Networking
+
+BetterCast uses **TCP (port 51820)** for the primary video/audio stream and **UDP (port 51821)** for chunked frame delivery. Service discovery uses mDNS (`_bettercast._tcp`).
+
+- **Apple-to-Apple**: Uses AWDL (Apple Wireless Direct Link) for a direct P2P connection — no WiFi router needed
+- **All other platforms**: Requires both devices to be on the same WiFi/LAN network
+- **Hotspot**: If no shared network is available, create a hotspot on any device and connect the Mac to it
+
+## Support the Project
+
+BetterCast is free and open source. If you find it useful and want to support development, you can donate here:
+
+**[Donate on Whop](https://whop.com/bettercast/bettercast-donate/)**
 
 ## Disclaimer
 
@@ -53,7 +84,7 @@ BetterCast is licensed under the **GNU General Public License v3.0 (GPLv3)**.
 
 ### Why GPLv3?
 We believe in the freedom of software and the collective benefit of open collaboration. We choose GPLv3 to specifically:
-*   **Prevent restrictive forks**: Anyone who modifies and distributes this code must also share their changes under the same license. You cannot take this open source project, modify it, and sell it as a closed-source product.
-*   **Encourage contribution**: We welcome contributions! By keeping the source open, we ensure that improvements benefit everyone.
+- **Prevent restrictive forks**: Anyone who modifies and distributes this code must also share their changes under the same license. You cannot take this open source project, modify it, and sell it as a closed-source product.
+- **Encourage contribution**: We welcome contributions! By keeping the source open, we ensure that improvements benefit everyone.
 
 We strongly encourage safety and transparency. If you are contributing, please ensure your code adheres to safety standards and respects user privacy.
