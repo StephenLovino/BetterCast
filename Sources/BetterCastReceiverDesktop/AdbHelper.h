@@ -33,12 +33,15 @@ public:
     /// Last port used for forward
     uint16_t lastPort() const { return m_lastPort; }
 
+    /// Enable wireless ADB (call AFTER streaming connection is established).
+    /// Runs adb tcpip 5555 + adb connect, which temporarily drops USB.
+    bool enableWirelessAdb();
+
 signals:
     void statusChanged(const QString& status);
 
 private:
     QString runAdb(const QStringList& args, int timeoutMs = 10000);
-    bool enableWirelessAdb();
     QString getDeviceIp();
 
     QString m_adbPath;

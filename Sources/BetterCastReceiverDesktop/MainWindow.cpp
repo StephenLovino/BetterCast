@@ -269,6 +269,13 @@ void MainWindow::onConnectionEstablished() {
     m_connectBtn->setEnabled(true);
     m_reconnectTimer->stop();
     m_reconnectAttempts = 0;
+
+    // Enable wireless ADB in background now that streaming is working
+    if (m_adbHelper->wasAdbConnection()) {
+        std::thread([this]() {
+            m_adbHelper->enableWirelessAdb();
+        }).detach();
+    }
 }
 
 void MainWindow::onConnectionLost() {

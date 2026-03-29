@@ -367,6 +367,8 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     private var lastADBSerial: String?
     private var reconnectTimer: Timer?
     private var isReconnecting = false
+    private var isConnectingADB = false
+    private var wirelessADBEnabled = false
 
     init() {}
     
@@ -385,6 +387,12 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     /// Connect to Android sender via ADB tunnel.
     /// Runs `adb forward` automatically, then connects to localhost.
     func connectViaADB(port: UInt16) {
+        guard !isConnectingADB else {
+            LogManager.shared.log("Receiver: ADB connect already in progress, skipping")
+            return
+        }
+        isConnectingADB = true
+
         DispatchQueue.main.async {
             self.status = "Setting up ADB tunnel..."
         }
@@ -443,17 +451,19 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
                         self?.isReconnecting = false
                         self?.stopReconnectTimer()
                     }
-                    // Enable wireless ADB so connection survives USB disconnect
-                    self?.enableWirelessADB(adb: adb, serial: deviceSerial)
-                    // Now connect via TCP to the forwarded port
+                    // Connect via TCP to the forwarded port FIRST
+                    // Wireless ADB will be enabled later once connection is established
                     self?.connectTo(host: "localhost", port: port)
+                    self?.isConnectingADB = false
                 } else {
+                    self?.isConnectingADB = false
                     DispatchQueue.main.async {
                         self?.status = "ADB forward failed: \(output.trimmingCharacters(in: .whitespacesAndNewlines))"
                         LogManager.shared.log("Receiver: ADB forward failed (\(process.terminationStatus)): \(output)")
                     }
                 }
             } catch {
+                self?.isConnectingADB = false
                 DispatchQueue.main.async {
                     self?.status = "Failed to run ADB: \(error.localizedDescription)"
                     LogManager.shared.log("Receiver: Failed to run ADB: \(error)")
@@ -688,6 +698,14 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
                         if !self.connectedClients.contains(where: { $0 === connection }) {
                             self.connectedClients.append(connection)
                         }
+                        // Enable wireless ADB in background once streaming is working
+                        if self.lastADBPort != nil && !self.wirelessADBEnabled,
+                           let adb = self.lastADBPath {
+                            self.wirelessADBEnabled = true
+                            DispatchQueue.global(qos: .utility).async {
+                                self.enableWirelessADB(adb: adb, serial: self.lastADBSerial)
+                            }
+                        }
                     }
                 }
                 if type == .udp {
@@ -838,6 +856,7 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     private func removeConnection(_ connection: NWConnection) {
         DispatchQueue.main.async {
             self.connectedClients.removeAll(where: { $0 === connection })
+            self.wirelessADBEnabled = false // Reset so it can be re-enabled on reconnect
             // Auto-reconnect if this was an ADB connection and no clients remain
             if self.connectedClients.isEmpty && self.lastADBPort != nil {
                 self.startReconnectTimer()

@@ -231,13 +231,10 @@ bool AdbHelper::setupForward(uint16_t port) {
         m_lastPort = port;
         m_wasAdbConnection = true;
 
-        // Try to enable wireless ADB so connection survives USB disconnect
-        bool wirelessOk = enableWirelessAdb();
-        if (wirelessOk) {
-            emit statusChanged("ADB tunnel ready (wireless enabled) — connecting...");
-        } else {
-            emit statusChanged("ADB tunnel ready (USB only) — connecting...");
-        }
+        // Don't enable wireless ADB here — it runs `adb tcpip 5555` which
+        // puts the USB device offline and kills the forward we just set up.
+        // Wireless ADB is enabled later after the TCP connection is established.
+        emit statusChanged("ADB tunnel ready — connecting...");
         return true;
     }
 
