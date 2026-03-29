@@ -13,19 +13,183 @@
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QGroupBox>
+#include <QScrollArea>
 #include <QScreen>
 #include <QApplication>
+#include <QClipboard>
+#include <QDesktopServices>
 #include <QDebug>
 #include <QNetworkInterface>
+#include <QUrl>
+#include <QKeyEvent>
 #include <thread>
+
+// ─── Dark theme stylesheet ─────────────────────────────────────────────────────
+
+static const char* kDarkStylesheet = R"(
+    QMainWindow { background-color: #1a1a1a; }
+    QSplitter { background-color: #1a1a1a; }
+    QSplitter::handle { background-color: #333; width: 1px; }
+
+    QListWidget {
+        background-color: #1e1e1e;
+        border: none;
+        outline: none;
+        font-size: 13px;
+        padding-top: 8px;
+    }
+    QListWidget::item {
+        color: #ccc;
+        padding: 7px 14px;
+        border-radius: 6px;
+        margin: 1px 8px;
+    }
+    QListWidget::item:selected {
+        background-color: rgba(0, 120, 212, 0.18);
+        color: #4da6ff;
+    }
+    QListWidget::item:hover:!selected {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    QStackedWidget { background-color: #1a1a1a; }
+    QScrollArea { background-color: #1a1a1a; border: none; }
+    QScrollArea > QWidget > QWidget { background-color: #1a1a1a; }
+
+    QLabel { color: #e0e0e0; }
+
+    QLineEdit {
+        background-color: #2a2a2a;
+        color: white;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 7px 10px;
+        font-size: 13px;
+        selection-background-color: #0078D4;
+    }
+    QLineEdit:focus { border-color: #0078D4; }
+
+    QPushButton {
+        background-color: #333;
+        color: white;
+        border: 1px solid #555;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+    QPushButton:hover { background-color: #444; border-color: #666; }
+    QPushButton:pressed { background-color: #555; }
+    QPushButton:disabled { background-color: #2a2a2a; color: #666; border-color: #333; }
+
+    QGroupBox {
+        color: #888;
+        border: 1px solid #333;
+        border-radius: 10px;
+        margin-top: 16px;
+        padding: 20px 16px 12px 16px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        left: 16px;
+        padding: 0 6px;
+        color: #888;
+    }
+
+    QTextEdit {
+        background-color: #111;
+        color: #888;
+        border: none;
+        font-family: "Cascadia Code", "Consolas", "SF Mono", monospace;
+        font-size: 11px;
+    }
+
+    QSpinBox {
+        background-color: #2a2a2a;
+        color: white;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 13px;
+    }
+    QSpinBox:focus { border-color: #0078D4; }
+    QSpinBox::up-button, QSpinBox::down-button {
+        background-color: #333;
+        border: none;
+        width: 20px;
+    }
+
+    QComboBox {
+        background-color: #2a2a2a;
+        color: white;
+        border: 1px solid #444;
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 13px;
+    }
+    QComboBox:focus { border-color: #0078D4; }
+    QComboBox::drop-down { border: none; }
+    QComboBox QAbstractItemView {
+        background-color: #2a2a2a;
+        color: white;
+        selection-background-color: #0078D4;
+    }
+
+    QCheckBox { color: #e0e0e0; font-size: 13px; spacing: 8px; }
+    QCheckBox::indicator {
+        width: 16px; height: 16px;
+        border: 1px solid #555; border-radius: 4px;
+        background-color: #2a2a2a;
+    }
+    QCheckBox::indicator:checked { background-color: #0078D4; border-color: #0078D4; }
+)";
+
+// ─── Sidebar section header helper ──────────────────────────────────────────────
+
+static QListWidgetItem* addSidebarSection(QListWidget* list, const QString& title) {
+    auto* item = new QListWidgetItem(title);
+    item->setFlags(Qt::ItemIsEnabled); // not selectable
+    item->setData(Qt::UserRole, -1);
+    QFont f = item->font();
+    f.setPointSize(9);
+    f.setBold(true);
+    item->setFont(f);
+    item->setForeground(QColor("#777"));
+    // Add extra spacing above sections (except the first)
+    if (list->count() > 0) {
+        item->setSizeHint(QSize(0, 32));
+    }
+    list->addItem(item);
+    return item;
+}
+
+static QListWidgetItem* addSidebarItem(QListWidget* list, const QString& icon,
+                                        const QString& title, int pageIndex) {
+    auto* item = new QListWidgetItem(QString("%1  %2").arg(icon, title));
+    item->setData(Qt::UserRole, pageIndex);
+    item->setSizeHint(QSize(0, 34));
+    list->addItem(item);
+    return item;
+}
+
+// ─── Card widget helper ─────────────────────────────────────────────────────────
+
+static QGroupBox* makeCard(const QString& title) {
+    auto* card = new QGroupBox(title);
+    return card;
+}
+
+// ─── Constructor ────────────────────────────────────────────────────────────────
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("BetterCast Receiver");
-    setMinimumSize(640, 400);
+    setWindowTitle("BetterCast");
+    setMinimumSize(800, 500);
 
-    // Create components
+    // Create core components
     m_decoder = new VideoDecoder(this);
     m_renderer = new VideoRenderer();
     m_network = new NetworkListener(this);
@@ -35,32 +199,36 @@ MainWindow::MainWindow(QWidget* parent)
     m_audioPlayer = new AudioPlayer(this);
     m_adbHelper = new AdbHelper(this);
     m_reconnectTimer = new QTimer(this);
-    m_reconnectTimer->setInterval(3000); // 3 seconds between attempts
+    m_reconnectTimer->setInterval(3000);
     connect(m_reconnectTimer, &QTimer::timeout, this, &MainWindow::attemptAdbReconnect);
+
 #ifdef ENABLE_SENDER
     m_sender = new SenderController(this);
-    connect(m_sender, &SenderController::statusChanged, this, &MainWindow::onStatusChanged);
+    connect(m_sender, &SenderController::statusChanged, this, [this](const QString& status) {
+        if (m_senderStatusLabel) m_senderStatusLabel->setText(status);
+        LogManager::instance().log("Sender: " + status);
+    });
     connect(m_sender, &SenderController::error, this, [this](const QString& msg) {
-        onStatusChanged("Sender error: " + msg);
+        if (m_senderStatusLabel) m_senderStatusLabel->setText("Error: " + msg);
+        LogManager::instance().log("Sender error: " + msg);
     });
     connect(m_sender, &SenderController::connected, this, [this]() {
-        onStatusChanged("Sending screen...");
+        if (m_senderStatusLabel) m_senderStatusLabel->setText("Sending screen...");
+        LogManager::instance().log("Sender: Connected and streaming");
     });
     connect(m_sender, &SenderController::stopped, this, [this]() {
-        m_sendBtn->setEnabled(true);
-        m_stopSendBtn->setEnabled(false);
-        m_sendHostEdit->setEnabled(true);
+        if (m_sendBtn) m_sendBtn->setEnabled(true);
+        if (m_stopSendBtn) m_stopSendBtn->setEnabled(false);
+        if (m_sendHostEdit) m_sendHostEdit->setEnabled(true);
     });
 #endif
 
-    // Wire up
+    // Wire up core components
     m_network->setup(m_decoder, m_renderer, m_audioDecoder);
 
-    // Audio: decoder → player
     connect(m_audioDecoder, &AudioDecoder::pcmDecoded,
             m_audioPlayer, &AudioPlayer::onPcmDecoded);
 
-    // Decoder → Renderer
     connect(m_decoder, &VideoDecoder::frameDecoded,
             m_renderer, &VideoRenderer::onFrameDecoded);
     connect(m_decoder, &VideoDecoder::dimensionsChanged,
@@ -68,16 +236,13 @@ MainWindow::MainWindow(QWidget* parent)
                 m_inputHandler->setContentSize(QSize(w, h));
             });
 
-    // Input → Network
     m_inputHandler->attach(m_renderer);
     connect(m_inputHandler, &InputHandler::inputEvent,
             m_network, &NetworkListener::sendInputEvent);
 
-    // ADB status → UI
     connect(m_adbHelper, &AdbHelper::statusChanged,
             this, &MainWindow::onStatusChanged);
 
-    // Network status → UI
     connect(m_network, &NetworkListener::connectionEstablished,
             this, &MainWindow::onConnectionEstablished);
     connect(m_network, &NetworkListener::connectionLost,
@@ -85,17 +250,21 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_network, &NetworkListener::statusChanged,
             this, &MainWindow::onStatusChanged);
 
-    // Video size → window resize
     connect(m_renderer, &VideoRenderer::videoSizeChanged,
             this, &MainWindow::onVideoSizeChanged);
 
+    // LogManager
+    connect(&LogManager::instance(), &LogManager::logAdded,
+            this, &MainWindow::onLogAdded);
+
     setupUi();
 
-    // Start listening
+    // Start services
     m_network->start();
     m_discovery->startAdvertising(51820);
+    LogManager::instance().log("BetterCast started — listening on port 51820");
 
-    // Default landscape size
+    // Default window size (landscape 16:9, 70% screen)
     QScreen* screen = QApplication::primaryScreen();
     if (screen) {
         QRect available = screen->availableGeometry();
@@ -111,61 +280,353 @@ MainWindow::~MainWindow() {
     m_discovery->stopAdvertising();
 }
 
+// ─── UI Setup ───────────────────────────────────────────────────────────────────
+
 void MainWindow::setupUi() {
-    m_stack = new QStackedWidget(this);
-    setCentralWidget(m_stack);
+    setStyleSheet(kDarkStylesheet);
 
-    // Page 0: Connection UI (shown when disconnected)
-    m_connectPage = new QWidget();
-    auto* connectLayout = new QVBoxLayout(m_connectPage);
-    connectLayout->setAlignment(Qt::AlignCenter);
+    m_splitter = new QSplitter(Qt::Horizontal, this);
+    setCentralWidget(m_splitter);
 
-    m_statusLabel = new QLabel("Waiting for connection...");
-    m_statusLabel->setStyleSheet("color: orange; font-size: 16px; font-weight: bold;");
-    m_statusLabel->setAlignment(Qt::AlignCenter);
-    connectLayout->addWidget(m_statusLabel);
+    // Sidebar
+    m_sidebarList = new QListWidget();
+    m_sidebarList->setFixedWidth(220);
+    m_sidebarList->setFocusPolicy(Qt::NoFocus);
+    m_sidebarList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
-    // Show local IP addresses so the user knows what to enter on the sender
-    m_ipLabel = new QLabel();
-    m_ipLabel->setStyleSheet("color: #aaaaaa; font-size: 13px;");
-    m_ipLabel->setAlignment(Qt::AlignCenter);
-    m_ipLabel->setWordWrap(true);
+    // Detail stack
+    m_stack = new QStackedWidget();
+
+    // Build pages — order matters for page indices
+    setupOverviewPage();
+#ifdef ENABLE_SENDER
+    setupSendPage();
+#endif
+    setupReceivePage();
+    setupSettingsPage();
+    setupLogsPage();
+
+    // Video page (last)
+    m_renderer->setStyleSheet("background-color: black;");
+    m_pageVideo = m_stack->addWidget(m_renderer);
+
+    // Build sidebar
+    setupSidebar();
+
+    // Assemble splitter
+    m_splitter->addWidget(m_sidebarList);
+    m_splitter->addWidget(m_stack);
+    m_splitter->setStretchFactor(0, 0);
+    m_splitter->setStretchFactor(1, 1);
+    m_splitter->setCollapsible(0, false);
+    m_splitter->setCollapsible(1, false);
+
+    // Connect sidebar selection
+    connect(m_sidebarList, &QListWidget::currentRowChanged,
+            this, &MainWindow::onSidebarSelectionChanged);
+
+    // Select Overview by default
+    selectSidebarItem(m_pageOverview);
+}
+
+void MainWindow::setupSidebar() {
+    addSidebarSection(m_sidebarList, "DEVICES");
+    addSidebarItem(m_sidebarList, QString::fromUtf8("\xF0\x9F\x96\xA5"), "Overview", m_pageOverview);
+
+#ifdef ENABLE_SENDER
+    addSidebarSection(m_sidebarList, "SEND");
+    addSidebarItem(m_sidebarList, QString::fromUtf8("\xF0\x9F\x93\xA4"), "Send Screen", m_pageSend);
+#endif
+
+    addSidebarSection(m_sidebarList, "RECEIVE");
+    addSidebarItem(m_sidebarList, QString::fromUtf8("\xF0\x9F\x93\xA5"), "Receive Screen", m_pageReceive);
+
+    addSidebarSection(m_sidebarList, "");
+    addSidebarItem(m_sidebarList, QString::fromUtf8("\xE2\x9A\x99"), "Settings", m_pageSettings);
+    addSidebarItem(m_sidebarList, QString::fromUtf8("\xF0\x9F\x93\x9C"), "Logs", m_pageLogs);
+}
+
+// ─── Overview Page ──────────────────────────────────────────────────────────────
+
+void MainWindow::setupOverviewPage() {
+    auto* page = new QWidget();
+    auto* scroll = new QScrollArea();
+    scroll->setWidget(page);
+    scroll->setWidgetResizable(true);
+
+    auto* layout = new QVBoxLayout(page);
+    layout->setAlignment(Qt::AlignCenter);
+    layout->setContentsMargins(40, 40, 40, 40);
+    layout->setSpacing(12);
+
+    // App icon
+    auto* iconLabel = new QLabel();
+    QPixmap appIcon(":/appicon.png");
+    if (!appIcon.isNull()) {
+        iconLabel->setPixmap(appIcon.scaled(80, 80, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+    iconLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(iconLabel);
+
+    // Title
+    auto* title = new QLabel("BetterCast");
+    title->setStyleSheet("font-size: 28px; font-weight: bold; color: white;");
+    title->setAlignment(Qt::AlignCenter);
+    layout->addWidget(title);
+
+    auto* subtitle = new QLabel("Turn any device into a wireless extended display");
+    subtitle->setStyleSheet("font-size: 14px; color: #888;");
+    subtitle->setAlignment(Qt::AlignCenter);
+    layout->addWidget(subtitle);
+
+    layout->addSpacing(24);
+
+    // Getting started steps
+    auto* stepsCard = makeCard("Getting Started");
+    auto* stepsLayout = new QVBoxLayout(stepsCard);
+    stepsLayout->setSpacing(16);
+
+    auto addStep = [&](int num, const QString& title, const QString& desc) {
+        auto* row = new QHBoxLayout();
+        row->setSpacing(12);
+
+        auto* numLabel = new QLabel(QString::number(num));
+        numLabel->setFixedSize(28, 28);
+        numLabel->setAlignment(Qt::AlignCenter);
+        numLabel->setStyleSheet(
+            "background-color: #0078D4; color: white; font-weight: bold; "
+            "font-size: 13px; border-radius: 14px;");
+        row->addWidget(numLabel);
+
+        auto* textLayout = new QVBoxLayout();
+        textLayout->setSpacing(2);
+        auto* titleLabel = new QLabel(title);
+        titleLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;");
+        textLayout->addWidget(titleLabel);
+        auto* descLabel = new QLabel(desc);
+        descLabel->setStyleSheet("font-size: 12px; color: #888;");
+        descLabel->setWordWrap(true);
+        textLayout->addWidget(descLabel);
+        row->addLayout(textLayout, 1);
+
+        stepsLayout->addLayout(row);
+    };
+
+    addStep(1, "Download the Receiver",
+            "Install BetterCast Receiver on your iPad, Android, Windows, Linux, or Mac.");
+    addStep(2, "Connect to the Same Network",
+            "Make sure both devices are on the same Wi-Fi network.");
+    addStep(3, "Open the Receiver App",
+            "Your device will appear automatically, or use Manual IP to connect.");
+
+    layout->addWidget(stepsCard);
+
+    layout->addSpacing(12);
+
+    // Status
+    m_overviewStatusLabel = new QLabel("Searching for devices on your network...");
+    m_overviewStatusLabel->setStyleSheet("font-size: 12px; color: #888;");
+    m_overviewStatusLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(m_overviewStatusLabel);
+
+    // Local IP
+    m_overviewIpLabel = new QLabel();
+    m_overviewIpLabel->setStyleSheet("font-size: 12px; color: #666;");
+    m_overviewIpLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(m_overviewIpLabel);
+
+    layout->addStretch();
+
+    m_pageOverview = m_stack->addWidget(scroll);
     updateLocalIpDisplay();
-    connectLayout->addWidget(m_ipLabel);
+}
 
-    connectLayout->addSpacing(20);
+// ─── Send Screen Page (ENABLE_SENDER) ───────────────────────────────────────────
 
-    // Manual connect row
-    auto* connectRow = new QHBoxLayout();
+#ifdef ENABLE_SENDER
+void MainWindow::setupSendPage() {
+    auto* page = new QWidget();
+    auto* scroll = new QScrollArea();
+    scroll->setWidget(page);
+    scroll->setWidgetResizable(true);
+
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(40, 30, 40, 30);
+    layout->setSpacing(16);
+
+    auto* pageTitle = new QLabel("Send Screen");
+    pageTitle->setStyleSheet("font-size: 22px; font-weight: bold; color: white;");
+    layout->addWidget(pageTitle);
+
+    auto* pageDesc = new QLabel("Stream your screen to a BetterCast receiver on another device.");
+    pageDesc->setStyleSheet("font-size: 13px; color: #888;");
+    pageDesc->setWordWrap(true);
+    layout->addWidget(pageDesc);
+
+    layout->addSpacing(8);
+
+    // Connection card
+    auto* connCard = makeCard("Target Receiver");
+    auto* connLayout = new QVBoxLayout(connCard);
+    connLayout->setSpacing(12);
+
+    auto* hostRow = new QHBoxLayout();
+    auto* hostLabel = new QLabel("Receiver IP:");
+    hostLabel->setStyleSheet("font-size: 13px; color: #ccc;");
+    hostRow->addWidget(hostLabel);
+    m_sendHostEdit = new QLineEdit();
+    m_sendHostEdit->setPlaceholderText("e.g. 192.168.1.50");
+    m_sendHostEdit->setFixedWidth(200);
+    hostRow->addWidget(m_sendHostEdit);
+    hostRow->addStretch();
+    connLayout->addLayout(hostRow);
+
+    layout->addWidget(connCard);
+
+    // Quality card
+    auto* qualCard = makeCard("Stream Quality");
+    auto* qualLayout = new QVBoxLayout(qualCard);
+    qualLayout->setSpacing(10);
+
+    auto* fpsRow = new QHBoxLayout();
+    auto* fpsLabel = new QLabel("Frame Rate:");
+    fpsLabel->setStyleSheet("font-size: 13px; color: #ccc;");
+    fpsRow->addWidget(fpsLabel);
+    m_fpsSpinBox = new QSpinBox();
+    m_fpsSpinBox->setRange(15, 60);
+    m_fpsSpinBox->setValue(30);
+    m_fpsSpinBox->setSuffix(" FPS");
+    m_fpsSpinBox->setFixedWidth(100);
+    fpsRow->addWidget(m_fpsSpinBox);
+    fpsRow->addStretch();
+    qualLayout->addLayout(fpsRow);
+
+    auto* brRow = new QHBoxLayout();
+    auto* brLabel = new QLabel("Bitrate:");
+    brLabel->setStyleSheet("font-size: 13px; color: #ccc;");
+    brRow->addWidget(brLabel);
+    m_bitrateSpinBox = new QSpinBox();
+    m_bitrateSpinBox->setRange(2, 50);
+    m_bitrateSpinBox->setValue(8);
+    m_bitrateSpinBox->setSuffix(" Mbps");
+    m_bitrateSpinBox->setFixedWidth(100);
+    brRow->addWidget(m_bitrateSpinBox);
+    brRow->addStretch();
+    qualLayout->addLayout(brRow);
+
+    layout->addWidget(qualCard);
+
+    // Action buttons
+    auto* btnRow = new QHBoxLayout();
+    btnRow->setSpacing(12);
+
+    m_sendBtn = new QPushButton("Send Screen");
+    m_sendBtn->setStyleSheet(
+        "QPushButton { background-color: #0078D4; color: white; font-weight: bold; "
+        "font-size: 14px; padding: 10px 24px; border-radius: 8px; border: none; }"
+        "QPushButton:hover { background-color: #1a8ae8; }"
+        "QPushButton:disabled { background-color: #2a2a2a; color: #666; }");
+    connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendScreenClicked);
+    btnRow->addWidget(m_sendBtn);
+
+    m_stopSendBtn = new QPushButton("Stop");
+    m_stopSendBtn->setEnabled(false);
+    m_stopSendBtn->setStyleSheet(
+        "QPushButton { background-color: #d32f2f; color: white; font-weight: bold; "
+        "font-size: 14px; padding: 10px 24px; border-radius: 8px; border: none; }"
+        "QPushButton:hover { background-color: #e53935; }"
+        "QPushButton:disabled { background-color: #2a2a2a; color: #666; }");
+    connect(m_stopSendBtn, &QPushButton::clicked, this, &MainWindow::onStopSendingClicked);
+    btnRow->addWidget(m_stopSendBtn);
+
+    btnRow->addStretch();
+    layout->addLayout(btnRow);
+
+    // Status
+    m_senderStatusLabel = new QLabel("Enter a receiver's IP address to stream your screen");
+    m_senderStatusLabel->setStyleSheet("font-size: 12px; color: #888;");
+    m_senderStatusLabel->setWordWrap(true);
+    layout->addWidget(m_senderStatusLabel);
+
+    layout->addStretch();
+
+    m_pageSend = m_stack->addWidget(scroll);
+}
+#endif
+
+// ─── Receive Page ───────────────────────────────────────────────────────────────
+
+void MainWindow::setupReceivePage() {
+    auto* page = new QWidget();
+    auto* scroll = new QScrollArea();
+    scroll->setWidget(page);
+    scroll->setWidgetResizable(true);
+
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(40, 30, 40, 30);
+    layout->setSpacing(16);
+
+    auto* pageTitle = new QLabel("Receive Screen");
+    pageTitle->setStyleSheet("font-size: 22px; font-weight: bold; color: white;");
+    layout->addWidget(pageTitle);
+
+    // Status
+    m_recvStatusLabel = new QLabel("Waiting for connection...");
+    m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
+    layout->addWidget(m_recvStatusLabel);
+
+    m_recvIpLabel = new QLabel();
+    m_recvIpLabel->setStyleSheet("font-size: 13px; color: #888;");
+    m_recvIpLabel->setWordWrap(true);
+    layout->addWidget(m_recvIpLabel);
+
+    layout->addSpacing(8);
+
+    // Manual connect card
+    auto* manualCard = makeCard("Manual Connect");
+    auto* manualLayout = new QVBoxLayout(manualCard);
+    manualLayout->setSpacing(10);
+
+    auto* connRow = new QHBoxLayout();
+    connRow->setSpacing(8);
+
     m_hostEdit = new QLineEdit("localhost");
-    m_hostEdit->setPlaceholderText("Host");
+    m_hostEdit->setPlaceholderText("Host / IP");
     m_hostEdit->setFixedWidth(180);
-    connectRow->addWidget(m_hostEdit);
+    connRow->addWidget(m_hostEdit);
 
     m_portEdit = new QLineEdit("51820");
     m_portEdit->setPlaceholderText("Port");
     m_portEdit->setFixedWidth(80);
-    connectRow->addWidget(m_portEdit);
+    connRow->addWidget(m_portEdit);
 
     m_connectBtn = new QPushButton("Connect");
-    m_connectBtn->setDefault(true);
+    m_connectBtn->setStyleSheet(
+        "QPushButton { background-color: #0078D4; color: white; font-weight: bold; "
+        "padding: 8px 20px; border-radius: 6px; border: none; }"
+        "QPushButton:hover { background-color: #1a8ae8; }"
+        "QPushButton:disabled { background-color: #2a2a2a; color: #666; }");
     connect(m_connectBtn, &QPushButton::clicked, this, &MainWindow::onConnectClicked);
-    connectRow->addWidget(m_connectBtn);
+    connRow->addWidget(m_connectBtn);
 
-    connectLayout->addLayout(connectRow);
+    connRow->addStretch();
+    manualLayout->addLayout(connRow);
 
-    connectLayout->addSpacing(15);
+    layout->addWidget(manualCard);
 
-    // Android ADB connect section
+    // ADB card
+    auto* adbCard = makeCard("Android (ADB)");
+    auto* adbLayout = new QVBoxLayout(adbCard);
+    adbLayout->setSpacing(10);
+
     m_adbBtn = new QPushButton("Connect to Android (ADB)");
     m_adbBtn->setStyleSheet(
         "QPushButton { background-color: #3ddc84; color: black; font-weight: bold; "
-        "padding: 8px 16px; border-radius: 6px; font-size: 14px; }"
+        "padding: 10px 20px; border-radius: 8px; font-size: 14px; border: none; }"
         "QPushButton:hover { background-color: #50e898; }"
-        "QPushButton:disabled { background-color: #555555; color: #888888; }");
-    m_adbBtn->setFixedWidth(280);
+        "QPushButton:disabled { background-color: #2a2a2a; color: #666; }");
     connect(m_adbBtn, &QPushButton::clicked, this, &MainWindow::onAdbConnectClicked);
-    connectLayout->addWidget(m_adbBtn, 0, Qt::AlignCenter);
+    adbLayout->addWidget(m_adbBtn);
 
     m_adbHelpLabel = new QLabel(
         "To mirror your Android screen:\n"
@@ -174,65 +635,210 @@ void MainWindow::setupUi() {
         "3. Connect Android to this computer via USB\n"
         "4. Open BetterCast on Android and tap \"Start Casting\"\n"
         "5. Click the button above to connect");
-    m_adbHelpLabel->setStyleSheet("color: #777777; font-size: 11px;");
-    m_adbHelpLabel->setAlignment(Qt::AlignCenter);
+    m_adbHelpLabel->setStyleSheet("color: #666; font-size: 11px;");
     m_adbHelpLabel->setWordWrap(true);
-    m_adbHelpLabel->setFixedWidth(400);
-    connectLayout->addWidget(m_adbHelpLabel, 0, Qt::AlignCenter);
+    adbLayout->addWidget(m_adbHelpLabel);
 
-    // Sender section (when built with ENABLE_SENDER)
-#ifdef ENABLE_SENDER
-    connectLayout->addSpacing(20);
+    layout->addWidget(adbCard);
 
-    auto* senderSeparator = new QLabel("— Send Screen —");
-    senderSeparator->setStyleSheet("color: #555555; font-size: 12px;");
-    senderSeparator->setAlignment(Qt::AlignCenter);
-    connectLayout->addWidget(senderSeparator);
+    layout->addStretch();
 
-    connectLayout->addSpacing(5);
-
-    auto* sendRow = new QHBoxLayout();
-    m_sendHostEdit = new QLineEdit();
-    m_sendHostEdit->setPlaceholderText("Receiver IP (e.g. 192.168.1.50)");
-    m_sendHostEdit->setFixedWidth(220);
-    sendRow->addWidget(m_sendHostEdit);
-
-    m_sendBtn = new QPushButton("Send Screen");
-    m_sendBtn->setStyleSheet(
-        "QPushButton { background-color: #0078D4; color: white; font-weight: bold; "
-        "padding: 8px 16px; border-radius: 6px; font-size: 14px; }"
-        "QPushButton:hover { background-color: #1a8ae8; }"
-        "QPushButton:disabled { background-color: #555555; color: #888888; }");
-    connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendScreenClicked);
-    sendRow->addWidget(m_sendBtn);
-
-    m_stopSendBtn = new QPushButton("Stop");
-    m_stopSendBtn->setEnabled(false);
-    m_stopSendBtn->setStyleSheet(
-        "QPushButton { background-color: #d32f2f; color: white; font-weight: bold; "
-        "padding: 8px 12px; border-radius: 6px; font-size: 14px; }"
-        "QPushButton:hover { background-color: #e53935; }"
-        "QPushButton:disabled { background-color: #555555; color: #888888; }");
-    connect(m_stopSendBtn, &QPushButton::clicked, this, &MainWindow::onStopSendingClicked);
-    sendRow->addWidget(m_stopSendBtn);
-
-    connectLayout->addLayout(sendRow);
-
-    m_senderStatusLabel = new QLabel("Enter a receiver's IP to stream your screen");
-    m_senderStatusLabel->setStyleSheet("color: #777777; font-size: 11px;");
-    m_senderStatusLabel->setAlignment(Qt::AlignCenter);
-    connectLayout->addWidget(m_senderStatusLabel);
-#endif
-
-    m_connectPage->setStyleSheet("background-color: black;");
-    m_stack->addWidget(m_connectPage);
-
-    // Page 1: Video renderer (shown when connected)
-    m_renderer->setStyleSheet("background-color: black;");
-    m_stack->addWidget(m_renderer);
-
-    m_stack->setCurrentIndex(0);
+    m_pageReceive = m_stack->addWidget(scroll);
 }
+
+// ─── Settings Page ──────────────────────────────────────────────────────────────
+
+void MainWindow::setupSettingsPage() {
+    auto* page = new QWidget();
+    auto* scroll = new QScrollArea();
+    scroll->setWidget(page);
+    scroll->setWidgetResizable(true);
+
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(40, 30, 40, 30);
+    layout->setSpacing(16);
+
+    auto* pageTitle = new QLabel("Settings");
+    pageTitle->setStyleSheet("font-size: 22px; font-weight: bold; color: white;");
+    layout->addWidget(pageTitle);
+
+    // About card
+    auto* aboutCard = makeCard("About");
+    auto* aboutLayout = new QVBoxLayout(aboutCard);
+    aboutLayout->setSpacing(8);
+
+    m_versionLabel = new QLabel(QString("BetterCast v%1")
+        .arg(QApplication::applicationVersion()));
+    m_versionLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;");
+    aboutLayout->addWidget(m_versionLabel);
+
+    auto* descLabel = new QLabel(
+        "Turn any device into a wireless extended display. "
+        "Works with iPad, Android, Windows, Linux, and Mac receivers.");
+    descLabel->setStyleSheet("font-size: 12px; color: #888;");
+    descLabel->setWordWrap(true);
+    aboutLayout->addWidget(descLabel);
+
+    layout->addWidget(aboutCard);
+
+    // Connection card
+    auto* connCard = makeCard("Connection");
+    auto* connLayout = new QVBoxLayout(connCard);
+    connLayout->setSpacing(10);
+
+    auto* portInfo = new QLabel("Listening on port 51820 (TCP)");
+    portInfo->setStyleSheet("font-size: 13px; color: #ccc;");
+    connLayout->addWidget(portInfo);
+
+    auto* ipInfo = new QLabel();
+    QStringList ips;
+    for (const auto& iface : QNetworkInterface::allInterfaces()) {
+        if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
+            iface.flags().testFlag(QNetworkInterface::IsRunning) &&
+            !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+            for (const auto& entry : iface.addressEntries()) {
+                if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+                    ips.append(entry.ip().toString());
+                }
+            }
+        }
+    }
+    ipInfo->setText(ips.isEmpty() ? "No network detected"
+                                  : "Local IPs: " + ips.join(", "));
+    ipInfo->setStyleSheet("font-size: 12px; color: #888;");
+    ipInfo->setWordWrap(true);
+    connLayout->addWidget(ipInfo);
+
+    layout->addWidget(connCard);
+
+    // Changelog card
+    auto* changeCard = makeCard("What's New");
+    auto* changeLayout = new QVBoxLayout(changeCard);
+    changeLayout->setSpacing(10);
+
+    struct ChangeEntry {
+        QString version, date;
+        QStringList items;
+    };
+    QVector<ChangeEntry> changelog = {
+        {"v8", "2026-03-30", {
+            "Unified sender + receiver in a single app",
+            "Apple Music-style sidebar with tinted selection",
+            "Windows sender with sidebar UI",
+            "In-app update checker via GitHub Releases",
+        }},
+        {"v7", "2026-03-23", {
+            "Android ADB wireless auto-reconnect",
+            "Orientation fix for rotated displays",
+        }},
+        {"v6", "2026-03-19", {
+            "Windows sender Phase 1",
+            "DMG signing improvements",
+        }},
+    };
+
+    for (const auto& entry : changelog) {
+        auto* verLabel = new QLabel(QString("%1  —  %2").arg(entry.version, entry.date));
+        verLabel->setStyleSheet("font-size: 13px; font-weight: bold; color: #ccc;");
+        changeLayout->addWidget(verLabel);
+
+        for (const auto& item : entry.items) {
+            auto* bulletLabel = new QLabel(QString("  \xE2\x80\xA2  %1").arg(item));
+            bulletLabel->setStyleSheet("font-size: 11px; color: #888;");
+            changeLayout->addWidget(bulletLabel);
+        }
+
+        changeLayout->addSpacing(4);
+    }
+
+    layout->addWidget(changeCard);
+
+    layout->addStretch();
+
+    m_pageSettings = m_stack->addWidget(scroll);
+}
+
+// ─── Logs Page ──────────────────────────────────────────────────────────────────
+
+void MainWindow::setupLogsPage() {
+    auto* page = new QWidget();
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(20, 16, 20, 16);
+    layout->setSpacing(10);
+
+    // Title row with buttons
+    auto* titleRow = new QHBoxLayout();
+
+    auto* pageTitle = new QLabel("Logs");
+    pageTitle->setStyleSheet("font-size: 22px; font-weight: bold; color: white;");
+    titleRow->addWidget(pageTitle);
+
+    titleRow->addStretch();
+
+    auto* reportBtn = new QPushButton("Report Issue");
+    reportBtn->setStyleSheet(
+        "QPushButton { background-color: #333; color: #ccc; padding: 6px 14px; "
+        "border-radius: 6px; font-size: 12px; border: 1px solid #555; }"
+        "QPushButton:hover { background-color: #444; }");
+    connect(reportBtn, &QPushButton::clicked, this, &MainWindow::onReportIssue);
+    titleRow->addWidget(reportBtn);
+
+    auto* copyBtn = new QPushButton("Copy");
+    copyBtn->setStyleSheet(
+        "QPushButton { background-color: #333; color: #ccc; padding: 6px 14px; "
+        "border-radius: 6px; font-size: 12px; border: 1px solid #555; }"
+        "QPushButton:hover { background-color: #444; }");
+    connect(copyBtn, &QPushButton::clicked, this, &MainWindow::onCopyLogs);
+    titleRow->addWidget(copyBtn);
+
+    auto* clearBtn = new QPushButton("Clear");
+    clearBtn->setStyleSheet(
+        "QPushButton { background-color: #333; color: #ccc; padding: 6px 14px; "
+        "border-radius: 6px; font-size: 12px; border: 1px solid #555; }"
+        "QPushButton:hover { background-color: #444; }");
+    connect(clearBtn, &QPushButton::clicked, this, &MainWindow::onClearLogs);
+    titleRow->addWidget(clearBtn);
+
+    layout->addLayout(titleRow);
+
+    // Log viewer
+    m_logViewer = new QTextEdit();
+    m_logViewer->setReadOnly(true);
+    m_logViewer->setPlaceholderText("No log entries yet...");
+    layout->addWidget(m_logViewer);
+
+    m_pageLogs = m_stack->addWidget(page);
+}
+
+// ─── Sidebar Selection ──────────────────────────────────────────────────────────
+
+void MainWindow::onSidebarSelectionChanged(int row) {
+    auto* item = m_sidebarList->item(row);
+    if (!item) return;
+
+    int page = item->data(Qt::UserRole).toInt();
+    if (page < 0) {
+        // Section header — skip to next selectable item
+        if (row + 1 < m_sidebarList->count()) {
+            m_sidebarList->setCurrentRow(row + 1);
+        }
+        return;
+    }
+
+    m_stack->setCurrentIndex(page);
+}
+
+void MainWindow::selectSidebarItem(int pageIndex) {
+    for (int i = 0; i < m_sidebarList->count(); i++) {
+        auto* item = m_sidebarList->item(i);
+        if (item && item->data(Qt::UserRole).toInt() == pageIndex) {
+            m_sidebarList->setCurrentRow(i);
+            return;
+        }
+    }
+}
+
+// ─── Connection Handlers ────────────────────────────────────────────────────────
 
 void MainWindow::onConnectClicked() {
     bool ok = false;
@@ -241,15 +847,18 @@ void MainWindow::onConnectClicked() {
 
     m_network->connectTo(m_hostEdit->text(), port);
     m_connectBtn->setEnabled(false);
-    m_statusLabel->setText("Connecting...");
+    m_recvStatusLabel->setText("Connecting...");
+    m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #4da6ff;");
+    LogManager::instance().log("Connecting to " + m_hostEdit->text() + ":" + QString::number(port));
 }
 
 void MainWindow::onAdbConnectClicked() {
     m_adbBtn->setEnabled(false);
     m_adbBtn->setText("Setting up ADB...");
-    m_statusLabel->setText("Looking for Android device...");
+    m_recvStatusLabel->setText("Looking for Android device...");
+    m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #4da6ff;");
+    LogManager::instance().log("Starting ADB setup...");
 
-    // Run ADB setup in background thread to avoid blocking UI
     std::thread([this]() {
         bool success = m_adbHelper->setupForward(51820);
         QMetaObject::invokeMethod(this, [this, success]() {
@@ -257,7 +866,8 @@ void MainWindow::onAdbConnectClicked() {
             m_adbBtn->setText("Connect to Android (ADB)");
 
             if (success) {
-                m_statusLabel->setText("ADB tunnel ready — connecting...");
+                m_recvStatusLabel->setText("ADB tunnel ready — connecting...");
+                LogManager::instance().log("ADB tunnel established, connecting...");
                 m_network->connectTo("localhost", 51820);
             }
         });
@@ -265,12 +875,16 @@ void MainWindow::onAdbConnectClicked() {
 }
 
 void MainWindow::onConnectionEstablished() {
-    m_stack->setCurrentIndex(1); // Show video
+    m_stack->setCurrentIndex(m_pageVideo);
     m_connectBtn->setEnabled(true);
     m_reconnectTimer->stop();
     m_reconnectAttempts = 0;
+    LogManager::instance().log("Connection established — streaming video");
 
-    // Enable wireless ADB in background now that streaming is working
+    // Hide sidebar for fullscreen video
+    m_sidebarList->hide();
+    m_sidebarHidden = true;
+
     if (m_adbHelper->wasAdbConnection()) {
         std::thread([this]() {
             m_adbHelper->enableWirelessAdb();
@@ -279,23 +893,32 @@ void MainWindow::onConnectionEstablished() {
 }
 
 void MainWindow::onConnectionLost() {
-    m_stack->setCurrentIndex(0); // Show connect UI
+    // Show sidebar again
+    if (m_sidebarHidden) {
+        m_sidebarList->show();
+        m_sidebarHidden = false;
+    }
+
+    selectSidebarItem(m_pageReceive);
     m_connectBtn->setEnabled(true);
 
-    // Auto-reconnect if this was an ADB connection
     if (m_adbHelper->wasAdbConnection()) {
         m_reconnectAttempts = 0;
-        m_statusLabel->setText("Connection lost — auto-reconnecting via ADB...");
-        // Try immediately, then every 3 seconds
+        m_recvStatusLabel->setText("Connection lost — auto-reconnecting via ADB...");
+        m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
+        LogManager::instance().log("Connection lost — auto-reconnecting via ADB...");
         attemptAdbReconnect();
         m_reconnectTimer->start();
     } else {
-        m_statusLabel->setText("Connection lost. Reconnect?");
+        m_recvStatusLabel->setText("Connection lost. Reconnect?");
+        m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
+        LogManager::instance().log("Connection lost");
     }
 }
 
 void MainWindow::onStatusChanged(const QString& status) {
-    m_statusLabel->setText(status);
+    m_recvStatusLabel->setText(status);
+    LogManager::instance().log(status);
 }
 
 void MainWindow::onVideoSizeChanged(QSize size) {
@@ -344,16 +967,17 @@ void MainWindow::resizeToFitVideo(int videoWidth, int videoHeight) {
 void MainWindow::attemptAdbReconnect() {
     m_reconnectAttempts++;
 
-    // Give up after 20 attempts (60 seconds)
     if (m_reconnectAttempts > 20) {
         m_reconnectTimer->stop();
-        m_statusLabel->setText("Auto-reconnect failed. Click 'Connect to Android (ADB)' to retry.");
+        m_recvStatusLabel->setText("Auto-reconnect failed. Click 'Connect to Android (ADB)' to retry.");
+        m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #d32f2f;");
+        LogManager::instance().log("ADB auto-reconnect failed after 20 attempts");
         return;
     }
 
-    m_statusLabel->setText(QString("Reconnecting via ADB... (attempt %1)").arg(m_reconnectAttempts));
+    m_recvStatusLabel->setText(QString("Reconnecting via ADB... (attempt %1)").arg(m_reconnectAttempts));
+    LogManager::instance().log(QString("ADB reconnect attempt %1").arg(m_reconnectAttempts));
 
-    // Run in background thread to avoid blocking UI
     std::thread([this]() {
         uint16_t port = m_adbHelper->lastPort();
         if (port == 0) port = 51820;
@@ -362,35 +986,116 @@ void MainWindow::attemptAdbReconnect() {
         QMetaObject::invokeMethod(this, [this, success, port]() {
             if (success) {
                 m_reconnectTimer->stop();
-                m_statusLabel->setText("ADB tunnel restored — connecting...");
+                m_recvStatusLabel->setText("ADB tunnel restored — connecting...");
+                LogManager::instance().log("ADB tunnel restored, reconnecting...");
                 m_network->connectTo("localhost", port);
             }
-            // If failed, timer will fire again in 3 seconds
         });
     }).detach();
 }
+
+// ─── Sender Slots ───────────────────────────────────────────────────────────────
 
 #ifdef ENABLE_SENDER
 void MainWindow::onSendScreenClicked() {
     QString host = m_sendHostEdit->text().trimmed();
     if (host.isEmpty()) {
         m_senderStatusLabel->setText("Enter a receiver IP address first");
+        m_senderStatusLabel->setStyleSheet("font-size: 12px; color: #d32f2f;");
         return;
     }
 
     m_sendBtn->setEnabled(false);
     m_stopSendBtn->setEnabled(true);
     m_sendHostEdit->setEnabled(false);
+    m_fpsSpinBox->setEnabled(false);
+    m_bitrateSpinBox->setEnabled(false);
     m_senderStatusLabel->setText("Starting sender...");
+    m_senderStatusLabel->setStyleSheet("font-size: 12px; color: #4da6ff;");
 
-    m_sender->startSending(host, 51820, 30, 8);
+    int fps = m_fpsSpinBox->value();
+    int bitrate = m_bitrateSpinBox->value();
+    LogManager::instance().log(QString("Starting sender to %1 at %2 FPS, %3 Mbps")
+                                   .arg(host).arg(fps).arg(bitrate));
+    m_sender->startSending(host, 51820, fps, bitrate);
 }
 
 void MainWindow::onStopSendingClicked() {
     m_sender->stopSending();
     m_senderStatusLabel->setText("Sender stopped");
+    m_senderStatusLabel->setStyleSheet("font-size: 12px; color: #888;");
+    m_fpsSpinBox->setEnabled(true);
+    m_bitrateSpinBox->setEnabled(true);
+    LogManager::instance().log("Sender stopped");
 }
 #endif
+
+// ─── Log Slots ──────────────────────────────────────────────────────────────────
+
+void MainWindow::onLogAdded(const QString& entry) {
+    if (m_logViewer) {
+        m_logViewer->append(entry);
+    }
+}
+
+void MainWindow::onCopyLogs() {
+    QApplication::clipboard()->setText(
+        LogManager::instance().entries().join("\n"));
+    LogManager::instance().log("Logs copied to clipboard");
+}
+
+void MainWindow::onClearLogs() {
+    LogManager::instance().clear();
+    if (m_logViewer) m_logViewer->clear();
+}
+
+void MainWindow::onReportIssue() {
+    QString sysInfo = QString("Platform: %1, BetterCast %2")
+        .arg(
+#ifdef _WIN32
+            "Windows"
+#elif __linux__
+            "Linux"
+#else
+            "Unknown"
+#endif
+        )
+        .arg(QApplication::applicationVersion());
+
+    QStringList recentLogs = LogManager::instance().entries();
+    if (recentLogs.size() > 30) {
+        recentLogs = recentLogs.mid(recentLogs.size() - 30);
+    }
+
+    QString body = QString(
+        "**Describe the issue:**\n\n\n"
+        "**Steps to reproduce:**\n1. \n\n"
+        "**Expected behavior:**\n\n\n"
+        "**System info:** %1\n\n"
+        "<details><summary>Recent Logs</summary>\n\n```\n%2\n```\n\n</details>"
+    ).arg(sysInfo, recentLogs.join("\n"));
+
+    QString url = QString("https://github.com/StephenLovino/BetterCast/issues/new?title=%1&body=%2")
+        .arg(QString("Bug: ").toUtf8().toPercentEncoding(),
+             body.toUtf8().toPercentEncoding());
+
+    QDesktopServices::openUrl(QUrl(url));
+    LogManager::instance().log("Opened GitHub issue form");
+}
+
+// ─── Key Events ─────────────────────────────────────────────────────────────────
+
+void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape && m_sidebarHidden) {
+        // Toggle sidebar back when pressing Escape during video
+        m_sidebarList->show();
+        m_sidebarHidden = false;
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
+}
+
+// ─── Local IP Display ───────────────────────────────────────────────────────────
 
 void MainWindow::updateLocalIpDisplay() {
     QStringList ips;
@@ -406,9 +1111,10 @@ void MainWindow::updateLocalIpDisplay() {
         }
     }
 
-    if (ips.isEmpty()) {
-        m_ipLabel->setText("No network detected");
-    } else {
-        m_ipLabel->setText("This device: " + ips.join(" / ") + " : 51820");
-    }
+    QString text = ips.isEmpty()
+        ? "No network detected"
+        : "This device: " + ips.join(" / ") + " : 51820";
+
+    if (m_overviewIpLabel) m_overviewIpLabel->setText(text);
+    if (m_recvIpLabel) m_recvIpLabel->setText(text);
 }

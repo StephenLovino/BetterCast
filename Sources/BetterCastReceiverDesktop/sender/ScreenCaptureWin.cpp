@@ -1,5 +1,3 @@
-#ifdef _WIN32
-
 #include "ScreenCaptureWin.h"
 
 #include <d3d11.h>
@@ -219,5 +217,3 @@ void ScreenCaptureWin::cleanup() {
     if (m_device)      { m_device->Release();      m_device = nullptr; }
     m_resolution = QSize();
 }
-
-#endif // _WIN32

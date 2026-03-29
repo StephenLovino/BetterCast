@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
     QSurfaceFormat::setDefaultFormat(format);
 
     QApplication app(argc, argv);
-    app.setApplicationName("BetterCast Receiver");
+    app.setApplicationName("BetterCast");
     app.setOrganizationName("BetterCast");
     app.setApplicationVersion("1.0.0");
     app.setWindowIcon(QIcon(":/appicon.png"));

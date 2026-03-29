@@ -1,6 +1,7 @@
 #pragma once
-
-#ifdef _WIN32
+// Note: this file is only compiled on Windows (gated in CMakeLists.txt).
+// Do NOT wrap in #ifdef _WIN32 — AutoMoc cannot resolve preprocessor guards
+// and will skip Q_OBJECT, causing linker errors.
 
 #include "ScreenCapture.h"
 #include <QTimer>
@@ -40,5 +41,3 @@ private:
     QSize m_resolution;
     std::atomic<bool> m_running{false};
 };
-
-#endif // _WIN32
