@@ -45,10 +45,10 @@ jobs:
           restore-keys: |
             vcpkg-ffmpeg-x64-windows-
 
-      - name: Install FFmpeg via vcpkg
+      - name: Install FFmpeg via vcpkg (with x264 encoder)
         shell: pwsh
         run: |
-          vcpkg install ffmpeg:x64-windows
+          vcpkg install "ffmpeg[x264]:x64-windows"
         env:
           VCPKG_ROOT: C:/vcpkg
 
