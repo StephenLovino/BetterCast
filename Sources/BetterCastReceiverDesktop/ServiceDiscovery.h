@@ -54,4 +54,5 @@ private:
     uint16_t m_advertisedPort = 0;
     QString m_serviceName;
     bool m_advertising = false;
+    int m_announceCount = 0;
 };

@@ -1,0 +1,184 @@
+#include "AdbHelper.h"
+#include <QCoreApplication>
+#include <QDebug>
+#include <QFile>
+#include <QDir>
+#include <QProcess>
+#include <QStandardPaths>
+
+AdbHelper::AdbHelper(QObject* parent)
+    : QObject(parent)
+{
+}
+
+QString AdbHelper::findAdb() {
+    if (!m_adbPath.isEmpty() && QFile::exists(m_adbPath)) {
+        return m_adbPath;
+    }
+
+    QStringList candidates;
+
+#ifdef _WIN32
+    // Windows: Android SDK in AppData, or bundled with app
+    QString localAppData = qEnvironmentVariable("LOCALAPPDATA");
+    if (!localAppData.isEmpty()) {
+        candidates << localAppData + "/Android/Sdk/platform-tools/adb.exe";
+    }
+    QString userProfile = qEnvironmentVariable("USERPROFILE");
+    if (!userProfile.isEmpty()) {
+        candidates << userProfile + "/AppData/Local/Android/Sdk/platform-tools/adb.exe";
+    }
+    // Bundled with app
+    candidates << QCoreApplication::applicationDirPath() + "/adb.exe";
+    // System PATH
+    candidates << "adb.exe";
+#else
+    // Linux/macOS
+    candidates << "/usr/bin/adb";
+    candidates << "/usr/local/bin/adb";
+    candidates << "/opt/homebrew/bin/adb";
+    candidates << QDir::homePath() + "/Android/Sdk/platform-tools/adb";
+    candidates << QDir::homePath() + "/Library/Android/sdk/platform-tools/adb";
+    // Snap-installed Android SDK
+    candidates << QDir::homePath() + "/snap/android-studio/current/Android/Sdk/platform-tools/adb";
+    // Bundled with app
+    candidates << QCoreApplication::applicationDirPath() + "/adb";
+    // Flatpak
+    candidates << "/var/lib/flatpak/app/com.google.AndroidStudio/current/active/files/extra/android-studio/bin/adb";
+#endif
+
+    for (const auto& path : candidates) {
+        if (QFile::exists(path)) {
+            m_adbPath = path;
+            qDebug() << "ADB: Found at" << path;
+            return m_adbPath;
+        }
+    }
+
+    // Try PATH lookup as last resort
+    QString fromPath = QStandardPaths::findExecutable("adb");
+    if (!fromPath.isEmpty()) {
+        m_adbPath = fromPath;
+        qDebug() << "ADB: Found in PATH:" << fromPath;
+        return m_adbPath;
+    }
+
+    qDebug() << "ADB: Not found on system";
+    return {};
+}
+
+QString AdbHelper::findDevice() {
+    QString output = runAdb({"devices"});
+    if (output.isEmpty()) return {};
+
+    QStringList serials;
+    QStringList usbSerials;
+
+    for (const auto& line : output.split('\n')) {
+        QString trimmed = line.trimmed();
+        if (trimmed.contains("\tdevice")) {
+            QString serial = trimmed.split('\t').first().trimmed();
+            if (!serial.isEmpty()) {
+                serials << serial;
+                // USB devices have numeric serials, WiFi have IP:port
+                if (!serial.contains(':')) {
+                    usbSerials << serial;
+                }
+            }
+        }
+    }
+
+    if (serials.size() <= 1) {
+        // 0 or 1 device — adb picks automatically
+        m_deviceSerial.clear();
+        return {};
+    }
+
+    // Prefer USB over WiFi
+    m_deviceSerial = usbSerials.isEmpty() ? serials.first() : usbSerials.first();
+    qDebug() << "ADB: Selected device" << m_deviceSerial << "from" << serials.size() << "devices";
+    return m_deviceSerial;
+}
+
+bool AdbHelper::setupForward(uint16_t port) {
+    QString adb = findAdb();
+    if (adb.isEmpty()) {
+        emit statusChanged("ADB not found. Install Android SDK platform-tools.");
+        return false;
+    }
+
+    emit statusChanged("Looking for Android device...");
+
+    // Find device
+    QString serial = findDevice();
+
+    // Check we have at least one device
+    QString devicesOutput = runAdb({"devices"});
+    bool hasDevice = false;
+    for (const auto& line : devicesOutput.split('\n')) {
+        if (line.trimmed().contains("\tdevice")) {
+            hasDevice = true;
+            break;
+        }
+    }
+
+    if (!hasDevice) {
+        emit statusChanged("No Android device found. Enable USB Debugging and connect via USB.");
+        return false;
+    }
+
+    emit statusChanged("Setting up ADB tunnel...");
+
+    // Run: adb [-s serial] forward tcp:port tcp:port
+    QStringList args;
+    if (!serial.isEmpty()) {
+        args << "-s" << serial;
+    }
+    args << "forward" << QString("tcp:%1").arg(port) << QString("tcp:%1").arg(port);
+
+    QString output = runAdb(args);
+
+    // Check if forward was set up (adb forward returns empty on success)
+    // Verify by listing forwards
+    QStringList verifyArgs;
+    if (!serial.isEmpty()) {
+        verifyArgs << "-s" << serial;
+    }
+    verifyArgs << "forward" << "--list";
+    QString forwardList = runAdb(verifyArgs);
+
+    if (forwardList.contains(QString("tcp:%1").arg(port))) {
+        QString deviceInfo = serial.isEmpty() ? "default device" : serial;
+        qDebug() << "ADB: Forward established on port" << port << "device:" << deviceInfo;
+        emit statusChanged("ADB tunnel ready — connecting...");
+        return true;
+    }
+
+    emit statusChanged("ADB forward failed: " + output.trimmed());
+    return false;
+}
+
+QString AdbHelper::runAdb(const QStringList& args, int timeoutMs) {
+    QString adb = findAdb();
+    if (adb.isEmpty()) return {};
+
+    QProcess process;
+    process.setProgram(adb);
+    process.setArguments(args);
+    process.start();
+
+    if (!process.waitForFinished(timeoutMs)) {
+        qWarning() << "ADB: Command timed out:" << args;
+        process.kill();
+        return {};
+    }
+
+    QString stdout = process.readAllStandardOutput();
+    QString stderr = process.readAllStandardError();
+
+    if (process.exitCode() != 0 && !stderr.isEmpty()) {
+        qWarning() << "ADB: Command failed:" << args << "error:" << stderr;
+    }
+
+    return stdout + stderr;
+}

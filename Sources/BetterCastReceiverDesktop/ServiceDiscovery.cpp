@@ -78,20 +78,24 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     m_serviceName = "BetterCast Receiver Linux";
 #endif
     m_advertising = true;
+    m_announceCount = 0;
 
     m_mdnsSocket = new QUdpSocket(this);
 
     // Bind to mDNS multicast port, allow port sharing
     if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
                             QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-        qWarning() << "mDNS: Failed to bind to port 5353:" << m_mdnsSocket->errorString();
-        // Try without share (some Windows configs)
+        qWarning() << "mDNS: Failed to bind to port 5353:" << m_mdnsSocket->errorString()
+                   << "— will send announcements only (no query responses)";
+        // Try without share (some Windows configs — DNS Client service holds 5353)
         if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, 0)) {
             qWarning() << "mDNS: Failed to bind to any port:" << m_mdnsSocket->errorString();
             delete m_mdnsSocket;
             m_mdnsSocket = nullptr;
             return;
         }
+        qDebug() << "mDNS: Bound to fallback port" << m_mdnsSocket->localPort()
+                 << "— announcements will be sent every 5s";
     }
 
     // Join multicast group on all interfaces
@@ -239,13 +243,13 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
 void ServiceDiscovery::sendAnnouncement() {
     if (!m_mdnsSocket || !m_advertising) return;
 
-    static int announceCount = 0;
-    announceCount++;
+    m_announceCount++;
 
-    // After initial burst (5 announcements at 1s), slow to every 20s
-    // 20s keeps us reliably visible in macOS NWBrowser's cache
-    if (announceCount == 5 && m_announceTimer) {
-        m_announceTimer->setInterval(20000);
+    // After initial burst (5 announcements at 1s), slow to every 5s
+    // 5s keeps us reliably visible in macOS NWBrowser's cache
+    // (20s was too long — macOS mDNSResponder would drop us between announcements)
+    if (m_announceCount == 5 && m_announceTimer) {
+        m_announceTimer->setInterval(5000);
     }
 
     auto addrs = getLocalAddresses();

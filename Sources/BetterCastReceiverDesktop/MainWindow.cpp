@@ -6,6 +6,7 @@
 #include "ServiceDiscovery.h"
 #include "AudioDecoder.h"
 #include "AudioPlayer.h"
+#include "AdbHelper.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -13,6 +14,7 @@
 #include <QApplication>
 #include <QDebug>
 #include <QNetworkInterface>
+#include <thread>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -28,6 +30,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_discovery = new ServiceDiscovery(this);
     m_audioDecoder = new AudioDecoder(this);
     m_audioPlayer = new AudioPlayer(this);
+    m_adbHelper = new AdbHelper(this);
 
     // Wire up
     m_network->setup(m_decoder, m_renderer, m_audioDecoder);
@@ -48,6 +51,10 @@ MainWindow::MainWindow(QWidget* parent)
     m_inputHandler->attach(m_renderer);
     connect(m_inputHandler, &InputHandler::inputEvent,
             m_network, &NetworkListener::sendInputEvent);
+
+    // ADB status → UI
+    connect(m_adbHelper, &AdbHelper::statusChanged,
+            this, &MainWindow::onStatusChanged);
 
     // Network status → UI
     connect(m_network, &NetworkListener::connectionEstablished,
@@ -126,6 +133,32 @@ void MainWindow::setupUi() {
 
     connectLayout->addLayout(connectRow);
 
+    connectLayout->addSpacing(15);
+
+    // Android ADB connect section
+    m_adbBtn = new QPushButton("Connect to Android (ADB)");
+    m_adbBtn->setStyleSheet(
+        "QPushButton { background-color: #3ddc84; color: black; font-weight: bold; "
+        "padding: 8px 16px; border-radius: 6px; font-size: 14px; }"
+        "QPushButton:hover { background-color: #50e898; }"
+        "QPushButton:disabled { background-color: #555555; color: #888888; }");
+    m_adbBtn->setFixedWidth(280);
+    connect(m_adbBtn, &QPushButton::clicked, this, &MainWindow::onAdbConnectClicked);
+    connectLayout->addWidget(m_adbBtn, 0, Qt::AlignCenter);
+
+    m_adbHelpLabel = new QLabel(
+        "To mirror your Android screen:\n"
+        "1. Enable Developer Options (tap Build Number 7x in Settings > About)\n"
+        "2. Enable USB Debugging in Developer Options\n"
+        "3. Connect Android to this computer via USB\n"
+        "4. Open BetterCast on Android and tap \"Start Casting\"\n"
+        "5. Click the button above to connect");
+    m_adbHelpLabel->setStyleSheet("color: #777777; font-size: 11px;");
+    m_adbHelpLabel->setAlignment(Qt::AlignCenter);
+    m_adbHelpLabel->setWordWrap(true);
+    m_adbHelpLabel->setFixedWidth(400);
+    connectLayout->addWidget(m_adbHelpLabel, 0, Qt::AlignCenter);
+
     m_connectPage->setStyleSheet("background-color: black;");
     m_stack->addWidget(m_connectPage);
 
@@ -144,6 +177,26 @@ void MainWindow::onConnectClicked() {
     m_network->connectTo(m_hostEdit->text(), port);
     m_connectBtn->setEnabled(false);
     m_statusLabel->setText("Connecting...");
+}
+
+void MainWindow::onAdbConnectClicked() {
+    m_adbBtn->setEnabled(false);
+    m_adbBtn->setText("Setting up ADB...");
+    m_statusLabel->setText("Looking for Android device...");
+
+    // Run ADB setup in background thread to avoid blocking UI
+    std::thread([this]() {
+        bool success = m_adbHelper->setupForward(51820);
+        QMetaObject::invokeMethod(this, [this, success]() {
+            m_adbBtn->setEnabled(true);
+            m_adbBtn->setText("Connect to Android (ADB)");
+
+            if (success) {
+                m_statusLabel->setText("ADB tunnel ready — connecting...");
+                m_network->connectTo("localhost", 51820);
+            }
+        });
+    }).detach();
 }
 
 void MainWindow::onConnectionEstablished() {

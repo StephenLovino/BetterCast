@@ -14,6 +14,7 @@ class InputHandler;
 class ServiceDiscovery;
 class AudioDecoder;
 class AudioPlayer;
+class AdbHelper;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -24,6 +25,7 @@ public:
 
 private slots:
     void onConnectClicked();
+    void onAdbConnectClicked();
     void onConnectionEstablished();
     void onConnectionLost();
     void onStatusChanged(const QString& status);
@@ -42,6 +44,7 @@ private:
     ServiceDiscovery* m_discovery = nullptr;
     AudioDecoder* m_audioDecoder = nullptr;
     AudioPlayer* m_audioPlayer = nullptr;
+    AdbHelper* m_adbHelper = nullptr;
 
     // UI
     QStackedWidget* m_stack = nullptr;
@@ -49,6 +52,8 @@ private:
     QLineEdit* m_hostEdit = nullptr;
     QLineEdit* m_portEdit = nullptr;
     QPushButton* m_connectBtn = nullptr;
+    QPushButton* m_adbBtn = nullptr;
     QLabel* m_statusLabel = nullptr;
     QLabel* m_ipLabel = nullptr;
+    QLabel* m_adbHelpLabel = nullptr;
 };

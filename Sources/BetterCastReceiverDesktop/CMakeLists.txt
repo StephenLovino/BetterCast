@@ -99,6 +99,7 @@ set(SOURCES
     ServiceDiscovery.cpp
     AudioDecoder.cpp
     AudioPlayer.cpp
+    AdbHelper.cpp
 )
 
 set(HEADERS
@@ -111,6 +112,7 @@ set(HEADERS
     ServiceDiscovery.h
     AudioDecoder.h
     AudioPlayer.h
+    AdbHelper.h
 )
 
 # Qt resource file (embeds app icon PNG)
