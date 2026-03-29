@@ -80,12 +80,12 @@ class VideoDecoder: ObservableObject {
     
     private func createDecompressionSessionIfReady() {
         guard let sps = sps, let pps = pps else { return }
-        
+
         // Create Format Description from SPS/PPS
         let parameterSets = [sps, pps]
         let parameterSetPointers = parameterSets.map { ($0 as NSData).bytes.bindMemory(to: UInt8.self, capacity: $0.count) }
         let parameterSetSizes = parameterSets.map { $0.count }
-        
+
         var _formatDescription: CMFormatDescription?
         let status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
             allocator: kCFAllocatorDefault,
@@ -95,29 +95,43 @@ class VideoDecoder: ObservableObject {
             nalUnitHeaderLength: 4, // AVCC format
             formatDescriptionOut: &_formatDescription
         )
-        
+
         guard status == noErr, let formatDesc = _formatDescription else {
             LogManager.shared.log("VideoDecoder: Failed to create format description \(status)")
             return
         }
-        
+
+        // Detect dimension changes (orientation switch) — recreate session like scrcpy does
+        var needsNewSession = (decompressionSession == nil)
+        if let oldFormat = self.formatDescription, decompressionSession != nil {
+            let oldDim = CMVideoFormatDescriptionGetDimensions(oldFormat)
+            let newDim = CMVideoFormatDescriptionGetDimensions(formatDesc)
+            if oldDim.width != newDim.width || oldDim.height != newDim.height {
+                LogManager.shared.log("VideoDecoder: Dimensions changed \(oldDim.width)x\(oldDim.height) -> \(newDim.width)x\(newDim.height), recreating session")
+                VTDecompressionSessionInvalidate(decompressionSession!)
+                decompressionSession = nil
+                timeOffset = 0 // Reset time sync for new stream
+                needsNewSession = true
+            }
+        }
+
         self.formatDescription = formatDesc
-        
+
         // Create Decompression Session
-        if decompressionSession == nil {
+        if needsNewSession {
             let decoderSpecification: [String: Any] = [:]
-            
+
             // Enable RealTime playback hint
             let destinationImageBufferAttributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                 kCVPixelBufferOpenGLCompatibilityKey as String: true
             ]
-            
+
             var outputCallback = VTDecompressionOutputCallbackRecord(
                 decompressionOutputCallback: decompressionCallback,
                 decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque()
             )
-            
+
             var _session: VTDecompressionSession?
             let sessionStatus = VTDecompressionSessionCreate(
                 allocator: kCFAllocatorDefault,
@@ -127,7 +141,7 @@ class VideoDecoder: ObservableObject {
                 outputCallback: &outputCallback,
                 decompressionSessionOut: &_session
             )
-            
+
             if sessionStatus == noErr, let session = _session {
                 self.decompressionSession = session
                 VTSessionSetProperty(session, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)

@@ -7,6 +7,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# Sender mode (screen capture + encode + stream)
+option(ENABLE_SENDER "Enable sender mode (screen capture + H.264 encode)" OFF)
+
 # Qt6 components
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network OpenGLWidgets Multimedia)
 
@@ -115,6 +118,26 @@ set(HEADERS
     AdbHelper.h
 )
 
+# Sender mode sources
+if(ENABLE_SENDER)
+    list(APPEND SOURCES
+        sender/VideoEncoderFF.cpp
+        sender/NetworkSender.cpp
+        sender/SenderController.cpp
+    )
+    list(APPEND HEADERS
+        sender/ScreenCapture.h
+        sender/VideoEncoderFF.h
+        sender/NetworkSender.h
+        sender/SenderController.h
+    )
+    if(WIN32)
+        list(APPEND SOURCES sender/ScreenCaptureWin.cpp)
+        list(APPEND HEADERS sender/ScreenCaptureWin.h)
+    endif()
+    # TODO: Linux PipeWire capture
+endif()
+
 # Qt resource file (embeds app icon PNG)
 qt_add_resources(RESOURCES resources.qrc)
 
@@ -151,6 +174,14 @@ if(DEFINED MDNS_LIBRARIES)
     target_include_directories(BetterCastReceiver PRIVATE ${MDNS_INCLUDE_DIRS})
     target_link_directories(BetterCastReceiver PRIVATE ${MDNS_LIBRARY_DIRS})
     target_link_libraries(BetterCastReceiver PRIVATE ${MDNS_LIBRARIES})
+endif()
+
+# Sender mode compile definition and link flags
+if(ENABLE_SENDER)
+    target_compile_definitions(BetterCastReceiver PRIVATE ENABLE_SENDER=1)
+    if(WIN32)
+        target_link_libraries(BetterCastReceiver PRIVATE d3d11 dxgi)
+    endif()
 endif()
 
 # Windows-specific settings

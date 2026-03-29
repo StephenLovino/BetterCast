@@ -4,7 +4,9 @@
 #include <QFile>
 #include <QDir>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QStandardPaths>
+#include <QThread>
 
 AdbHelper::AdbHelper(QObject* parent)
     : QObject(parent)
@@ -96,6 +98,86 @@ QString AdbHelper::findDevice() {
     return m_deviceSerial;
 }
 
+QString AdbHelper::getDeviceIp() {
+    // Get device IP via adb shell
+    QStringList args;
+    if (!m_deviceSerial.isEmpty()) {
+        args << "-s" << m_deviceSerial;
+    }
+    args << "shell" << "ip" << "route" << "show" << "dev" << "wlan0";
+
+    QString output = runAdb(args, 5000);
+    // Parse: "... src 192.168.1.x ..."
+    QRegularExpression re("src\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)");
+    auto match = re.match(output);
+    if (match.hasMatch()) {
+        QString ip = match.captured(1);
+        qDebug() << "ADB: Device WiFi IP:" << ip;
+        return ip;
+    }
+
+    // Fallback: try wlan1 or other interfaces
+    args.clear();
+    if (!m_deviceSerial.isEmpty()) {
+        args << "-s" << m_deviceSerial;
+    }
+    args << "shell" << "ip" << "-f" << "inet" << "addr" << "show";
+    output = runAdb(args, 5000);
+
+    // Look for non-loopback inet address
+    for (const auto& line : output.split('\n')) {
+        if (line.contains("inet ") && !line.contains("127.0.0.1")) {
+            QRegularExpression re2("inet\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)");
+            auto m = re2.match(line);
+            if (m.hasMatch()) {
+                QString ip = m.captured(1);
+                qDebug() << "ADB: Device IP (fallback):" << ip;
+                return ip;
+            }
+        }
+    }
+
+    qDebug() << "ADB: Could not determine device IP";
+    return {};
+}
+
+bool AdbHelper::enableWirelessAdb() {
+    // Get device IP first (while USB is still connected)
+    m_deviceIp = getDeviceIp();
+    if (m_deviceIp.isEmpty()) {
+        qDebug() << "ADB: Cannot enable wireless — no device IP found (WiFi off?)";
+        return false;
+    }
+
+    // Enable TCP/IP mode on port 5555
+    QStringList args;
+    if (!m_deviceSerial.isEmpty()) {
+        args << "-s" << m_deviceSerial;
+    }
+    args << "tcpip" << "5555";
+
+    emit statusChanged("Enabling wireless ADB...");
+    QString output = runAdb(args, 15000);
+    qDebug() << "ADB: tcpip 5555 result:" << output.trimmed();
+
+    // Give the device a moment to switch to TCP mode
+    QThread::msleep(1500);
+
+    // Connect wirelessly
+    QString connectTarget = m_deviceIp + ":5555";
+    output = runAdb({"connect", connectTarget}, 10000);
+    qDebug() << "ADB: connect" << connectTarget << "result:" << output.trimmed();
+
+    if (output.contains("connected") || output.contains("already")) {
+        emit statusChanged("Wireless ADB enabled — USB can be disconnected");
+        qDebug() << "ADB: Wireless connection established to" << connectTarget;
+        return true;
+    }
+
+    qDebug() << "ADB: Wireless connect failed, USB-only mode";
+    return false;
+}
+
 bool AdbHelper::setupForward(uint16_t port) {
     QString adb = findAdb();
     if (adb.isEmpty()) {
@@ -134,7 +216,6 @@ bool AdbHelper::setupForward(uint16_t port) {
 
     QString output = runAdb(args);
 
-    // Check if forward was set up (adb forward returns empty on success)
     // Verify by listing forwards
     QStringList verifyArgs;
     if (!serial.isEmpty()) {
@@ -146,7 +227,17 @@ bool AdbHelper::setupForward(uint16_t port) {
     if (forwardList.contains(QString("tcp:%1").arg(port))) {
         QString deviceInfo = serial.isEmpty() ? "default device" : serial;
         qDebug() << "ADB: Forward established on port" << port << "device:" << deviceInfo;
-        emit statusChanged("ADB tunnel ready — connecting...");
+
+        m_lastPort = port;
+        m_wasAdbConnection = true;
+
+        // Try to enable wireless ADB so connection survives USB disconnect
+        bool wirelessOk = enableWirelessAdb();
+        if (wirelessOk) {
+            emit statusChanged("ADB tunnel ready (wireless enabled) — connecting...");
+        } else {
+            emit statusChanged("ADB tunnel ready (USB only) — connecting...");
+        }
         return true;
     }
 

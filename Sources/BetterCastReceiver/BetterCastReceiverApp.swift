@@ -27,22 +27,66 @@ struct BetterCastReceiverApp: App {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.all) // Critical for Full Screen
                 
-                // UI Overlay
-                VStack {
-                    if networkListener.connectedClients.isEmpty {
+                // UI Overlay - centered
+                if networkListener.connectedClients.isEmpty {
+                    VStack(spacing: 16) {
                         Text("Waiting for connection...")
                             .foregroundStyle(.orange)
-                            .padding()
-                            .background(.black.opacity(0.5))
-                            .cornerRadius(8)
+                            .font(.headline)
+
+                        // Connect to Android sender via ADB
+                        VStack(spacing: 12) {
+                            Button("Connect to Android (ADB)") {
+                                if let port = UInt16(networkListener.manualConnectPort) {
+                                    networkListener.connectViaADB(port: port)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            // Manual connect option
+                            HStack(spacing: 8) {
+                                TextField("Host", text: $networkListener.manualConnectHost)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 150)
+
+                                TextField("Port", text: $networkListener.manualConnectPort)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 70)
+
+                                Button("Connect") {
+                                    if let port = UInt16(networkListener.manualConnectPort) {
+                                        networkListener.connectTo(
+                                            host: networkListener.manualConnectHost,
+                                            port: port
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if let status = networkListener.status, status.contains("Reconnecting") {
+                            Text(status)
+                                .foregroundStyle(.yellow)
+                                .font(.caption)
+                        }
                     }
-                    
-                    Spacer()
+                    .padding(20)
+                    .background(.black.opacity(0.6))
+                    .cornerRadius(12)
                 }
-                .padding()
             }
-            .frame(minWidth: 800, minHeight: 600)
+            .ignoresSafeArea(.all)
+            .frame(minWidth: 640, minHeight: 200)
             .background(Color.black) // Ensure black background for letterboxing
+            .onReceive(videoRenderer.$videoSize) { newSize in
+                if newSize.width > 0 && newSize.height > 0 {
+                    LogManager.shared.log("Receiver: videoSize changed to \(newSize.width)x\(newSize.height)")
+                    // Delay slightly to ensure window is ready
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        resizeWindowToFit(videoWidth: newSize.width, videoHeight: newSize.height)
+                    }
+                }
+            }
             .onAppear {
                 networkListener.onDataReceived = { data in
                 }
@@ -87,6 +131,58 @@ struct BetterCastReceiverApp: App {
         }
     }
     
+    private func resizeWindowToFit(videoWidth: CGFloat, videoHeight: CGFloat) {
+        guard let window = NSApplication.shared.windows.first(where: { $0.isVisible }) ?? NSApplication.shared.windows.first else {
+            LogManager.shared.log("Receiver: No window found for resize")
+            return
+        }
+        let screen = window.screen ?? NSScreen.main!
+        let screenFrame = screen.visibleFrame
+
+        // Clear ALL constraints so the window can resize freely
+        window.contentAspectRatio = NSSize(width: 0, height: 0)
+        window.aspectRatio = NSSize(width: 0, height: 0)
+        window.contentMinSize = NSSize(width: 200, height: 200)
+        window.minSize = NSSize(width: 200, height: 200)
+
+        let aspectRatio = videoWidth / videoHeight
+        let isLandscape = videoWidth > videoHeight
+        var winWidth: CGFloat
+        var winHeight: CGFloat
+
+        if isLandscape {
+            // Landscape: fit to ~80% of screen width
+            winWidth = min(screenFrame.width * 0.8, videoWidth)
+            winHeight = winWidth / aspectRatio
+            // If still too tall, constrain by height
+            if winHeight > screenFrame.height * 0.85 {
+                winHeight = screenFrame.height * 0.85
+                winWidth = winHeight * aspectRatio
+            }
+        } else {
+            // Portrait: fit to ~75% of screen height
+            winHeight = min(screenFrame.height * 0.75, videoHeight)
+            winWidth = winHeight * aspectRatio
+            // If too wide, constrain by width
+            if winWidth > screenFrame.width * 0.9 {
+                winWidth = screenFrame.width * 0.9
+                winHeight = winWidth / aspectRatio
+            }
+        }
+
+        // Minimum usable size
+        winWidth = max(winWidth, 320)
+        winHeight = max(winHeight, 200)
+
+        // Center on screen
+        let x = screenFrame.origin.x + (screenFrame.width - winWidth) / 2
+        let y = screenFrame.origin.y + (screenFrame.height - winHeight) / 2
+
+        LogManager.shared.log("Receiver: Resizing window to \(Int(winWidth))x\(Int(winHeight)) for video \(Int(videoWidth))x\(Int(videoHeight)) [\(isLandscape ? "landscape" : "portrait")]")
+        window.setFrame(NSRect(x: x, y: y, width: winWidth, height: winHeight), display: true, animate: true)
+        window.aspectRatio = NSSize(width: videoWidth, height: videoHeight)
+    }
+
     private func saveLogs() {
         let panel = NSSavePanel()
         panel.allowedFileTypes = ["txt"]
@@ -103,29 +199,175 @@ class ReceiverAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Default to landscape 16:9 window, centered
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            guard let window = NSApplication.shared.windows.first else { return }
+            guard let screen = window.screen ?? NSScreen.main else { return }
+            let screenFrame = screen.visibleFrame
+            let winWidth = screenFrame.width * 0.7
+            let winHeight = winWidth / (16.0 / 9.0)
+            let x = screenFrame.origin.x + (screenFrame.width - winWidth) / 2
+            let y = screenFrame.origin.y + (screenFrame.height - winHeight) / 2
+            window.setFrame(NSRect(x: x, y: y, width: winWidth, height: winHeight), display: true)
+        }
+    }
+}
+
+/// Injects input events into Android via `adb shell input` commands.
+class ADBInputInjector {
+    private let adbPath: String
+    private let deviceSerial: String?
+    private var screenWidth: Int = 1080
+    private var screenHeight: Int = 2400
+    private let queue = DispatchQueue(label: "com.bettercast.adb-input", qos: .userInteractive)
+    private var isMouseDown = false
+    private var lastTapTime: Date = .distantPast
+    private var lastScrollTime: Date = .distantPast
+
+    init(adbPath: String, deviceSerial: String?) {
+        self.adbPath = adbPath
+        self.deviceSerial = deviceSerial
+        fetchScreenSize()
+    }
+
+    private func fetchScreenSize() {
+        queue.async { [weak self] in
+            guard let self = self else { return }
+            let output = self.runADB(["shell", "wm", "size"])
+            // Output: "Physical size: 1080x2400"
+            if let match = output.range(of: #"(\d+)x(\d+)"#, options: .regularExpression) {
+                let sizeStr = String(output[match])
+                let parts = sizeStr.split(separator: "x")
+                if parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) {
+                    self.screenWidth = w
+                    self.screenHeight = h
+                    LogManager.shared.log("ADB: Screen size \(w)x\(h)")
+                }
+            }
+        }
+    }
+
+    func inject(_ event: InputEvent) {
+        queue.async { [weak self] in
+            self?.handleEvent(event)
+        }
+    }
+
+    private func handleEvent(_ event: InputEvent) {
+        let px = Int(event.x * Double(screenWidth))
+        let py = Int(event.y * Double(screenHeight))
+
+        switch event.type {
+        case .leftMouseDown:
+            isMouseDown = true
+        case .leftMouseUp:
+            if isMouseDown {
+                isMouseDown = false
+                // Tap
+                runADB(["shell", "input", "tap", "\(px)", "\(py)"])
+            }
+        case .scrollWheel:
+            // Throttle scroll — adb shell input swipe is slow, don't queue up dozens
+            let now = Date()
+            guard now.timeIntervalSince(lastScrollTime) > 0.3 else { return }
+            lastScrollTime = now
+            // Translate scroll to swipe
+            let swipeDistance = 200
+            let dy = event.deltaY > 0 ? -swipeDistance : swipeDistance
+            let endY = min(max(py + dy, 0), screenHeight)
+            runADB(["shell", "input", "swipe", "\(px)", "\(py)", "\(px)", "\(endY)", "100"])
+        case .keyDown:
+            // Map macOS keyCode to Android keyevent
+            if let androidKey = macToAndroidKeyCode(event.keyCode) {
+                runADB(["shell", "input", "keyevent", "\(androidKey)"])
+            }
+        case .rightMouseDown:
+            // Back button
+            runADB(["shell", "input", "keyevent", "4"])
+        default:
+            break
+        }
+    }
+
+    @discardableResult
+    private func runADB(_ args: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: adbPath)
+        var fullArgs: [String] = []
+        if let serial = deviceSerial {
+            fullArgs += ["-s", serial]
+        }
+        fullArgs += args
+        process.arguments = fullArgs
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    private func macToAndroidKeyCode(_ macKey: UInt16) -> Int? {
+        // Common macOS virtual key codes → Android KEYCODE
+        switch macKey {
+        case 36: return 66   // Return → KEYCODE_ENTER
+        case 51: return 67   // Delete → KEYCODE_DEL
+        case 53: return 4    // Escape → KEYCODE_BACK
+        case 48: return 61   // Tab → KEYCODE_TAB
+        case 49: return 62   // Space → KEYCODE_SPACE
+        case 123: return 21  // Left arrow → KEYCODE_DPAD_LEFT
+        case 124: return 22  // Right arrow → KEYCODE_DPAD_RIGHT
+        case 125: return 20  // Down arrow → KEYCODE_DPAD_DOWN
+        case 126: return 19  // Up arrow → KEYCODE_DPAD_UP
+        case 115: return 122 // Home → KEYCODE_MOVE_HOME
+        case 119: return 123 // End → KEYCODE_MOVE_END
+        case 116: return 92  // Page Up → KEYCODE_PAGE_UP
+        case 121: return 93  // Page Down → KEYCODE_PAGE_DOWN
+        // Volume
+        case 72: return 24   // Volume Up
+        case 73: return 25   // Volume Down
+        default: return nil
+        }
+    }
 }
 
 class NetworkListener: ObservableObject, VideoDecoderDelegate {
     private var tcpListener: NWListener?
     private var udpListener: NWListener?
     private var quicListener: NWListener?
-    
+
     @Published var status: String? = "Initializing..."
     @Published var connectedClients: [NWConnection] = []
-    
+    @Published var manualConnectHost: String = "localhost"
+    @Published var manualConnectPort: String = "51820"
+
     enum ConnectionType {
         case tcp
         case udp
         case quic
     }
-    
+
     private let networkQueue = DispatchQueue(label: "com.bettercast.network", qos: .userInteractive)
-    
+
     // Dependencies
     var videoRenderer: VideoRenderer?
     var onDataReceived: ((Data) -> Void)?
     var videoDecoder: VideoDecoder?
-    
+    var adbInputInjector: ADBInputInjector?
+
+    // Auto-reconnect state
+    private var lastADBPort: UInt16?
+    private var lastADBPath: String?
+    private var lastADBSerial: String?
+    private var reconnectTimer: Timer?
+    private var isReconnecting = false
+
     init() {}
     
     func setup(decoder: VideoDecoder, renderer: VideoRenderer) {
@@ -139,15 +381,224 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         startUDP()
         startHeartbeat()
     }
+
+    /// Connect to Android sender via ADB tunnel.
+    /// Runs `adb forward` automatically, then connects to localhost.
+    func connectViaADB(port: UInt16) {
+        DispatchQueue.main.async {
+            self.status = "Setting up ADB tunnel..."
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Find adb binary
+            let adbPaths = [
+                "/usr/local/bin/adb",
+                "/opt/homebrew/bin/adb",
+                "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb",
+                "/Users/\(NSUserName())/Library/Android/sdk/platform-tools/adb"
+            ]
+            let adbPath = adbPaths.first { FileManager.default.fileExists(atPath: $0) }
+
+            guard let adb = adbPath else {
+                DispatchQueue.main.async {
+                    self?.status = "ADB not found. Install Android SDK or add adb to PATH."
+                    LogManager.shared.log("Receiver: ADB binary not found at any known path")
+                }
+                return
+            }
+
+            // First, find a connected device (needed when multiple devices are attached)
+            let deviceSerial = self?.findADBDevice(adb: adb)
+
+            // Run: adb [-s device] forward tcp:<port> tcp:<port>
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: adb)
+            var args: [String] = []
+            if let serial = deviceSerial {
+                args += ["-s", serial]
+            }
+            args += ["forward", "tcp:\(port)", "tcp:\(port)"]
+            process.arguments = args
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+                if process.terminationStatus == 0 {
+                    let deviceInfo = deviceSerial ?? "default"
+                    LogManager.shared.log("Receiver: ADB forward established on port \(port) (device: \(deviceInfo))")
+                    // Save for auto-reconnect
+                    self?.lastADBPort = port
+                    self?.lastADBPath = adb
+                    self?.lastADBSerial = deviceSerial
+                    // Set up ADB input injection
+                    let injector = ADBInputInjector(adbPath: adb, deviceSerial: deviceSerial)
+                    DispatchQueue.main.async {
+                        self?.adbInputInjector = injector
+                        self?.isReconnecting = false
+                        self?.stopReconnectTimer()
+                    }
+                    // Enable wireless ADB so connection survives USB disconnect
+                    self?.enableWirelessADB(adb: adb, serial: deviceSerial)
+                    // Now connect via TCP to the forwarded port
+                    self?.connectTo(host: "localhost", port: port)
+                } else {
+                    DispatchQueue.main.async {
+                        self?.status = "ADB forward failed: \(output.trimmingCharacters(in: .whitespacesAndNewlines))"
+                        LogManager.shared.log("Receiver: ADB forward failed (\(process.terminationStatus)): \(output)")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.status = "Failed to run ADB: \(error.localizedDescription)"
+                    LogManager.shared.log("Receiver: Failed to run ADB: \(error)")
+                }
+            }
+        }
+    }
+
+    /// Find a connected ADB device. Prefers USB devices over WiFi.
+    private func findADBDevice(adb: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: adb)
+        process.arguments = ["devices"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let lines = output.components(separatedBy: "\n")
+                .filter { $0.contains("\tdevice") }
+                .map { $0.components(separatedBy: "\t").first ?? "" }
+                .filter { !$0.isEmpty }
+
+            if lines.count <= 1 {
+                // 0 or 1 device — adb will pick it automatically
+                return nil
+            }
+
+            // Multiple devices: prefer USB (no colon in serial) over WiFi (ip:port)
+            let usbDevices = lines.filter { !$0.contains(":") }
+            let wifiDevices = lines.filter { $0.contains(":") }
+
+            // Prefer USB, fall back to WiFi
+            return usbDevices.first ?? wifiDevices.first
+        } catch {
+            return nil
+        }
+    }
+
+    /// Enable wireless ADB so the connection survives USB disconnect.
+    private func enableWirelessADB(adb: String, serial: String?) {
+        // Get device IP via adb shell
+        let ipProcess = Process()
+        ipProcess.executableURL = URL(fileURLWithPath: adb)
+        var ipArgs: [String] = []
+        if let s = serial { ipArgs += ["-s", s] }
+        ipArgs += ["shell", "ip", "route", "show", "dev", "wlan0"]
+        ipProcess.arguments = ipArgs
+        let ipPipe = Pipe()
+        ipProcess.standardOutput = ipPipe
+        ipProcess.standardError = ipPipe
+
+        do {
+            try ipProcess.run()
+            ipProcess.waitUntilExit()
+            let ipOutput = String(data: ipPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+            // Parse "... src 192.168.x.x ..."
+            guard let range = ipOutput.range(of: #"src\s+(\d+\.\d+\.\d+\.\d+)"#, options: .regularExpression),
+                  let ipRange = ipOutput[range].range(of: #"\d+\.\d+\.\d+\.\d+"#, options: .regularExpression) else {
+                LogManager.shared.log("Receiver: Cannot determine device WiFi IP — wireless ADB skipped")
+                return
+            }
+            let deviceIp = String(ipOutput[ipRange])
+
+            // Enable tcpip mode
+            let tcpipProcess = Process()
+            tcpipProcess.executableURL = URL(fileURLWithPath: adb)
+            var tcpipArgs: [String] = []
+            if let s = serial { tcpipArgs += ["-s", s] }
+            tcpipArgs += ["tcpip", "5555"]
+            tcpipProcess.arguments = tcpipArgs
+            let tcpipPipe = Pipe()
+            tcpipProcess.standardOutput = tcpipPipe
+            tcpipProcess.standardError = tcpipPipe
+
+            try tcpipProcess.run()
+            tcpipProcess.waitUntilExit()
+
+            // Wait for device to switch to TCP mode
+            Thread.sleep(forTimeInterval: 1.5)
+
+            // Connect wirelessly
+            let connectProcess = Process()
+            connectProcess.executableURL = URL(fileURLWithPath: adb)
+            connectProcess.arguments = ["connect", "\(deviceIp):5555"]
+            let connectPipe = Pipe()
+            connectProcess.standardOutput = connectPipe
+            connectProcess.standardError = connectPipe
+
+            try connectProcess.run()
+            connectProcess.waitUntilExit()
+            let connectOutput = String(data: connectPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+            if connectOutput.contains("connected") || connectOutput.contains("already") {
+                LogManager.shared.log("Receiver: Wireless ADB enabled (\(deviceIp):5555) — USB can be disconnected")
+                DispatchQueue.main.async {
+                    self.status = "ADB connected (wireless enabled)"
+                }
+            } else {
+                LogManager.shared.log("Receiver: Wireless ADB connect failed: \(connectOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        } catch {
+            LogManager.shared.log("Receiver: Wireless ADB setup error: \(error)")
+        }
+    }
+
+    /// Connect outbound to a remote sender via TCP.
+    func connectTo(host: String, port: UInt16) {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.enableKeepalive = true
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+        parameters.serviceClass = .interactiveVideo
+
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!)
+        let connection = NWConnection(to: endpoint, using: parameters)
+
+        LogManager.shared.log("Receiver: Connecting to \(host):\(port)...")
+        DispatchQueue.main.async {
+            self.status = "Connecting to \(host):\(port)..."
+        }
+
+        handleNewConnection(connection, type: .tcp)
+    }
     
     private func startHeartbeat() {
-        // v69 Heartbeat
+        // v69 Heartbeat - send as length-prefixed JSON to match TCP framing protocol
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            let keepalive = Data([0xDE, 0xAD, 0xBE, 0xEF])
-            
-            for connection in self.connectedClients {
-                connection.send(content: keepalive, completion: .contentProcessed({ _ in }))
+            let heartbeatEvent = InputEvent(type: .command, keyCode: 888)
+            guard let data = try? JSONEncoder().encode(heartbeatEvent) else { return }
+            var packet = Data()
+            var length32 = UInt32(data.count).bigEndian
+            packet.append(Data(bytes: &length32, count: 4))
+            packet.append(data)
+
+            self.networkQueue.async {
+                for connection in self.connectedClients {
+                    connection.send(content: packet, completion: .contentProcessed({ _ in }))
+                }
             }
         }
     }
@@ -156,11 +607,12 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
         do {
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
+            tcpOptions.noDelay = true
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
             parameters.includePeerToPeer = true
             parameters.allowLocalEndpointReuse = true
             // parameters.requiredInterfaceType = .wifi <--- REMOVED: Allow AWDL!
-            parameters.serviceClass = .responsiveData
+            parameters.serviceClass = .interactiveVideo
             
             let listener = try NWListener(using: parameters)
             listener.service = NWListener.Service(name: "BetterCast Receiver", type: "_bettercast._tcp")
@@ -386,6 +838,100 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     private func removeConnection(_ connection: NWConnection) {
         DispatchQueue.main.async {
             self.connectedClients.removeAll(where: { $0 === connection })
+            // Auto-reconnect if this was an ADB connection and no clients remain
+            if self.connectedClients.isEmpty && self.lastADBPort != nil {
+                self.startReconnectTimer()
+            }
+        }
+    }
+
+    private func startReconnectTimer() {
+        guard !isReconnecting else { return }
+        isReconnecting = true
+        stopReconnectTimer()
+        LogManager.shared.log("Receiver: Connection lost. Will auto-reconnect via ADB...")
+        DispatchQueue.main.async {
+            self.status = "Reconnecting via ADB..."
+        }
+
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            self?.attemptADBReconnect()
+        }
+        // Also try immediately
+        attemptADBReconnect()
+    }
+
+    private func stopReconnectTimer() {
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
+    }
+
+    private func attemptADBReconnect() {
+        guard let port = lastADBPort else { return }
+
+        DispatchQueue.main.async {
+            self.status = "Reconnecting via ADB..."
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            // Find adb — use saved path or re-discover
+            let adb: String
+            if let saved = self.lastADBPath, FileManager.default.fileExists(atPath: saved) {
+                adb = saved
+            } else {
+                let adbPaths = [
+                    "/usr/local/bin/adb",
+                    "/opt/homebrew/bin/adb",
+                    "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb",
+                    "/Users/\(NSUserName())/Library/Android/sdk/platform-tools/adb"
+                ]
+                guard let found = adbPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+                    LogManager.shared.log("Receiver: ADB not found during reconnect")
+                    return
+                }
+                adb = found
+            }
+
+            // Check if a device is connected
+            let deviceSerial = self.findADBDevice(adb: adb)
+
+            // Re-establish adb forward
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: adb)
+            var args: [String] = []
+            if let serial = deviceSerial {
+                args += ["-s", serial]
+            }
+            args += ["forward", "tcp:\(port)", "tcp:\(port)"]
+            process.arguments = args
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                if process.terminationStatus == 0 {
+                    LogManager.shared.log("Receiver: ADB forward re-established on port \(port)")
+                    self.lastADBPath = adb
+                    self.lastADBSerial = deviceSerial
+
+                    let injector = ADBInputInjector(adbPath: adb, deviceSerial: deviceSerial)
+                    DispatchQueue.main.async {
+                        self.adbInputInjector = injector
+                        self.isReconnecting = false
+                        self.stopReconnectTimer()
+                    }
+                    self.connectTo(host: "localhost", port: port)
+                } else {
+                    LogManager.shared.log("Receiver: ADB reconnect attempt failed (no device?)")
+                }
+            } catch {
+                LogManager.shared.log("Receiver: ADB reconnect error: \(error)")
+            }
         }
     }
     
@@ -398,20 +944,23 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     }
     
     func sendInputEvent(_ event: InputEvent) {
-        // Reliability for UDP:
-        // Clicks and Key Presses are critical. If 1 packet drops, user is stuck.
-        // Send them 3 times.
+        // ADB input injection (for Android sender control)
+        if event.type != .command {
+            adbInputInjector?.inject(event)
+        }
+
+        // Also send over TCP/UDP (for Mac sender control + heartbeats)
         let isCritical = (event.type == .leftMouseDown || event.type == .leftMouseUp || event.type == .rightMouseDown || event.type == .rightMouseUp || event.type == .keyDown || event.type == .keyUp || event.type == .command)
-        
+
         let repeatCount = isCritical ? 3 : 1
-        
+
         guard let data = try? JSONEncoder().encode(event) else { return }
-        
+
         var packet = Data()
         var length32 = UInt32(data.count).bigEndian
         packet.append(Data(bytes: &length32, count: 4))
         packet.append(data)
-        
+
         networkQueue.async { [weak self] in
             guard let self = self else { return }
             for connection in self.connectedClients {

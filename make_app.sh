@@ -104,6 +104,10 @@ hdiutil create -volname "BetterCast" \
 # Clean up staging
 rm -rf "$DMG_STAGING"
 
+# Sign the DMG itself (required for Gatekeeper to accept it)
+echo "Signing DMG..."
+codesign --force --sign "$SIGN_IDENTITY" "$DMG_NAME"
+
 # ============================================
 # Notarize DMG (if Apple ID is set)
 # ============================================

@@ -7,6 +7,9 @@
 #include "AudioDecoder.h"
 #include "AudioPlayer.h"
 #include "AdbHelper.h"
+#ifdef ENABLE_SENDER
+#include "sender/SenderController.h"
+#endif
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -31,6 +34,24 @@ MainWindow::MainWindow(QWidget* parent)
     m_audioDecoder = new AudioDecoder(this);
     m_audioPlayer = new AudioPlayer(this);
     m_adbHelper = new AdbHelper(this);
+    m_reconnectTimer = new QTimer(this);
+    m_reconnectTimer->setInterval(3000); // 3 seconds between attempts
+    connect(m_reconnectTimer, &QTimer::timeout, this, &MainWindow::attemptAdbReconnect);
+#ifdef ENABLE_SENDER
+    m_sender = new SenderController(this);
+    connect(m_sender, &SenderController::statusChanged, this, &MainWindow::onStatusChanged);
+    connect(m_sender, &SenderController::error, this, [this](const QString& msg) {
+        onStatusChanged("Sender error: " + msg);
+    });
+    connect(m_sender, &SenderController::connected, this, [this]() {
+        onStatusChanged("Sending screen...");
+    });
+    connect(m_sender, &SenderController::stopped, this, [this]() {
+        m_sendBtn->setEnabled(true);
+        m_stopSendBtn->setEnabled(false);
+        m_sendHostEdit->setEnabled(true);
+    });
+#endif
 
     // Wire up
     m_network->setup(m_decoder, m_renderer, m_audioDecoder);
@@ -159,6 +180,50 @@ void MainWindow::setupUi() {
     m_adbHelpLabel->setFixedWidth(400);
     connectLayout->addWidget(m_adbHelpLabel, 0, Qt::AlignCenter);
 
+    // Sender section (when built with ENABLE_SENDER)
+#ifdef ENABLE_SENDER
+    connectLayout->addSpacing(20);
+
+    auto* senderSeparator = new QLabel("— Send Screen —");
+    senderSeparator->setStyleSheet("color: #555555; font-size: 12px;");
+    senderSeparator->setAlignment(Qt::AlignCenter);
+    connectLayout->addWidget(senderSeparator);
+
+    connectLayout->addSpacing(5);
+
+    auto* sendRow = new QHBoxLayout();
+    m_sendHostEdit = new QLineEdit();
+    m_sendHostEdit->setPlaceholderText("Receiver IP (e.g. 192.168.1.50)");
+    m_sendHostEdit->setFixedWidth(220);
+    sendRow->addWidget(m_sendHostEdit);
+
+    m_sendBtn = new QPushButton("Send Screen");
+    m_sendBtn->setStyleSheet(
+        "QPushButton { background-color: #0078D4; color: white; font-weight: bold; "
+        "padding: 8px 16px; border-radius: 6px; font-size: 14px; }"
+        "QPushButton:hover { background-color: #1a8ae8; }"
+        "QPushButton:disabled { background-color: #555555; color: #888888; }");
+    connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::onSendScreenClicked);
+    sendRow->addWidget(m_sendBtn);
+
+    m_stopSendBtn = new QPushButton("Stop");
+    m_stopSendBtn->setEnabled(false);
+    m_stopSendBtn->setStyleSheet(
+        "QPushButton { background-color: #d32f2f; color: white; font-weight: bold; "
+        "padding: 8px 12px; border-radius: 6px; font-size: 14px; }"
+        "QPushButton:hover { background-color: #e53935; }"
+        "QPushButton:disabled { background-color: #555555; color: #888888; }");
+    connect(m_stopSendBtn, &QPushButton::clicked, this, &MainWindow::onStopSendingClicked);
+    sendRow->addWidget(m_stopSendBtn);
+
+    connectLayout->addLayout(sendRow);
+
+    m_senderStatusLabel = new QLabel("Enter a receiver's IP to stream your screen");
+    m_senderStatusLabel->setStyleSheet("color: #777777; font-size: 11px;");
+    m_senderStatusLabel->setAlignment(Qt::AlignCenter);
+    connectLayout->addWidget(m_senderStatusLabel);
+#endif
+
     m_connectPage->setStyleSheet("background-color: black;");
     m_stack->addWidget(m_connectPage);
 
@@ -202,12 +267,24 @@ void MainWindow::onAdbConnectClicked() {
 void MainWindow::onConnectionEstablished() {
     m_stack->setCurrentIndex(1); // Show video
     m_connectBtn->setEnabled(true);
+    m_reconnectTimer->stop();
+    m_reconnectAttempts = 0;
 }
 
 void MainWindow::onConnectionLost() {
     m_stack->setCurrentIndex(0); // Show connect UI
-    m_statusLabel->setText("Connection lost. Reconnect?");
     m_connectBtn->setEnabled(true);
+
+    // Auto-reconnect if this was an ADB connection
+    if (m_adbHelper->wasAdbConnection()) {
+        m_reconnectAttempts = 0;
+        m_statusLabel->setText("Connection lost — auto-reconnecting via ADB...");
+        // Try immediately, then every 3 seconds
+        attemptAdbReconnect();
+        m_reconnectTimer->start();
+    } else {
+        m_statusLabel->setText("Connection lost. Reconnect?");
+    }
 }
 
 void MainWindow::onStatusChanged(const QString& status) {
@@ -256,6 +333,57 @@ void MainWindow::resizeToFitVideo(int videoWidth, int videoHeight) {
 
     setGeometry(x, y, winW, winH);
 }
+
+void MainWindow::attemptAdbReconnect() {
+    m_reconnectAttempts++;
+
+    // Give up after 20 attempts (60 seconds)
+    if (m_reconnectAttempts > 20) {
+        m_reconnectTimer->stop();
+        m_statusLabel->setText("Auto-reconnect failed. Click 'Connect to Android (ADB)' to retry.");
+        return;
+    }
+
+    m_statusLabel->setText(QString("Reconnecting via ADB... (attempt %1)").arg(m_reconnectAttempts));
+
+    // Run in background thread to avoid blocking UI
+    std::thread([this]() {
+        uint16_t port = m_adbHelper->lastPort();
+        if (port == 0) port = 51820;
+
+        bool success = m_adbHelper->setupForward(port);
+        QMetaObject::invokeMethod(this, [this, success, port]() {
+            if (success) {
+                m_reconnectTimer->stop();
+                m_statusLabel->setText("ADB tunnel restored — connecting...");
+                m_network->connectTo("localhost", port);
+            }
+            // If failed, timer will fire again in 3 seconds
+        });
+    }).detach();
+}
+
+#ifdef ENABLE_SENDER
+void MainWindow::onSendScreenClicked() {
+    QString host = m_sendHostEdit->text().trimmed();
+    if (host.isEmpty()) {
+        m_senderStatusLabel->setText("Enter a receiver IP address first");
+        return;
+    }
+
+    m_sendBtn->setEnabled(false);
+    m_stopSendBtn->setEnabled(true);
+    m_sendHostEdit->setEnabled(false);
+    m_senderStatusLabel->setText("Starting sender...");
+
+    m_sender->startSending(host, 51820, 30, 8);
+}
+
+void MainWindow::onStopSendingClicked() {
+    m_sender->stopSending();
+    m_senderStatusLabel->setText("Sender stopped");
+}
+#endif
 
 void MainWindow::updateLocalIpDisplay() {
     QStringList ips;

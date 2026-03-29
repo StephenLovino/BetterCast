@@ -5,6 +5,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QSize>
 
 class VideoRenderer;
@@ -15,6 +16,9 @@ class ServiceDiscovery;
 class AudioDecoder;
 class AudioPlayer;
 class AdbHelper;
+#ifdef ENABLE_SENDER
+class SenderController;
+#endif
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -30,6 +34,11 @@ private slots:
     void onConnectionLost();
     void onStatusChanged(const QString& status);
     void onVideoSizeChanged(QSize size);
+    void attemptAdbReconnect();
+#ifdef ENABLE_SENDER
+    void onSendScreenClicked();
+    void onStopSendingClicked();
+#endif
 
 private:
     void setupUi();
@@ -45,6 +54,11 @@ private:
     AudioDecoder* m_audioDecoder = nullptr;
     AudioPlayer* m_audioPlayer = nullptr;
     AdbHelper* m_adbHelper = nullptr;
+    QTimer* m_reconnectTimer = nullptr;
+    int m_reconnectAttempts = 0;
+#ifdef ENABLE_SENDER
+    SenderController* m_sender = nullptr;
+#endif
 
     // UI
     QStackedWidget* m_stack = nullptr;
@@ -56,4 +70,10 @@ private:
     QLabel* m_statusLabel = nullptr;
     QLabel* m_ipLabel = nullptr;
     QLabel* m_adbHelpLabel = nullptr;
+#ifdef ENABLE_SENDER
+    QPushButton* m_sendBtn = nullptr;
+    QPushButton* m_stopSendBtn = nullptr;
+    QLineEdit* m_sendHostEdit = nullptr;
+    QLabel* m_senderStatusLabel = nullptr;
+#endif
 };

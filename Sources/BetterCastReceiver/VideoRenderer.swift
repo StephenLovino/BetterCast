@@ -166,6 +166,7 @@ class InputOverlayView: NSView {
 class VideoRenderer: ObservableObject {
     let view = InputOverlayView()
     private let displayLayer = AVSampleBufferDisplayLayer()
+    @Published var videoSize: CGSize = .zero
     
     var onInput: ((InputEvent) -> Void)? {
         didSet {
@@ -211,8 +212,10 @@ class VideoRenderer: ObservableObject {
             let height = CGFloat(dim.height)
             
             // Direct update (we are already on Main Thread via didDecode)
-            if width > 0 && height > 0 && view.contentSize.width != width {
-                 view.contentSize = CGSize(width: width, height: height)
+            let newSize = CGSize(width: width, height: height)
+            if width > 0 && height > 0 && view.contentSize != newSize {
+                 view.contentSize = newSize
+                 videoSize = newSize
             }
         }
         
