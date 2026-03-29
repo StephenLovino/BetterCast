@@ -114,6 +114,27 @@ jobs:
           SCRIPT
           chmod +x "$APPDIR/AppRun"
 
+      - name: Download ADB platform-tools
+        run: |
+          wget -q "https://dl.google.com/android/repository/platform-tools-latest-linux.zip" \
+            -O platform-tools.zip
+          unzip -q platform-tools.zip
+          if [ -f "platform-tools/adb" ]; then
+            echo "ADB downloaded successfully"
+          else
+            echo "WARNING: adb not found in download"
+          fi
+
+      - name: Bundle ADB into AppDir
+        run: |
+          APPDIR=$GITHUB_WORKSPACE/AppDir
+          mkdir -p "$APPDIR/usr/bin"
+          if [ -f "platform-tools/adb" ]; then
+            cp platform-tools/adb "$APPDIR/usr/bin/"
+            chmod +x "$APPDIR/usr/bin/adb"
+            echo "ADB bundled into AppDir"
+          fi
+
       - name: Bundle Qt libraries into AppDir
         run: |
           APPDIR=$GITHUB_WORKSPACE/AppDir

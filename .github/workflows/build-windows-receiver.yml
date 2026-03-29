@@ -79,6 +79,19 @@ jobs:
           cd Sources/BetterCastReceiverDesktop/build
           cmake --build . --config Release
 
+      - name: Download ADB platform-tools
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" `
+            -OutFile "platform-tools.zip"
+          Expand-Archive -Path "platform-tools.zip" -DestinationPath "."
+          # Verify adb.exe exists
+          if (Test-Path "platform-tools/adb.exe") {
+            Write-Host "ADB downloaded successfully"
+          } else {
+            Write-Host "WARNING: adb.exe not found in download"
+          }
+
       - name: Package artifact
         shell: pwsh
         run: |
@@ -97,6 +110,14 @@ jobs:
             Get-ChildItem "$vcpkgBin/*.dll" | ForEach-Object {
               Copy-Item $_.FullName "artifact/"
             }
+          }
+
+          # Bundle ADB (adb.exe + required DLLs)
+          if (Test-Path "platform-tools/adb.exe") {
+            Copy-Item "platform-tools/adb.exe" "artifact/"
+            Copy-Item "platform-tools/AdbWinApi.dll" "artifact/" -ErrorAction SilentlyContinue
+            Copy-Item "platform-tools/AdbWinUsbApi.dll" "artifact/" -ErrorAction SilentlyContinue
+            Write-Host "ADB bundled into artifact"
           }
 
           # Copy app icon for runtime (embedded via Qt resource, but also keep as fallback)

@@ -19,7 +19,9 @@ QString AdbHelper::findAdb() {
     QStringList candidates;
 
 #ifdef _WIN32
-    // Windows: Android SDK in AppData, or bundled with app
+    // Bundled with app (preferred — ships with the exe)
+    candidates << QCoreApplication::applicationDirPath() + "/adb.exe";
+    // Android SDK in AppData
     QString localAppData = qEnvironmentVariable("LOCALAPPDATA");
     if (!localAppData.isEmpty()) {
         candidates << localAppData + "/Android/Sdk/platform-tools/adb.exe";
@@ -28,23 +30,17 @@ QString AdbHelper::findAdb() {
     if (!userProfile.isEmpty()) {
         candidates << userProfile + "/AppData/Local/Android/Sdk/platform-tools/adb.exe";
     }
-    // Bundled with app
-    candidates << QCoreApplication::applicationDirPath() + "/adb.exe";
-    // System PATH
-    candidates << "adb.exe";
 #else
-    // Linux/macOS
+    // Bundled with app (preferred — ships with the AppImage)
+    candidates << QCoreApplication::applicationDirPath() + "/adb";
+    candidates << QCoreApplication::applicationDirPath() + "/../usr/bin/adb";
+    // System paths
     candidates << "/usr/bin/adb";
     candidates << "/usr/local/bin/adb";
     candidates << "/opt/homebrew/bin/adb";
     candidates << QDir::homePath() + "/Android/Sdk/platform-tools/adb";
     candidates << QDir::homePath() + "/Library/Android/sdk/platform-tools/adb";
-    // Snap-installed Android SDK
     candidates << QDir::homePath() + "/snap/android-studio/current/Android/Sdk/platform-tools/adb";
-    // Bundled with app
-    candidates << QCoreApplication::applicationDirPath() + "/adb";
-    // Flatpak
-    candidates << "/var/lib/flatpak/app/com.google.AndroidStudio/current/active/files/extra/android-studio/bin/adb";
 #endif
 
     for (const auto& path : candidates) {
