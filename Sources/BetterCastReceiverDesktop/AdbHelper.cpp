@@ -173,12 +173,12 @@ QString AdbHelper::runAdb(const QStringList& args, int timeoutMs) {
         return {};
     }
 
-    QString stdout = process.readAllStandardOutput();
-    QString stderr = process.readAllStandardError();
+    QString stdoutStr = QString::fromUtf8(process.readAllStandardOutput());
+    QString stderrStr = QString::fromUtf8(process.readAllStandardError());
 
-    if (process.exitCode() != 0 && !stderr.isEmpty()) {
-        qWarning() << "ADB: Command failed:" << args << "error:" << stderr;
+    if (process.exitCode() != 0 && !stderrStr.isEmpty()) {
+        qWarning() << "ADB: Command failed:" << args << "error:" << stderrStr;
     }
 
-    return stdout + stderr;
+    return stdoutStr + stderrStr;
 }
