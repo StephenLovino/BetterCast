@@ -7,6 +7,7 @@
 #include "AudioDecoder.h"
 #include "AudioPlayer.h"
 #include "AdbHelper.h"
+#include "ServiceDiscovery.h"
 #ifdef ENABLE_SENDER
 #include "sender/SenderController.h"
 #endif
@@ -221,6 +222,10 @@ MainWindow::MainWindow(QWidget* parent)
         if (m_stopSendBtn) m_stopSendBtn->setEnabled(false);
         if (m_sendHostEdit) m_sendHostEdit->setEnabled(true);
     });
+
+    // mDNS browsing for receiver discovery
+    connect(m_discovery, &ServiceDiscovery::serviceFound,
+            this, &MainWindow::onReceiverDiscovered);
 #endif
 
     // Wire up core components
@@ -262,6 +267,9 @@ MainWindow::MainWindow(QWidget* parent)
     // Start services
     m_network->start();
     m_discovery->startAdvertising(51820);
+#ifdef ENABLE_SENDER
+    m_discovery->startBrowsing();
+#endif
     LogManager::instance().log("BetterCast started — listening on port 51820");
 
     // Default window size (landscape 16:9, 70% screen)
@@ -469,6 +477,25 @@ void MainWindow::setupSendPage() {
     auto* connCard = makeCard("Target Receiver");
     auto* connLayout = new QVBoxLayout(connCard);
     connLayout->setSpacing(12);
+
+    // Discovered receivers dropdown
+    auto* discLabel = new QLabel("Discovered Receivers:");
+    discLabel->setStyleSheet("font-size: 13px; color: #ccc;");
+    connLayout->addWidget(discLabel);
+
+    m_receiverCombo = new QComboBox();
+    m_receiverCombo->addItem("Searching for receivers...");
+    m_receiverCombo->setEnabled(false);
+    connect(m_receiverCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onReceiverSelected);
+    connLayout->addWidget(m_receiverCombo);
+
+    connLayout->addSpacing(4);
+
+    auto* orLabel = new QLabel("— or enter IP manually —");
+    orLabel->setStyleSheet("font-size: 11px; color: #666;");
+    orLabel->setAlignment(Qt::AlignCenter);
+    connLayout->addWidget(orLabel);
 
     auto* hostRow = new QHBoxLayout();
     auto* hostLabel = new QLabel("Receiver IP:");
@@ -1034,6 +1061,38 @@ void MainWindow::onStopSendingClicked() {
     m_fpsSpinBox->setEnabled(true);
     m_bitrateSpinBox->setEnabled(true);
     LogManager::instance().log("Sender stopped");
+}
+
+void MainWindow::onReceiverDiscovered(const DiscoveredService& service) {
+    if (!m_receiverCombo) return;
+
+    // Remove the "Searching..." placeholder on first discovery
+    if (m_receiverCombo->count() == 1 && !m_receiverCombo->isEnabled()) {
+        m_receiverCombo->clear();
+        m_receiverCombo->setEnabled(true);
+        m_receiverCombo->addItem("Select a receiver...");
+    }
+
+    // Check if already in the list
+    QString entry = QString("%1  (%2:%3)").arg(service.name, service.host).arg(service.port);
+    for (int i = 0; i < m_receiverCombo->count(); i++) {
+        if (m_receiverCombo->itemData(i).toString() == service.host) {
+            m_receiverCombo->setItemText(i, entry);
+            return;
+        }
+    }
+
+    m_receiverCombo->addItem(entry, service.host);
+    LogManager::instance().log(QString("Discovered receiver: %1 at %2:%3")
+                                   .arg(service.name, service.host).arg(service.port));
+}
+
+void MainWindow::onReceiverSelected(int index) {
+    if (!m_receiverCombo || !m_sendHostEdit) return;
+    QString host = m_receiverCombo->itemData(index).toString();
+    if (!host.isEmpty()) {
+        m_sendHostEdit->setText(host);
+    }
 }
 #endif
 

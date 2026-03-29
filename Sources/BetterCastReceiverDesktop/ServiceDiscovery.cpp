@@ -80,46 +80,8 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     m_advertising = true;
     m_announceCount = 0;
 
-    m_mdnsSocket = new QUdpSocket(this);
-
-    // Bind to mDNS multicast port, allow port sharing
-    if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
-                            QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-        qWarning() << "mDNS: Failed to bind to port 5353:" << m_mdnsSocket->errorString()
-                   << "— will send announcements only (no query responses)";
-        // Try without share (some Windows configs — DNS Client service holds 5353)
-        if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, 0)) {
-            qWarning() << "mDNS: Failed to bind to any port:" << m_mdnsSocket->errorString();
-            delete m_mdnsSocket;
-            m_mdnsSocket = nullptr;
-            return;
-        }
-        qDebug() << "mDNS: Bound to fallback port" << m_mdnsSocket->localPort()
-                 << "— announcements will be sent every 5s";
-    }
-
-    // Join multicast group on all interfaces
-    bool joined = false;
-    for (const auto& iface : QNetworkInterface::allInterfaces()) {
-        if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
-            iface.flags().testFlag(QNetworkInterface::IsRunning) &&
-            iface.flags().testFlag(QNetworkInterface::CanMulticast) &&
-            !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
-            if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
-                joined = true;
-                qDebug() << "mDNS: Joined multicast on" << iface.humanReadableName();
-            }
-        }
-    }
-
-    if (!joined) {
-        // Fallback: join without specifying interface
-        m_mdnsSocket->joinMulticastGroup(kMdnsAddress);
-    }
-
-    m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastTtlOption, QVariant(255));
-
-    connect(m_mdnsSocket, &QUdpSocket::readyRead, this, &ServiceDiscovery::onMdnsReadyRead);
+    ensureMdnsSocket();
+    if (!m_mdnsSocket) return;
 
     // Send gratuitous announcement so the Mac sender discovers us immediately
     m_announceTimer = new QTimer(this);
@@ -156,16 +118,244 @@ void ServiceDiscovery::stopAdvertising() {
 }
 
 void ServiceDiscovery::startBrowsing() {
-    qDebug() << "mDNS browsing not needed — sender browses for us";
+    if (m_browsing) return;
+    m_browsing = true;
+
+    ensureMdnsSocket();
+
+    // Send browse queries periodically
+    m_browseTimer = new QTimer(this);
+    connect(m_browseTimer, &QTimer::timeout, this, &ServiceDiscovery::sendBrowseQuery);
+    m_browseTimer->start(3000); // every 3 seconds
+    sendBrowseQuery(); // immediate first query
+
+    qDebug() << "mDNS: Started browsing for _bettercast._tcp receivers";
 }
 
 void ServiceDiscovery::stopBrowsing() {
+    m_browsing = false;
+    if (m_browseTimer) {
+        m_browseTimer->stop();
+        delete m_browseTimer;
+        m_browseTimer = nullptr;
+    }
+    m_discovered.clear();
+
 #ifdef HAS_MDNS
     if (m_browseRef) {
         DNSServiceRefDeallocate(static_cast<DNSServiceRef>(m_browseRef));
         m_browseRef = nullptr;
     }
 #endif
+}
+
+void ServiceDiscovery::ensureMdnsSocket() {
+    if (m_mdnsSocket) return;
+
+    m_mdnsSocket = new QUdpSocket(this);
+
+    if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
+                            QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+        if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, 0)) {
+            qWarning() << "mDNS browse: Failed to bind:" << m_mdnsSocket->errorString();
+            delete m_mdnsSocket;
+            m_mdnsSocket = nullptr;
+            return;
+        }
+    }
+
+    bool joined = false;
+    for (const auto& iface : QNetworkInterface::allInterfaces()) {
+        if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
+            iface.flags().testFlag(QNetworkInterface::IsRunning) &&
+            iface.flags().testFlag(QNetworkInterface::CanMulticast) &&
+            !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+            if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
+                joined = true;
+            }
+        }
+    }
+    if (!joined) {
+        m_mdnsSocket->joinMulticastGroup(kMdnsAddress);
+    }
+
+    m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastTtlOption, QVariant(255));
+    connect(m_mdnsSocket, &QUdpSocket::readyRead, this, &ServiceDiscovery::onMdnsReadyRead);
+}
+
+bool ServiceDiscovery::isOwnAddress(const QHostAddress& addr) {
+    for (const auto& local : getLocalAddresses()) {
+        if (local == addr) return true;
+    }
+    return false;
+}
+
+void ServiceDiscovery::sendBrowseQuery() {
+    if (!m_mdnsSocket) return;
+
+    QByteArray query = buildBrowseQuery();
+    m_mdnsSocket->writeDatagram(query, kMdnsAddress, kMdnsPort);
+}
+
+QByteArray ServiceDiscovery::buildBrowseQuery() {
+    QByteArray pkt;
+
+    // DNS header: standard query
+    uint16_t zero = 0;
+    uint16_t qdCount = qToBigEndian(static_cast<uint16_t>(1));
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);   // Transaction ID
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);   // Flags (query)
+    pkt.append(reinterpret_cast<const char*>(&qdCount), 2); // Questions: 1
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);   // Answer RRs
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);   // Authority RRs
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);   // Additional RRs
+
+    // Question: _bettercast._tcp.local PTR IN
+    pkt.append(encodeDnsName("_bettercast._tcp.local"));
+    uint16_t ptrType = qToBigEndian(kTypePTR);
+    uint16_t classIN = qToBigEndian(kClassIN);
+    pkt.append(reinterpret_cast<const char*>(&ptrType), 2);
+    pkt.append(reinterpret_cast<const char*>(&classIN), 2);
+
+    return pkt;
+}
+
+QString ServiceDiscovery::decodeDnsName(const QByteArray& packet, int& offset) {
+    QString name;
+    const uint8_t* d = reinterpret_cast<const uint8_t*>(packet.constData());
+    int pktSize = packet.size();
+    int jumps = 0;
+    bool jumped = false;
+    int savedOffset = -1;
+
+    while (offset < pktSize && jumps < 10) {
+        uint8_t len = d[offset];
+        if (len == 0) {
+            offset++;
+            break;
+        }
+        if ((len & 0xC0) == 0xC0) {
+            // DNS name compression pointer
+            if (offset + 1 >= pktSize) break;
+            if (!jumped) savedOffset = offset + 2;
+            offset = ((len & 0x3F) << 8) | d[offset + 1];
+            jumped = true;
+            jumps++;
+            continue;
+        }
+        offset++;
+        if (offset + len > pktSize) break;
+        if (!name.isEmpty()) name += ".";
+        name += QString::fromUtf8(reinterpret_cast<const char*>(d + offset), len);
+        offset += len;
+    }
+
+    if (jumped && savedOffset >= 0) offset = savedOffset;
+    return name;
+}
+
+void ServiceDiscovery::handleMdnsResponse(const QByteArray& packet) {
+    if (packet.size() < 12) return;
+    const uint8_t* d = reinterpret_cast<const uint8_t*>(packet.constData());
+
+    uint16_t flags = qFromBigEndian<uint16_t>(d + 2);
+    if (!(flags & 0x8000)) return; // Not a response
+
+    uint16_t qdCount = qFromBigEndian<uint16_t>(d + 4);
+    uint16_t anCount = qFromBigEndian<uint16_t>(d + 6);
+
+    int offset = 12;
+
+    // Skip questions
+    for (int i = 0; i < qdCount && offset < packet.size(); i++) {
+        decodeDnsName(packet, offset);
+        offset += 4; // skip qtype + qclass
+    }
+
+    // Parse answer records — collect PTR, SRV, A records
+    QString instanceName;
+    QString srvHost;
+    uint16_t srvPort = 0;
+    QHostAddress aAddr;
+
+    int totalRecords = anCount +
+        qFromBigEndian<uint16_t>(d + 8) +  // authority
+        qFromBigEndian<uint16_t>(d + 10);   // additional
+
+    for (int i = 0; i < totalRecords && offset + 10 < packet.size(); i++) {
+        QString rrName = decodeDnsName(packet, offset);
+        if (offset + 10 > packet.size()) break;
+
+        uint16_t rrType = qFromBigEndian<uint16_t>(d + offset);
+        offset += 2;
+        offset += 2; // class
+        offset += 4; // TTL
+        uint16_t rdLen = qFromBigEndian<uint16_t>(d + offset);
+        offset += 2;
+
+        int rdEnd = offset + rdLen;
+        if (rdEnd > packet.size()) break;
+
+        if (rrType == kTypePTR && rrName.contains("_bettercast._tcp")) {
+            instanceName = decodeDnsName(packet, offset);
+            // Strip service type suffix to get the display name
+            int idx = instanceName.indexOf("._bettercast._tcp");
+            if (idx > 0) instanceName = instanceName.left(idx);
+        } else if (rrType == kTypeSRV) {
+            if (rdLen >= 6) {
+                offset += 2; // priority
+                offset += 2; // weight
+                srvPort = qFromBigEndian<uint16_t>(d + offset);
+                offset += 2;
+                srvHost = decodeDnsName(packet, offset);
+            }
+        } else if (rrType == kTypeA && rdLen == 4) {
+            quint32 ip = qFromBigEndian<quint32>(d + offset);
+            aAddr = QHostAddress(ip);
+        }
+
+        offset = rdEnd;
+    }
+
+    // If we got enough info, emit the discovered service
+    if (!instanceName.isEmpty() && srvPort > 0) {
+        // Use A record IP if available, otherwise try to resolve SRV host
+        QString host;
+        if (!aAddr.isNull()) {
+            host = aAddr.toString();
+        } else if (!srvHost.isEmpty()) {
+            host = srvHost;
+            if (host.endsWith(".local")) host.chop(1); // remove trailing dot if present
+        }
+
+        if (host.isEmpty()) return;
+
+        // Skip our own service
+        if (isOwnAddress(QHostAddress(host)) && srvPort == m_advertisedPort) return;
+
+        DiscoveredService svc;
+        svc.name = instanceName;
+        svc.host = host;
+        svc.port = srvPort;
+
+        // Check if already discovered
+        bool found = false;
+        for (auto& existing : m_discovered) {
+            if (existing.name == svc.name) {
+                existing.host = svc.host;
+                existing.port = svc.port;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            m_discovered.append(svc);
+            qDebug() << "mDNS: Discovered receiver:" << svc.name
+                     << "at" << svc.host << ":" << svc.port;
+            emit serviceFound(svc);
+        }
+    }
 }
 
 void ServiceDiscovery::onMdnsReadyRead() {
@@ -176,8 +366,21 @@ void ServiceDiscovery::onMdnsReadyRead() {
         uint16_t senderPort;
         m_mdnsSocket->readDatagram(data.data(), data.size(), &sender, &senderPort);
 
-        if (m_advertising) {
-            handleMdnsQuery(data, sender, senderPort);
+        if (data.size() < 12) continue;
+
+        uint16_t flags = qFromBigEndian<uint16_t>(
+            reinterpret_cast<const uint8_t*>(data.constData()) + 2);
+
+        if (flags & 0x8000) {
+            // Response — handle for browsing
+            if (m_browsing) {
+                handleMdnsResponse(data);
+            }
+        } else {
+            // Query — handle for advertising
+            if (m_advertising) {
+                handleMdnsQuery(data, sender, senderPort);
+            }
         }
     }
 }

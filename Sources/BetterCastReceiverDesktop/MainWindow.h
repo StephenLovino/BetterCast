@@ -45,6 +45,7 @@ private:
     QStringList m_entries;
 };
 
+struct DiscoveredService;
 class VideoRenderer;
 class VideoDecoder;
 class NetworkListener;
@@ -80,6 +81,8 @@ private slots:
 #ifdef ENABLE_SENDER
     void onSendScreenClicked();
     void onStopSendingClicked();
+    void onReceiverDiscovered(const DiscoveredService& service);
+    void onReceiverSelected(int index);
 #endif
 
 private:
@@ -146,6 +149,7 @@ private:
 
 #ifdef ENABLE_SENDER
     // Send page
+    QComboBox* m_receiverCombo = nullptr;
     QLineEdit* m_sendHostEdit = nullptr;
     QSpinBox* m_fpsSpinBox = nullptr;
     QSpinBox* m_bitrateSpinBox = nullptr;
