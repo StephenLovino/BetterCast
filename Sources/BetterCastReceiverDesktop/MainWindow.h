@@ -153,6 +153,4 @@ private:
     QPushButton* m_stopSendBtn = nullptr;
     QLabel* m_senderStatusLabel = nullptr;
 #endif
-
-    bool m_sidebarHidden = false;
 };

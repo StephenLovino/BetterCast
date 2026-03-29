@@ -881,9 +881,8 @@ void MainWindow::onConnectionEstablished() {
     m_reconnectAttempts = 0;
     LogManager::instance().log("Connection established — streaming video");
 
-    // Hide sidebar for fullscreen video
-    m_sidebarList->hide();
-    m_sidebarHidden = true;
+    // Keep sidebar visible — select Receive in sidebar to show it's active
+    selectSidebarItem(m_pageReceive);
 
     if (m_adbHelper->wasAdbConnection()) {
         std::thread([this]() {
@@ -893,12 +892,6 @@ void MainWindow::onConnectionEstablished() {
 }
 
 void MainWindow::onConnectionLost() {
-    // Show sidebar again
-    if (m_sidebarHidden) {
-        m_sidebarList->show();
-        m_sidebarHidden = false;
-    }
-
     selectSidebarItem(m_pageReceive);
     m_connectBtn->setEnabled(true);
 
@@ -935,30 +928,44 @@ void MainWindow::resizeToFitVideo(int videoWidth, int videoHeight) {
     double aspect = static_cast<double>(videoWidth) / videoHeight;
     bool landscape = videoWidth > videoHeight;
 
-    int winW, winH;
+    // Account for sidebar width so the video area matches the aspect ratio
+    int sidebarW = m_sidebarList && m_sidebarList->isVisible()
+        ? m_sidebarList->width() + m_splitter->handleWidth()
+        : 0;
+
+    // Calculate the video area size (excluding sidebar)
+    int videoAreaW, videoAreaH;
+    int maxVideoAreaW = available.width() - sidebarW;
+
     if (landscape) {
-        winW = std::min(static_cast<int>(available.width() * 0.8), videoWidth);
-        winH = static_cast<int>(winW / aspect);
-        if (winH > available.height() * 0.85) {
-            winH = static_cast<int>(available.height() * 0.85);
-            winW = static_cast<int>(winH * aspect);
+        videoAreaW = std::min(static_cast<int>(maxVideoAreaW * 0.85), videoWidth);
+        videoAreaH = static_cast<int>(videoAreaW / aspect);
+        if (videoAreaH > available.height() * 0.85) {
+            videoAreaH = static_cast<int>(available.height() * 0.85);
+            videoAreaW = static_cast<int>(videoAreaH * aspect);
         }
     } else {
-        winH = std::min(static_cast<int>(available.height() * 0.75), videoHeight);
-        winW = static_cast<int>(winH * aspect);
-        if (winW > available.width() * 0.9) {
-            winW = static_cast<int>(available.width() * 0.9);
-            winH = static_cast<int>(winW / aspect);
+        videoAreaH = std::min(static_cast<int>(available.height() * 0.75), videoHeight);
+        videoAreaW = static_cast<int>(videoAreaH * aspect);
+        if (videoAreaW > maxVideoAreaW * 0.9) {
+            videoAreaW = static_cast<int>(maxVideoAreaW * 0.9);
+            videoAreaH = static_cast<int>(videoAreaW / aspect);
         }
     }
 
-    winW = std::max(winW, 320);
+    // Total window = sidebar + video area
+    int winW = videoAreaW + sidebarW;
+    int winH = videoAreaH;
+
+    winW = std::max(winW, 640);
     winH = std::max(winH, 200);
 
     int x = available.x() + (available.width() - winW) / 2;
     int y = available.y() + (available.height() - winH) / 2;
 
     qDebug() << "Resizing window to" << winW << "x" << winH
+             << "(video area" << videoAreaW << "x" << videoAreaH
+             << "+ sidebar" << sidebarW << ")"
              << "for video" << videoWidth << "x" << videoHeight;
 
     setGeometry(x, y, winW, winH);
@@ -1086,11 +1093,12 @@ void MainWindow::onReportIssue() {
 // ─── Key Events ─────────────────────────────────────────────────────────────────
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Escape && m_sidebarHidden) {
-        // Toggle sidebar back when pressing Escape during video
-        m_sidebarList->show();
-        m_sidebarHidden = false;
-        return;
+    if (event->key() == Qt::Key_Escape) {
+        // If viewing video, go back to receive page
+        if (m_stack->currentIndex() == m_pageVideo) {
+            selectSidebarItem(m_pageReceive);
+            return;
+        }
     }
     QMainWindow::keyPressEvent(event);
 }
