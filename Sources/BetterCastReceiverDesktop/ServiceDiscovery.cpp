@@ -154,14 +154,21 @@ void ServiceDiscovery::ensureMdnsSocket() {
 
     m_mdnsSocket = new QUdpSocket(this);
 
-    if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
-                            QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+    bool boundTo5353 = m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
+                                           QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint);
+    if (boundTo5353) {
+        qDebug() << "mDNS: Bound to port 5353 (can receive queries from other devices)";
+    } else {
+        qWarning() << "mDNS: Could not bind port 5353:" << m_mdnsSocket->errorString()
+                    << "— other devices won't be able to discover us via query/response";
+        // Fallback: bind to any port (we can still send announcements but can't receive queries)
         if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, 0)) {
-            qWarning() << "mDNS browse: Failed to bind:" << m_mdnsSocket->errorString();
+            qWarning() << "mDNS: Failed to bind any port:" << m_mdnsSocket->errorString();
             delete m_mdnsSocket;
             m_mdnsSocket = nullptr;
             return;
         }
+        qDebug() << "mDNS: Bound to fallback port" << m_mdnsSocket->localPort();
     }
 
     bool joined = false;
@@ -171,15 +178,23 @@ void ServiceDiscovery::ensureMdnsSocket() {
             iface.flags().testFlag(QNetworkInterface::CanMulticast) &&
             !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
             if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
+                qDebug() << "mDNS: Joined multicast on" << iface.humanReadableName();
                 joined = true;
             }
         }
     }
     if (!joined) {
-        m_mdnsSocket->joinMulticastGroup(kMdnsAddress);
+        if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress)) {
+            qDebug() << "mDNS: Joined multicast on default interface";
+            joined = true;
+        } else {
+            qWarning() << "mDNS: Failed to join multicast group 224.0.0.251";
+        }
     }
 
     m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastTtlOption, QVariant(255));
+    // Enable multicast loopback so we can see our own announcements for debugging
+    m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastLoopbackOption, QVariant(1));
     connect(m_mdnsSocket, &QUdpSocket::readyRead, this, &ServiceDiscovery::onMdnsReadyRead);
 }
 
@@ -434,6 +449,8 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
             (qtype == kTypePTR && qname.contains("_tcp.local"))) {
             // Send our response
             auto addrs = getLocalAddresses();
+            qDebug() << "mDNS: Received query for" << qname << "from"
+                      << sender.toString() << "— responding with" << addrs.size() << "addresses";
             for (const auto& addr : addrs) {
                 QByteArray response = buildMdnsResponse(txId, addr);
                 m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
@@ -448,17 +465,20 @@ void ServiceDiscovery::sendAnnouncement() {
 
     m_announceCount++;
 
-    // After initial burst (5 announcements at 1s), slow to every 5s
-    // 5s keeps us reliably visible in macOS NWBrowser's cache
-    // (20s was too long — macOS mDNSResponder would drop us between announcements)
-    if (m_announceCount == 5 && m_announceTimer) {
-        m_announceTimer->setInterval(5000);
+    // After initial burst (10 announcements at 1s), slow to every 3s
+    // macOS mDNSResponder needs frequent announcements to pick up new services
+    if (m_announceCount == 10 && m_announceTimer) {
+        m_announceTimer->setInterval(3000);
     }
 
     auto addrs = getLocalAddresses();
     for (const auto& addr : addrs) {
         QByteArray response = buildMdnsResponse(0, addr);
-        m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+        qint64 sent = m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+        if (m_announceCount <= 3) {
+            qDebug() << "mDNS: Announcement" << m_announceCount
+                      << "sent" << sent << "bytes for" << addr.toString();
+        }
     }
 }
 
