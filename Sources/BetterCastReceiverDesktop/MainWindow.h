@@ -114,6 +114,7 @@ private:
     AdbHelper* m_adbHelper = nullptr;
     QTimer* m_reconnectTimer = nullptr;
     int m_reconnectAttempts = 0;
+    bool m_wirelessAdbEnabled = false;
 #ifdef ENABLE_SENDER
     SenderController* m_sender = nullptr;
 #endif

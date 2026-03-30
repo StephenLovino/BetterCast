@@ -976,10 +976,18 @@ void MainWindow::onConnectionEstablished() {
     selectSidebarItem(m_pageReceive);
     m_stack->setCurrentIndex(m_pageVideo);
 
-    if (m_adbHelper->wasAdbConnection()) {
-        std::thread([this]() {
-            m_adbHelper->enableWirelessAdb();
-        }).detach();
+    if (m_adbHelper->wasAdbConnection() && !m_wirelessAdbEnabled) {
+        // Delay wireless ADB by 5 seconds — adb tcpip 5555 temporarily kills
+        // the USB connection (and our forward tunnel). Give the stream time to
+        // start before we switch to wireless mode.
+        QTimer::singleShot(5000, this, [this]() {
+            if (m_wirelessAdbEnabled) return; // already done
+            m_wirelessAdbEnabled = true;
+            LogManager::instance().log("Enabling wireless ADB (USB can be disconnected after)...");
+            std::thread([this]() {
+                m_adbHelper->enableWirelessAdb();
+            }).detach();
+        });
     }
 }
 
