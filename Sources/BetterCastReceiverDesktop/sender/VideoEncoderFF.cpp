@@ -9,6 +9,10 @@ extern "C" {
 #include <libavutil/opt.h>
 }
 
+#ifndef FF_PROFILE_H264_HIGH
+#define FF_PROFILE_H264_HIGH 100
+#endif
+
 VideoEncoderFF::VideoEncoderFF(QObject* parent)
     : QObject(parent)
 {
