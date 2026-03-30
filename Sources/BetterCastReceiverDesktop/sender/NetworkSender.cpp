@@ -1,5 +1,5 @@
 #include "NetworkSender.h"
-#include "MainWindow.h"  // for LogManager
+#include "../MainWindow.h"  // for LogManager
 #include <QDebug>
 #include <QtEndian>
 
