@@ -73,11 +73,21 @@ void VideoDecoder::decode(const QByteArray& data) {
 
     // Initialize or reinitialize decoder if we have SPS/PPS
     if (!m_sps.isEmpty() && !m_pps.isEmpty()) {
-        if (!m_codecCtx) {
+        bool needsInit = !m_codecCtx;
+        // Also reinit if SPS/PPS changed (new stream or resolution change)
+        if (m_codecCtx && (m_sps != m_activeSps || m_pps != m_activePps)) {
+            LogManager::instance().log("Decoder: SPS/PPS changed — reinitializing for new stream");
+            destroyDecoder();
+            needsInit = true;
+        }
+        if (needsInit) {
             LogManager::instance().log(QString("Decoder: Initializing with SPS(%1) + PPS(%2)")
                 .arg(m_sps.size()).arg(m_pps.size()));
-            initDecoder(reinterpret_cast<const uint8_t*>(m_sps.constData()), m_sps.size(),
-                        reinterpret_cast<const uint8_t*>(m_pps.constData()), m_pps.size());
+            if (initDecoder(reinterpret_cast<const uint8_t*>(m_sps.constData()), m_sps.size(),
+                            reinterpret_cast<const uint8_t*>(m_pps.constData()), m_pps.size())) {
+                m_activeSps = m_sps;
+                m_activePps = m_pps;
+            }
         }
     }
 
@@ -162,6 +172,15 @@ bool VideoDecoder::initDecoder(const uint8_t* sps, int spsLen, const uint8_t* pp
 
     qDebug() << "H.264 decoder initialized";
     return true;
+}
+
+void VideoDecoder::reset() {
+    LogManager::instance().log("Decoder: reset — clearing state for new stream");
+    destroyDecoder();
+    m_sps.clear();
+    m_pps.clear();
+    m_activeSps.clear();
+    m_activePps.clear();
 }
 
 void VideoDecoder::destroyDecoder() {

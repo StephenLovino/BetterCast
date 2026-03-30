@@ -17,6 +17,7 @@ public:
     ~VideoDecoder();
 
     void decode(const QByteArray& data);
+    void reset();
 
 signals:
     // Emitted when a frame is decoded. Receiver must copy data before returning.
@@ -32,9 +33,12 @@ private:
     AVFrame* m_frame = nullptr;
     AVPacket* m_packet = nullptr;
 
-    // Cached SPS/PPS
+    // Cached SPS/PPS (from current packet scan)
     QByteArray m_sps;
     QByteArray m_pps;
+    // Active SPS/PPS (what the decoder was initialized with)
+    QByteArray m_activeSps;
+    QByteArray m_activePps;
 
     // Track dimensions for change detection (orientation switch)
     int m_currentWidth = 0;

@@ -70,6 +70,10 @@ void NetworkListener::disconnectAll() {
     m_clients.clear();
     m_tcpBuffers.clear();
     m_connectionFormat.clear();
+    // Reset decoder so next connection starts fresh
+    if (m_decoder) {
+        m_decoder->reset();
+    }
 }
 
 void NetworkListener::connectTo(const QString& host, uint16_t port) {
@@ -234,6 +238,10 @@ void NetworkListener::onTcpDisconnected() {
     socket->deleteLater();
 
     if (m_clients.isEmpty()) {
+        // Reset decoder so next connection starts fresh
+        if (m_decoder) {
+            m_decoder->reset();
+        }
         emit connectionLost();
         emit statusChanged("Waiting for connection...");
     }
