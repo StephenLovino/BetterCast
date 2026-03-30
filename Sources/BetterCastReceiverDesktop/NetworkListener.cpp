@@ -69,6 +69,7 @@ void NetworkListener::disconnectAll() {
     }
     m_clients.clear();
     m_tcpBuffers.clear();
+    m_connectionFormat.clear();
 }
 
 void NetworkListener::connectTo(const QString& host, uint16_t port) {
@@ -83,6 +84,7 @@ void NetworkListener::connectTo(const QString& host, uint16_t port) {
         LogManager::instance().log("Connected to " + socket->peerAddress().toString());
         m_clients.append(socket);
         m_tcpBuffers[socket] = QByteArray();
+        m_connectionFormat[socket] = -1; // auto-detect on first frame
         emit connectionEstablished();
         emit statusChanged("Connected to " + socket->peerAddress().toString());
     });
@@ -103,6 +105,7 @@ void NetworkListener::onNewTcpConnection() {
         qDebug() << "New TCP connection from" << socket->peerAddress().toString();
         m_clients.append(socket);
         m_tcpBuffers[socket] = QByteArray();
+        m_connectionFormat[socket] = -1; // auto-detect on first frame
 
         connect(socket, &QTcpSocket::readyRead, this, &NetworkListener::onTcpReadyRead);
         connect(socket, &QTcpSocket::disconnected, this, &NetworkListener::onTcpDisconnected);
@@ -156,21 +159,33 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
         QByteArray body = buffer.mid(consumed + 4, static_cast<int>(length));
         consumed += totalNeeded;
 
-        // Check for packet type byte (new framing: first byte is type)
-        if (body.size() > 1) {
-            uint8_t typeByte = static_cast<uint8_t>(body[0]);
-            if (typeByte == 0x01) {
-                // Video packet — strip type byte
-                handleVideoData(body.mid(1));
-                continue;
-            } else if (typeByte == 0x02) {
-                // Audio packet — strip type byte
-                handleAudioData(body.mid(1));
-                continue;
+        // Auto-detect framing format on first frame per connection.
+        // Type-byte format (Mac sender): [0x01=video|0x02=audio][payload]
+        // Legacy format (Android/Swift): [8-byte PTS][NALUs] — first frame PTS=0 so byte[0]=0x00
+        int& format = m_connectionFormat[socket];
+        if (format < 0 && body.size() > 1) {
+            uint8_t firstByte = static_cast<uint8_t>(body[0]);
+            if (firstByte == 0x01 || firstByte == 0x02) {
+                format = 1; // type-byte framing
+                LogManager::instance().log("Detected type-byte framing (desktop sender)");
+            } else {
+                format = 0; // legacy framing
+                LogManager::instance().log("Detected legacy framing (Android/Swift sender)");
             }
         }
-        // Legacy: no type byte, treat as video (backward compat)
-        handleVideoData(body);
+
+        if (format == 1 && body.size() > 1) {
+            uint8_t typeByte = static_cast<uint8_t>(body[0]);
+            if (typeByte == 0x01) {
+                handleVideoData(body.mid(1));
+            } else if (typeByte == 0x02) {
+                handleAudioData(body.mid(1));
+            }
+            // else: unknown type, skip
+        } else {
+            // Legacy: no type byte, treat as video
+            handleVideoData(body);
+        }
     }
 
     // Remove all consumed bytes at once (avoids repeated O(n) shifts)
@@ -209,6 +224,7 @@ void NetworkListener::onTcpDisconnected() {
     qDebug() << "TCP client disconnected:" << socket->peerAddress().toString();
     m_clients.removeAll(socket);
     m_tcpBuffers.remove(socket);
+    m_connectionFormat.remove(socket);
     socket->deleteLater();
 
     if (m_clients.isEmpty()) {

@@ -54,6 +54,10 @@ private:
     QList<QTcpSocket*> m_clients;
     QHash<QTcpSocket*, QByteArray> m_tcpBuffers;
 
+    // Per-connection format detection: true = type-byte framing, false = legacy
+    // -1 = not yet detected
+    QHash<QTcpSocket*, int> m_connectionFormat;
+
     // UDP
     QUdpSocket* m_udpSocket = nullptr;
     static constexpr uint16_t kDefaultTcpPort = 51820;
