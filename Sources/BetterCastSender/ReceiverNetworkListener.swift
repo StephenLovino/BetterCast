@@ -22,7 +22,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     private var connectionFormat: [ObjectIdentifier: Bool] = [:]
 
     // Auto-reconnect state
-    private var lastADBPort: UInt16?
+    private var lastADBPort: UInt16?       // remote port on Android
+    private var lastADBLocalPort: UInt16?  // local port for ADB tunnel
     private var lastADBPath: String?
     private var lastADBSerial: String?
     private var reconnectTimer: Timer?
@@ -104,7 +105,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             if let serial = deviceSerial {
                 args += ["-s", serial]
             }
-            args += ["forward", "tcp:\(port)", "tcp:\(port)"]
+            // Use a different local port to avoid conflict with our own receiver on 51820
+            let localPort = port + 1  // e.g., 51821 → android:51820
+            args += ["forward", "tcp:\(localPort)", "tcp:\(port)"]
             process.arguments = args
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -117,8 +120,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                 let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
 
                 if process.terminationStatus == 0 {
-                    LogManager.shared.log("Receiver: ADB forward established on port \(port)")
+                    LogManager.shared.log("Receiver: ADB forward localhost:\(localPort) → android:\(port)")
                     self?.lastADBPort = port
+                    self?.lastADBLocalPort = localPort
                     self?.lastADBPath = adb
                     self?.lastADBSerial = deviceSerial
                     let injector = ADBInputInjector(adbPath: adb, deviceSerial: deviceSerial)
@@ -127,7 +131,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                         self?.isReconnecting = false
                         self?.stopReconnectTimer()
                     }
-                    self?.connectTo(host: "localhost", port: port)
+                    self?.connectTo(host: "localhost", port: localPort)
                     self?.isConnectingADB = false
                 } else {
                     self?.isConnectingADB = false
@@ -586,7 +590,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             if let serial = deviceSerial {
                 args += ["-s", serial]
             }
-            args += ["forward", "tcp:\(port)", "tcp:\(port)"]
+            let localPort = port + 1
+            args += ["forward", "tcp:\(localPort)", "tcp:\(port)"]
             process.arguments = args
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -599,6 +604,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                 if process.terminationStatus == 0 {
                     self.lastADBPath = adb
                     self.lastADBSerial = deviceSerial
+                    self.lastADBLocalPort = localPort
 
                     let injector = ADBInputInjector(adbPath: adb, deviceSerial: deviceSerial)
                     DispatchQueue.main.async {
@@ -606,7 +612,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                         self.isReconnecting = false
                         self.stopReconnectTimer()
                     }
-                    self.connectTo(host: "localhost", port: port)
+                    self.connectTo(host: "localhost", port: localPort)
                 }
             } catch {
                 LogManager.shared.log("Receiver: ADB reconnect error: \(error)")
