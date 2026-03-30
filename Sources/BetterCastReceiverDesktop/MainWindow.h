@@ -55,6 +55,7 @@ class ServiceDiscovery;
 class AudioDecoder;
 class AudioPlayer;
 class AdbHelper;
+class VideoWindow;
 #ifdef ENABLE_SENDER
 class SenderController;
 #endif
@@ -87,8 +88,6 @@ private slots:
 #endif
 
 private:
-    void keyPressEvent(QKeyEvent* event) override;
-    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void setupUi();
     void setupSidebar();
     void setupOverviewPage();
@@ -98,10 +97,8 @@ private:
 #ifdef ENABLE_SENDER
     void setupSendPage();
 #endif
-    void resizeToFitVideo(int videoWidth, int videoHeight);
     void updateLocalIpDisplay();
     void selectSidebarItem(int pageIndex);
-    void toggleFullscreen();
 
     // Core components
     VideoDecoder* m_decoder = nullptr;
@@ -130,7 +127,6 @@ private:
     int m_pageReceive = -1;
     int m_pageSettings = -1;
     int m_pageLogs = -1;
-    int m_pageVideo = -1;
 
     // Overview page
     QLabel* m_overviewStatusLabel = nullptr;
@@ -151,9 +147,8 @@ private:
     // Logs page
     QTextEdit* m_logViewer = nullptr;
 
-    // Video page toolbar
-    QWidget* m_videoContainer = nullptr;
-    QWidget* m_videoToolbar = nullptr;
+    // Video window (separate from main window, like Mac app)
+    VideoWindow* m_videoWindow = nullptr;
 
 #ifdef ENABLE_SENDER
     // Send page

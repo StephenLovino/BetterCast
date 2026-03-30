@@ -1,4 +1,5 @@
 #include "VideoDecoder.h"
+#include "MainWindow.h"  // for LogManager
 #include <QDebug>
 #include <QtEndian>
 
@@ -17,9 +18,18 @@ VideoDecoder::~VideoDecoder() {
 }
 
 void VideoDecoder::decode(const QByteArray& data) {
+    static int decodeCallCount = 0;
+    decodeCallCount++;
+
     // Expected format: [PTS: 8 bytes][NALUs...]
     // PTS is uint64 native endian (matching Swift sender)
-    if (data.size() <= 8) return;
+    if (data.size() <= 8) {
+        if (decodeCallCount <= 5) {
+            LogManager::instance().log(QString("Decoder: frame %1 too small (%2 bytes), skipping")
+                .arg(decodeCallCount).arg(data.size()));
+        }
+        return;
+    }
 
     const uint8_t* raw = reinterpret_cast<const uint8_t*>(data.constData());
 
@@ -29,18 +39,33 @@ void VideoDecoder::decode(const QByteArray& data) {
 
     // Scan for SPS/PPS in AVCC-framed NALUs: [4-byte big-endian length][NALU data]
     int offset = 0;
+    int naluCount = 0;
     while (offset + 4 <= videoLen) {
         uint32_t naluLen = qFromBigEndian<uint32_t>(videoData + offset);
-        if (offset + 4 + static_cast<int>(naluLen) > videoLen) break;
+        if (naluLen == 0 || offset + 4 + static_cast<int>(naluLen) > videoLen) {
+            if (decodeCallCount <= 5) {
+                LogManager::instance().log(QString("Decoder: frame %1 NALU scan stopped at offset %2, naluLen=%3, videoLen=%4")
+                    .arg(decodeCallCount).arg(offset).arg(naluLen).arg(videoLen));
+            }
+            break;
+        }
 
         uint8_t naluType = videoData[offset + 4] & 0x1F;
+        naluCount++;
+
+        if (decodeCallCount <= 3) {
+            LogManager::instance().log(QString("Decoder: frame %1 NALU #%2: type=%3, len=%4")
+                .arg(decodeCallCount).arg(naluCount).arg(naluType).arg(naluLen));
+        }
 
         if (naluType == 7) { // SPS
             m_sps = QByteArray(reinterpret_cast<const char*>(videoData + offset + 4),
                                static_cast<int>(naluLen));
+            LogManager::instance().log(QString("Decoder: Got SPS (%1 bytes)").arg(naluLen));
         } else if (naluType == 8) { // PPS
             m_pps = QByteArray(reinterpret_cast<const char*>(videoData + offset + 4),
                                static_cast<int>(naluLen));
+            LogManager::instance().log(QString("Decoder: Got PPS (%1 bytes)").arg(naluLen));
         }
 
         offset += 4 + static_cast<int>(naluLen);
@@ -49,7 +74,8 @@ void VideoDecoder::decode(const QByteArray& data) {
     // Initialize or reinitialize decoder if we have SPS/PPS
     if (!m_sps.isEmpty() && !m_pps.isEmpty()) {
         if (!m_codecCtx) {
-            qDebug() << "VideoDecoder: Have SPS" << m_sps.size() << "bytes, PPS" << m_pps.size() << "bytes, initializing decoder";
+            LogManager::instance().log(QString("Decoder: Initializing with SPS(%1) + PPS(%2)")
+                .arg(m_sps.size()).arg(m_pps.size()));
             initDecoder(reinterpret_cast<const uint8_t*>(m_sps.constData()), m_sps.size(),
                         reinterpret_cast<const uint8_t*>(m_pps.constData()), m_pps.size());
         }
@@ -57,6 +83,9 @@ void VideoDecoder::decode(const QByteArray& data) {
 
     if (m_codecCtx) {
         decodeNalus(videoData, videoLen);
+    } else if (decodeCallCount <= 10) {
+        LogManager::instance().log(QString("Decoder: frame %1 — no codec context yet (waiting for SPS/PPS)")
+            .arg(decodeCallCount));
     }
 }
 
@@ -153,20 +182,23 @@ void VideoDecoder::destroyDecoder() {
 }
 
 void VideoDecoder::decodeNalus(const uint8_t* data, int size) {
-    // Convert AVCC framing (4-byte length prefix) to Annex-B (start codes)
-    // FFmpeg's H.264 decoder can handle AVCC directly if extradata is set,
-    // but we need to feed complete NALUs as a single packet.
+    static int sendCount = 0;
+    static int outputCount = 0;
 
-    // Build a single packet with all NALUs
+    // Build a single packet with all NALUs (AVCC framing)
     m_packet->data = const_cast<uint8_t*>(data);
     m_packet->size = size;
 
+    sendCount++;
     int ret = avcodec_send_packet(m_codecCtx, m_packet);
     if (ret < 0) {
-        // Not necessarily an error — may happen on SPS/PPS-only packets
-        if (ret != AVERROR_INVALIDDATA) return;
-        // For invalid data, try to flush and recover
-        avcodec_flush_buffers(m_codecCtx);
+        if (sendCount <= 10 || sendCount % 100 == 0) {
+            LogManager::instance().log(QString("Decoder: send_packet #%1 failed: %2")
+                .arg(sendCount).arg(ret));
+        }
+        if (ret == AVERROR_INVALIDDATA) {
+            avcodec_flush_buffers(m_codecCtx);
+        }
         return;
     }
 
@@ -176,14 +208,24 @@ void VideoDecoder::decodeNalus(const uint8_t* data, int size) {
             break;
         }
         if (ret < 0) {
+            if (outputCount <= 5) {
+                LogManager::instance().log(QString("Decoder: receive_frame error: %1").arg(ret));
+            }
             break;
+        }
+
+        outputCount++;
+        if (outputCount <= 3 || outputCount % 300 == 0) {
+            LogManager::instance().log(QString("Decoder: decoded frame #%1 — %2x%3 format=%4")
+                .arg(outputCount).arg(m_frame->width).arg(m_frame->height).arg(m_frame->format));
         }
 
         // Check for dimension change (orientation switch)
         if (m_frame->width != m_currentWidth || m_frame->height != m_currentHeight) {
             m_currentWidth = m_frame->width;
             m_currentHeight = m_frame->height;
-            qDebug() << "Dimensions changed:" << m_currentWidth << "x" << m_currentHeight;
+            LogManager::instance().log(QString("Decoder: dimensions changed to %1x%2")
+                .arg(m_currentWidth).arg(m_currentHeight));
             emit dimensionsChanged(m_currentWidth, m_currentHeight);
         }
 

@@ -1,4 +1,5 @@
 #include "VideoRenderer.h"
+#include "MainWindow.h"  // for LogManager
 #include <QDebug>
 
 extern "C" {
@@ -169,7 +170,15 @@ void VideoRenderer::paintGL() {
 }
 
 void VideoRenderer::onFrameDecoded(AVFrame* frame) {
+    static int renderCount = 0;
     if (!frame || frame->width <= 0 || frame->height <= 0) return;
+
+    renderCount++;
+    if (renderCount <= 3 || renderCount % 300 == 0) {
+        LogManager::instance().log(QString("Renderer: frame #%1, %2x%3, visible=%4, size=%5x%6")
+            .arg(renderCount).arg(frame->width).arg(frame->height)
+            .arg(isVisible()).arg(width()).arg(height()));
+    }
 
     QMutexLocker lock(&m_frameMutex);
 
@@ -185,7 +194,8 @@ void VideoRenderer::onFrameDecoded(AVFrame* frame) {
         m_frameWidth = w;
         m_frameHeight = h;
 
-        qDebug() << "VideoRenderer: New frame size" << w << "x" << h << "format" << frame->format;
+        LogManager::instance().log(QString("Renderer: new frame size %1x%2 format=%3")
+            .arg(w).arg(h).arg(frame->format));
 
         QSize newSize(w, h);
         if (m_videoSize != newSize) {

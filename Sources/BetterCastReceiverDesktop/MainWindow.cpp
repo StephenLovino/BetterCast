@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "VideoDecoder.h"
 #include "VideoRenderer.h"
+#include "VideoWindow.h"
 #include "NetworkListener.h"
 #include "InputHandler.h"
 #include "ServiceDiscovery.h"
@@ -256,6 +257,12 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_network, &NetworkListener::statusChanged,
             this, &MainWindow::onStatusChanged);
 
+    // Create video window (separate window, like Mac app)
+    m_videoWindow = new VideoWindow(m_renderer, m_inputHandler, this);
+    connect(m_videoWindow, &VideoWindow::windowClosed, this, [this]() {
+        LogManager::instance().log("Video window closed by user");
+    });
+
     connect(m_renderer, &VideoRenderer::videoSizeChanged,
             this, &MainWindow::onVideoSizeChanged);
 
@@ -324,43 +331,6 @@ void MainWindow::setupUi() {
     setupReceivePage();
     setupSettingsPage();
     setupLogsPage();
-
-    // Video page (last) — renderer with floating toolbar overlay
-    m_renderer->setStyleSheet("background-color: black;");
-    m_videoContainer = new QWidget();
-    m_videoContainer->setStyleSheet("background-color: black;");
-    auto* videoLayout = new QVBoxLayout(m_videoContainer);
-    videoLayout->setContentsMargins(0, 0, 0, 0);
-    videoLayout->setSpacing(0);
-
-    // Toolbar bar at top of video
-    m_videoToolbar = new QWidget();
-    m_videoToolbar->setFixedHeight(36);
-    m_videoToolbar->setStyleSheet(
-        "QWidget { background-color: rgba(0,0,0,0.7); }"
-        "QPushButton { background-color: transparent; color: #ccc; border: none;"
-        "  padding: 4px 12px; font-size: 12px; border-radius: 4px; }"
-        "QPushButton:hover { background-color: rgba(255,255,255,0.15); color: #fff; }"
-    );
-    auto* tbLayout = new QHBoxLayout(m_videoToolbar);
-    tbLayout->setContentsMargins(8, 2, 8, 2);
-
-    auto* backBtn = new QPushButton("< Back");
-    connect(backBtn, &QPushButton::clicked, this, [this]() {
-        if (isFullScreen()) toggleFullscreen();
-        selectSidebarItem(m_pageReceive);
-    });
-
-    auto* fullscreenBtn = new QPushButton("[ ] Fullscreen");
-    connect(fullscreenBtn, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
-
-    tbLayout->addWidget(backBtn);
-    tbLayout->addStretch();
-    tbLayout->addWidget(fullscreenBtn);
-
-    videoLayout->addWidget(m_videoToolbar);
-    videoLayout->addWidget(m_renderer, 1);
-    m_pageVideo = m_stack->addWidget(m_videoContainer);
 
     // Build sidebar
     setupSidebar();
@@ -969,11 +939,13 @@ void MainWindow::onConnectionEstablished() {
     m_reconnectTimer->stop();
     LogManager::instance().log("Connection established — streaming video");
 
-    // Highlight Receive in sidebar, then override stack to show video page.
-    // selectSidebarItem triggers onSidebarSelectionChanged which sets the stack,
-    // so we must set the video page AFTER the sidebar selection.
-    selectSidebarItem(m_pageReceive);
-    m_stack->setCurrentIndex(m_pageVideo);
+    // Open the video in a separate window
+    if (m_videoWindow) {
+        m_videoWindow->showForVideo();
+    }
+
+    m_recvStatusLabel->setText("Connected — video window opened");
+    m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #4caf50;");
 
     // Reset reconnect counter only after video actually starts flowing
     // (delayed so brief connect-then-disconnect during reconnect doesn't reset it)
@@ -1006,12 +978,6 @@ void MainWindow::onConnectionLost() {
         // Don't reset m_reconnectAttempts here — if the reconnect itself
         // succeeds briefly then disconnects, we'd loop forever.
         // The counter only resets after a sustained connection (3s in onConnectionEstablished).
-        if (m_reconnectAttempts == 0) {
-            // First disconnect — show on receive page
-            selectSidebarItem(m_pageReceive);
-        }
-        // else: during reconnect cycle, don't switch pages (avoids flicker)
-
         m_recvStatusLabel->setText("Connection lost — reconnecting in 2s...");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
         LogManager::instance().log("Connection lost — will reconnect via ADB in 2s...");
@@ -1021,7 +987,10 @@ void MainWindow::onConnectionLost() {
             m_reconnectTimer->start();
         });
     } else {
-        selectSidebarItem(m_pageReceive);
+        // Close video window when non-ADB connection is lost
+        if (m_videoWindow && m_videoWindow->isVisible()) {
+            m_videoWindow->close();
+        }
         m_recvStatusLabel->setText("Connection lost — still listening on port 51820");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
         LogManager::instance().log("Connection lost");
@@ -1034,60 +1003,10 @@ void MainWindow::onStatusChanged(const QString& status) {
 }
 
 void MainWindow::onVideoSizeChanged(QSize size) {
-    if (size.width() > 0 && size.height() > 0) {
-        resizeToFitVideo(size.width(), size.height());
+    if (size.width() > 0 && size.height() > 0 && m_videoWindow) {
+        LogManager::instance().log(QString("Video size: %1x%2").arg(size.width()).arg(size.height()));
+        m_videoWindow->resizeToFitVideo(size.width(), size.height());
     }
-}
-
-void MainWindow::resizeToFitVideo(int videoWidth, int videoHeight) {
-    QScreen* screen = QApplication::primaryScreen();
-    if (!screen) return;
-
-    QRect available = screen->availableGeometry();
-    double aspect = static_cast<double>(videoWidth) / videoHeight;
-    bool landscape = videoWidth > videoHeight;
-
-    // Account for sidebar width so the video area matches the aspect ratio
-    int sidebarW = m_sidebarList && m_sidebarList->isVisible()
-        ? m_sidebarList->width() + m_splitter->handleWidth()
-        : 0;
-
-    // Calculate the video area size (excluding sidebar)
-    int videoAreaW, videoAreaH;
-    int maxVideoAreaW = available.width() - sidebarW;
-
-    if (landscape) {
-        videoAreaW = std::min(static_cast<int>(maxVideoAreaW * 0.85), videoWidth);
-        videoAreaH = static_cast<int>(videoAreaW / aspect);
-        if (videoAreaH > available.height() * 0.85) {
-            videoAreaH = static_cast<int>(available.height() * 0.85);
-            videoAreaW = static_cast<int>(videoAreaH * aspect);
-        }
-    } else {
-        videoAreaH = std::min(static_cast<int>(available.height() * 0.75), videoHeight);
-        videoAreaW = static_cast<int>(videoAreaH * aspect);
-        if (videoAreaW > maxVideoAreaW * 0.9) {
-            videoAreaW = static_cast<int>(maxVideoAreaW * 0.9);
-            videoAreaH = static_cast<int>(videoAreaW / aspect);
-        }
-    }
-
-    // Total window = sidebar + video area
-    int winW = videoAreaW + sidebarW;
-    int winH = videoAreaH;
-
-    winW = std::max(winW, 640);
-    winH = std::max(winH, 200);
-
-    int x = available.x() + (available.width() - winW) / 2;
-    int y = available.y() + (available.height() - winH) / 2;
-
-    qDebug() << "Resizing window to" << winW << "x" << winH
-             << "(video area" << videoAreaW << "x" << videoAreaH
-             << "+ sidebar" << sidebarW << ")"
-             << "for video" << videoWidth << "x" << videoHeight;
-
-    setGeometry(x, y, winW, winH);
 }
 
 void MainWindow::attemptAdbReconnect() {
@@ -1239,53 +1158,7 @@ void MainWindow::onReportIssue() {
     LogManager::instance().log("Opened GitHub issue form");
 }
 
-// ─── Key Events ─────────────────────────────────────────────────────────────────
-
-void MainWindow::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_F11) {
-        if (m_stack->currentIndex() == m_pageVideo) {
-            toggleFullscreen();
-            return;
-        }
-    }
-    if (event->key() == Qt::Key_Escape) {
-        if (isFullScreen()) {
-            toggleFullscreen();
-            return;
-        }
-        // If viewing video, go back to receive page
-        if (m_stack->currentIndex() == m_pageVideo) {
-            selectSidebarItem(m_pageReceive);
-            return;
-        }
-    }
-    QMainWindow::keyPressEvent(event);
-}
-
-void MainWindow::mouseDoubleClickEvent(QMouseEvent* event) {
-    if (m_stack->currentIndex() == m_pageVideo) {
-        toggleFullscreen();
-        event->accept();
-        return;
-    }
-    QMainWindow::mouseDoubleClickEvent(event);
-}
-
-void MainWindow::toggleFullscreen() {
-    if (isFullScreen()) {
-        // Exit fullscreen — restore sidebar, toolbar, and window frame
-        m_splitter->widget(0)->show();  // sidebar
-        if (m_videoToolbar) m_videoToolbar->show();
-        showNormal();
-        LogManager::instance().log("Exited fullscreen");
-    } else {
-        // Enter fullscreen — hide sidebar and toolbar for clean view
-        m_splitter->widget(0)->hide();  // sidebar
-        if (m_videoToolbar) m_videoToolbar->hide();
-        showFullScreen();
-        LogManager::instance().log("Entered fullscreen (F11 or Escape to exit)");
-    }
-}
+// Key/mouse events for video are handled by VideoWindow
 
 // ─── Local IP Display ───────────────────────────────────────────────────────────
 

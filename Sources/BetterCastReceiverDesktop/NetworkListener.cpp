@@ -198,8 +198,14 @@ void NetworkListener::handleVideoData(const QByteArray& data) {
     static int frameCount = 0;
     frameCount++;
     if (frameCount <= 5 || frameCount % 300 == 0) {
-        LogManager::instance().log(QString("Video: frame %1, %2 bytes")
-                                   .arg(frameCount).arg(data.size()));
+        // Log first few bytes for debugging framing issues
+        QString hexPreview;
+        int previewLen = qMin(data.size(), 16);
+        for (int i = 0; i < previewLen; i++) {
+            hexPreview += QString("%1 ").arg(static_cast<uint8_t>(data[i]), 2, 16, QChar('0'));
+        }
+        LogManager::instance().log(QString("Video: frame %1, %2 bytes [%3]")
+                                   .arg(frameCount).arg(data.size()).arg(hexPreview.trimmed()));
     }
     if (m_decoder) {
         m_decoder->decode(data);

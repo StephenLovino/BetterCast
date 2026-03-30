@@ -98,6 +98,7 @@ set(SOURCES
     NetworkListener.cpp
     VideoDecoder.cpp
     VideoRenderer.cpp
+    VideoWindow.cpp
     InputHandler.cpp
     ServiceDiscovery.cpp
     AudioDecoder.cpp
@@ -110,6 +111,7 @@ set(HEADERS
     NetworkListener.h
     VideoDecoder.h
     VideoRenderer.h
+    VideoWindow.h
     InputHandler.h
     InputEvent.h
     ServiceDiscovery.h
