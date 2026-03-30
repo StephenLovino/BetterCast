@@ -49,29 +49,18 @@ class NetworkListenerIOS {
         startHeartbeat()
     }
     
-    private static let knownPort: NWEndpoint.Port = 51820
-
     private func startTCP() {
         do {
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
             tcpOptions.noDelay = true
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
-            parameters.includePeerToPeer = true
+            // Do NOT set includePeerToPeer — it causes the listener to bind to the
+            // AWDL interface which is unreachable from non-Apple devices (Windows/Linux).
+            // Mac senders can still connect via regular Wi-Fi TCP.
             parameters.serviceClass = .interactiveVideo
 
-            // Bind to well-known port so non-Apple senders (Windows/Linux) can connect
-            // reliably without depending on mDNS port resolution
-            let listener: NWListener
-            do {
-                listener = try NWListener(using: parameters, on: Self.knownPort)
-                LogManager.shared.log("ReceiverIOS (TCP): Bound to port \(Self.knownPort)")
-            } catch {
-                // Port in use — fall back to system-assigned port
-                LogManager.shared.log("ReceiverIOS (TCP): Port \(Self.knownPort) unavailable, using system port")
-                listener = try NWListener(using: parameters)
-            }
-
+            let listener = try NWListener(using: parameters)
             let deviceName = UIDevice.current.name
             listener.service = NWListener.Service(name: deviceName, type: "_bettercast._tcp")
 
@@ -117,21 +106,41 @@ class NetworkListenerIOS {
     }
     
     private func handleListenerState(_ state: NWListener.State, type: String) {
-        DispatchQueue.main.async {
-            switch state {
-            case .ready:
+        switch state {
+        case .ready:
+            if let port = (type == "TCP" ? self.tcpListener : self.udpListener)?.port {
+                LogManager.shared.log("ReceiverIOS (\(type)): Ready on port \(port)")
+            } else {
+                LogManager.shared.log("ReceiverIOS (\(type)): Ready")
+            }
+            DispatchQueue.main.async {
                 if type == "TCP" {
                     self.delegate?.networkListener(self, didUpdateStatus: "Ready. Waiting for Sender...")
                 }
-                LogManager.shared.log("ReceiverIOS (\(type)): Ready")
-            case .failed(let error):
-                if type == "TCP" {
-                     self.delegate?.networkListener(self, didUpdateStatus: "Failed: \(error.localizedDescription)")
-                }
-                LogManager.shared.log("ReceiverIOS (\(type)): Failed \(error)")
-            default:
-                break
             }
+        case .failed(let error):
+            LogManager.shared.log("ReceiverIOS (\(type)): Failed \(error) — restarting...")
+            DispatchQueue.main.async {
+                if type == "TCP" {
+                    self.delegate?.networkListener(self, didUpdateStatus: "Restarting listener...")
+                }
+            }
+            // Auto-restart the failed listener
+            if type == "TCP" {
+                self.tcpListener?.cancel()
+                self.tcpListener = nil
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.startTCP()
+                }
+            } else {
+                self.udpListener?.cancel()
+                self.udpListener = nil
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.startUDP()
+                }
+            }
+        default:
+            break
         }
     }
     
