@@ -365,7 +365,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                         if self.lastADBPort != nil && !self.wirelessADBEnabled,
                            let adb = self.lastADBPath {
                             self.wirelessADBEnabled = true
-                            DispatchQueue.global(qos: .utility).async {
+                            // Delay 5s — adb tcpip 5555 kills USB tunnel momentarily
+                            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5.0) {
                                 self.enableWirelessADB(adb: adb, serial: self.lastADBSerial)
                             }
                         }
@@ -529,7 +530,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         DispatchQueue.main.async {
             self.connectedClients.removeAll(where: { $0 === connection })
             self.connectionFormat.removeValue(forKey: connId)
-            self.wirelessADBEnabled = false
+            // Do NOT reset wirelessADBEnabled — once enabled, it stays enabled
+            // to prevent re-running adb tcpip 5555 on every reconnect
             if self.connectedClients.isEmpty && self.lastADBPort != nil {
                 self.startReconnectTimer()
             }
