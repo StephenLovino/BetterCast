@@ -178,7 +178,7 @@ bool AdbHelper::enableWirelessAdb() {
     return false;
 }
 
-bool AdbHelper::setupForward(uint16_t port) {
+bool AdbHelper::setupForward(uint16_t remotePort) {
     QString adb = findAdb();
     if (adb.isEmpty()) {
         emit statusChanged("ADB not found. Install Android SDK platform-tools.");
@@ -207,12 +207,15 @@ bool AdbHelper::setupForward(uint16_t port) {
 
     emit statusChanged("Setting up ADB tunnel...");
 
-    // Run: adb [-s serial] forward tcp:port tcp:port
+    // Use a DIFFERENT local port to avoid conflict with our own receiver on 51820
+    uint16_t localPort = remotePort + 1; // e.g., 51821 → android:51820
+
+    // Run: adb [-s serial] forward tcp:localPort tcp:remotePort
     QStringList args;
     if (!serial.isEmpty()) {
         args << "-s" << serial;
     }
-    args << "forward" << QString("tcp:%1").arg(port) << QString("tcp:%1").arg(port);
+    args << "forward" << QString("tcp:%1").arg(localPort) << QString("tcp:%1").arg(remotePort);
 
     QString output = runAdb(args);
 
@@ -224,11 +227,13 @@ bool AdbHelper::setupForward(uint16_t port) {
     verifyArgs << "forward" << "--list";
     QString forwardList = runAdb(verifyArgs);
 
-    if (forwardList.contains(QString("tcp:%1").arg(port))) {
+    if (forwardList.contains(QString("tcp:%1").arg(localPort))) {
         QString deviceInfo = serial.isEmpty() ? "default device" : serial;
-        qDebug() << "ADB: Forward established on port" << port << "device:" << deviceInfo;
+        qDebug() << "ADB: Forward established localhost:" << localPort
+                 << "→ android:" << remotePort << "device:" << deviceInfo;
 
-        m_lastPort = port;
+        m_lastLocalPort = localPort;
+        m_lastRemotePort = remotePort;
         m_wasAdbConnection = true;
 
         // Don't enable wireless ADB here — it runs `adb tcpip 5555` which

@@ -950,14 +950,15 @@ void MainWindow::onAdbConnectClicked() {
 
     std::thread([this]() {
         bool success = m_adbHelper->setupForward(51820);
-        QMetaObject::invokeMethod(this, [this, success]() {
+        uint16_t localPort = m_adbHelper->lastLocalPort();
+        QMetaObject::invokeMethod(this, [this, success, localPort]() {
             m_adbBtn->setEnabled(true);
             m_adbBtn->setText("Connect to Android (ADB)");
 
             if (success) {
                 m_recvStatusLabel->setText("ADB tunnel ready — connecting...");
-                LogManager::instance().log("ADB tunnel established, connecting...");
-                m_network->connectTo("localhost", 51820);
+                LogManager::instance().log(QString("ADB tunnel established, connecting to localhost:%1...").arg(localPort));
+                m_network->connectTo("localhost", localPort);
             }
         });
     }).detach();
@@ -1077,16 +1078,14 @@ void MainWindow::attemptAdbReconnect() {
     LogManager::instance().log(QString("ADB reconnect attempt %1").arg(m_reconnectAttempts));
 
     std::thread([this]() {
-        uint16_t port = m_adbHelper->lastPort();
-        if (port == 0) port = 51820;
-
-        bool success = m_adbHelper->setupForward(port);
-        QMetaObject::invokeMethod(this, [this, success, port]() {
+        bool success = m_adbHelper->setupForward(51820);
+        uint16_t localPort = m_adbHelper->lastLocalPort();
+        QMetaObject::invokeMethod(this, [this, success, localPort]() {
             if (success) {
                 m_reconnectTimer->stop();
                 m_recvStatusLabel->setText("ADB tunnel restored — connecting...");
                 LogManager::instance().log("ADB tunnel restored, reconnecting...");
-                m_network->connectTo("localhost", port);
+                m_network->connectTo("localhost", localPort);
             }
         });
     }).detach();
