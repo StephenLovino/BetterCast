@@ -15,26 +15,22 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.3</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>7</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>MinimumOSVersion</key>
-    <string>12.0</string>
-    <key>UILaunchImages</key>
-    <array>
-        <dict>
-            <key>UILaunchImageName</key>
-            <string>Default</string>
-            <key>UILaunchImageMinimumOSVersion</key>
-            <string>7.0</string>
-            <key>UILaunchImageOrientation</key>
-            <string>Portrait</string>
-            <key>UILaunchImageSize</key>
-            <string>{320, 568}</string>
-        </dict>
-    </array>
+    <string>13.0</string>
+    <key>UILaunchScreen</key>
+    <dict>
+        <key>UIColorName</key>
+        <string>black</string>
+        <key>UIImageName</key>
+        <string>AppIcon</string>
+        <key>UIImageRespectsSafeAreaInsets</key>
+        <true/>
+    </dict>
     <key>NSLocalNetworkUsageDescription</key>
     <string>BetterCast uses the local network to connect to your Mac.</string>
     <key>NSBonjourServices</key>

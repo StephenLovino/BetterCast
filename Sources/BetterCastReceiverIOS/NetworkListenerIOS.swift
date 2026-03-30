@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import Foundation
+import UIKit
 import Network
 import CoreMedia
 
@@ -171,28 +172,60 @@ class NetworkListenerIOS {
         if let index = connectedClients.firstIndex(where: { $0 === connection }) {
             connectedClients.remove(at: index)
         }
+        connectionFormat.removeValue(forKey: ObjectIdentifier(connection))
     }
     
+    // Per-connection framing format: nil = not yet detected, true = type-byte (desktop), false = legacy (Swift/Android)
+    private var connectionFormat: [ObjectIdentifier: Bool] = [:]
+
     private func receiveTCP(on connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] content, contentContext, isComplete, error in
             if let error = error {
                 LogManager.shared.log("ReceiverIOS (TCP): Error \(error)")
                 return
             }
-            
+
             if let content = content, content.count == 4 {
                 let length = content.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
                 let bodyLength = Int(length)
-                
+
                 connection.receive(minimumIncompleteLength: bodyLength, maximumLength: bodyLength) { body, bodyContext, isComplete, error in
-                    if let body = body {
-                         self?.videoDecoder?.decode(data: body)
+                    if let body = body, !body.isEmpty {
+                        self?.handleReceivedBody(body, connection: connection)
                     }
                     self?.receiveTCP(on: connection)
                 }
             } else {
                  self?.receiveTCP(on: connection)
             }
+        }
+    }
+
+    private func handleReceivedBody(_ body: Data, connection: NWConnection) {
+        let connId = ObjectIdentifier(connection)
+        let firstByte = body[body.startIndex]
+
+        // Auto-detect framing on first frame
+        if connectionFormat[connId] == nil {
+            if firstByte == 0x01 || firstByte == 0x02 {
+                connectionFormat[connId] = true
+                LogManager.shared.log("ReceiverIOS: Detected type-byte framing (desktop sender)")
+            } else {
+                connectionFormat[connId] = false
+                LogManager.shared.log("ReceiverIOS: Detected legacy framing (Swift/Android sender)")
+            }
+        }
+
+        if connectionFormat[connId] == true {
+            // Type-byte framing: [0x01=video | 0x02=audio][payload]
+            let payload = body.dropFirst(1)
+            if firstByte == 0x01 {
+                videoDecoder?.decode(data: payload)
+            }
+            // 0x02 = audio — ignore for now
+        } else {
+            // Legacy framing: raw video data (with 8-byte PTS prefix handled by decoder)
+            videoDecoder?.decode(data: body)
         }
     }
     
