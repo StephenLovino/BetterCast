@@ -175,33 +175,37 @@ void ScreenCaptureWin::captureFrame() {
     uint8_t* uvPlane = yPlane + ySize;
 
     // BGRA → NV12 conversion (BT.601)
-    // Y plane: full resolution
-    for (int y = 0; y < h; y++) {
-        const uint8_t* row = bgra + y * pitch;
-        uint8_t* yRow = yPlane + y * w;
-        for (int x = 0; x < w; x++) {
-            uint8_t b = row[x * 4 + 0];
-            uint8_t g = row[x * 4 + 1];
-            uint8_t r = row[x * 4 + 2];
-            // BT.601: Y = 0.299*R + 0.587*G + 0.114*B
-            yRow[x] = static_cast<uint8_t>((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
-        }
-    }
-
-    // UV plane: half resolution, subsample 2x2 blocks
+    // Combined pass: compute Y for every pixel, UV for even rows/cols
+    // Fused loop avoids iterating over the frame twice
     for (int y = 0; y < h; y += 2) {
         const uint8_t* row0 = bgra + y * pitch;
         const uint8_t* row1 = bgra + (y + 1) * pitch;
+        uint8_t* yRow0 = yPlane + y * w;
+        uint8_t* yRow1 = yPlane + (y + 1) * w;
         uint8_t* uvRow = uvPlane + (y / 2) * w;
+
         for (int x = 0; x < w; x += 2) {
-            // Average 2x2 block
-            int r = (row0[x*4+2] + row0[(x+1)*4+2] + row1[x*4+2] + row1[(x+1)*4+2]) >> 2;
-            int g = (row0[x*4+1] + row0[(x+1)*4+1] + row1[x*4+1] + row1[(x+1)*4+1]) >> 2;
-            int b = (row0[x*4+0] + row0[(x+1)*4+0] + row1[x*4+0] + row1[(x+1)*4+0]) >> 2;
-            // BT.601: Cb = -0.169*R - 0.331*G + 0.500*B + 128
-            //         Cr =  0.500*R - 0.419*G - 0.081*B + 128
-            uvRow[x]     = static_cast<uint8_t>(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128);
-            uvRow[x + 1] = static_cast<uint8_t>(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128);
+            // Top-left pixel
+            int b00 = row0[x*4+0], g00 = row0[x*4+1], r00 = row0[x*4+2];
+            // Top-right pixel
+            int b01 = row0[(x+1)*4+0], g01 = row0[(x+1)*4+1], r01 = row0[(x+1)*4+2];
+            // Bottom-left pixel
+            int b10 = row1[x*4+0], g10 = row1[x*4+1], r10 = row1[x*4+2];
+            // Bottom-right pixel
+            int b11 = row1[(x+1)*4+0], g11 = row1[(x+1)*4+1], r11 = row1[(x+1)*4+2];
+
+            // Y for all 4 pixels
+            yRow0[x]   = static_cast<uint8_t>(((66*r00 + 129*g00 + 25*b00 + 128) >> 8) + 16);
+            yRow0[x+1] = static_cast<uint8_t>(((66*r01 + 129*g01 + 25*b01 + 128) >> 8) + 16);
+            yRow1[x]   = static_cast<uint8_t>(((66*r10 + 129*g10 + 25*b10 + 128) >> 8) + 16);
+            yRow1[x+1] = static_cast<uint8_t>(((66*r11 + 129*g11 + 25*b11 + 128) >> 8) + 16);
+
+            // UV from 2x2 average
+            int rAvg = (r00 + r01 + r10 + r11) >> 2;
+            int gAvg = (g00 + g01 + g10 + g11) >> 2;
+            int bAvg = (b00 + b01 + b10 + b11) >> 2;
+            uvRow[x]   = static_cast<uint8_t>(((-38*rAvg - 74*gAvg + 112*bAvg + 128) >> 8) + 128);
+            uvRow[x+1] = static_cast<uint8_t>(((112*rAvg - 94*gAvg - 18*bAvg + 128) >> 8) + 128);
         }
     }
 

@@ -31,23 +31,32 @@ bool VideoEncoderFF::tryEncoder(const char* codecName, int width, int height, in
     ctx->framerate = {fps, 1};
     ctx->pix_fmt = AV_PIX_FMT_NV12;
     ctx->bit_rate = bitrate;
-    ctx->gop_size = fps * 2;  // keyframe every 2 seconds
-    ctx->max_b_frames = 0;    // no B-frames for low latency
+    ctx->rc_max_rate = bitrate * 3 / 2;              // allow 1.5x peak for motion
+    ctx->rc_buffer_size = bitrate;                     // 1-second VBV buffer
+    ctx->gop_size = fps * 5;                           // keyframe every 5 seconds
+    ctx->max_b_frames = 0;                             // no B-frames for low latency
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    ctx->thread_count = 1;
+    ctx->thread_count = 0;                             // auto — let FFmpeg pick
+    ctx->profile = FF_PROFILE_H264_HIGH;
 
-    // Low-latency tuning
+    // Low-latency tuning per encoder
     if (strcmp(codecName, "libx264") == 0) {
-        av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(ctx->priv_data, "preset", "veryfast", 0);  // better quality than ultrafast
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
+        av_opt_set(ctx->priv_data, "aq-mode", "2", 0);        // variance AQ — helps motion
     } else if (strstr(codecName, "nvenc")) {
-        av_opt_set(ctx->priv_data, "preset", "p1", 0);       // fastest NVENC preset
+        av_opt_set(ctx->priv_data, "preset", "p4", 0);        // balanced speed/quality
         av_opt_set(ctx->priv_data, "tune", "ull", 0);         // ultra-low-latency
         av_opt_set(ctx->priv_data, "zerolatency", "1", 0);
-        av_opt_set(ctx->priv_data, "rc", "cbr", 0);
+        av_opt_set(ctx->priv_data, "rc", "vbr", 0);           // VBR — better motion quality
+        av_opt_set(ctx->priv_data, "spatial-aq", "1", 0);     // spatial adaptive quantization
+        av_opt_set(ctx->priv_data, "temporal-aq", "1", 0);    // temporal adaptive quantization
+        av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);   // no lookahead — low latency
     } else if (strstr(codecName, "amf")) {
         av_opt_set(ctx->priv_data, "usage", "ultralowlatency", 0);
-        av_opt_set(ctx->priv_data, "rc", "cbr", 0);
+        av_opt_set(ctx->priv_data, "rc", "vbr_peak", 0);      // VBR with peak constraint
+        av_opt_set(ctx->priv_data, "quality", "balanced", 0);
+        av_opt_set(ctx->priv_data, "vbaq", "1", 0);           // adaptive quantization
     } else if (strstr(codecName, "qsv")) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
     } else if (strstr(codecName, "vaapi")) {

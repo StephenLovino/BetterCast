@@ -154,7 +154,7 @@ bool VideoDecoder::initDecoder(const uint8_t* sps, int spsLen, const uint8_t* pp
     // Low latency settings with error resilience
     m_codecCtx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     m_codecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
-    m_codecCtx->thread_count = 2; // 2 threads for better throughput
+    m_codecCtx->thread_count = 4; // more threads to keep up at high FPS
     m_codecCtx->thread_type = FF_THREAD_SLICE;
 
     // Error concealment — show best-effort frames instead of artifacts

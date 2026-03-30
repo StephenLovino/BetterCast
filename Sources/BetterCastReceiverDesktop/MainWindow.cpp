@@ -534,8 +534,8 @@ void MainWindow::setupSendPage() {
     fpsLabel->setStyleSheet("font-size: 13px; color: #ccc;");
     fpsRow->addWidget(fpsLabel);
     m_fpsSpinBox = new QSpinBox();
-    m_fpsSpinBox->setRange(15, 60);
-    m_fpsSpinBox->setValue(30);
+    m_fpsSpinBox->setRange(15, 120);
+    m_fpsSpinBox->setValue(60);
     m_fpsSpinBox->setSuffix(" FPS");
     m_fpsSpinBox->setFixedWidth(100);
     fpsRow->addWidget(m_fpsSpinBox);
@@ -547,8 +547,8 @@ void MainWindow::setupSendPage() {
     brLabel->setStyleSheet("font-size: 13px; color: #ccc;");
     brRow->addWidget(brLabel);
     m_bitrateSpinBox = new QSpinBox();
-    m_bitrateSpinBox->setRange(2, 50);
-    m_bitrateSpinBox->setValue(8);
+    m_bitrateSpinBox->setRange(2, 100);
+    m_bitrateSpinBox->setValue(20);
     m_bitrateSpinBox->setSuffix(" Mbps");
     m_bitrateSpinBox->setFixedWidth(100);
     brRow->addWidget(m_bitrateSpinBox);
