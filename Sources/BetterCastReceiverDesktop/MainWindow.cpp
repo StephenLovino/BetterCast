@@ -997,11 +997,14 @@ void MainWindow::onConnectionLost() {
 
     if (m_adbHelper->wasAdbConnection()) {
         m_reconnectAttempts = 0;
-        m_recvStatusLabel->setText("Connection lost — auto-reconnecting via ADB...");
+        m_recvStatusLabel->setText("Connection lost — reconnecting in 2s...");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
-        LogManager::instance().log("Connection lost — auto-reconnecting via ADB...");
-        attemptAdbReconnect();
-        m_reconnectTimer->start();
+        LogManager::instance().log("Connection lost — will reconnect via ADB in 2s...");
+        // Delay before first reconnect to avoid rapid cycling
+        QTimer::singleShot(2000, this, [this]() {
+            attemptAdbReconnect();
+            m_reconnectTimer->start();
+        });
     } else {
         m_recvStatusLabel->setText("Connection lost — still listening on port 51820");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");

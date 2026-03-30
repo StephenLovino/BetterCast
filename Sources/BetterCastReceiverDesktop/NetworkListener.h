@@ -26,6 +26,7 @@ public:
     void setup(VideoDecoder* decoder, VideoRenderer* renderer, AudioDecoder* audioDecoder = nullptr);
     void start();
     void connectTo(const QString& host, uint16_t port);
+    void disconnectAll();
 
 signals:
     void connectionEstablished();

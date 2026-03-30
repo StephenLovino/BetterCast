@@ -1,4 +1,5 @@
 #include "NetworkListener.h"
+#include "MainWindow.h"  // for LogManager
 #include "VideoDecoder.h"
 #include "VideoRenderer.h"
 #include "AudioDecoder.h"
@@ -60,13 +61,26 @@ void NetworkListener::start() {
     m_heartbeatTimer->start(500);
 }
 
+void NetworkListener::disconnectAll() {
+    for (auto* client : m_clients) {
+        client->disconnect(); // disconnect signals
+        client->abort();
+        client->deleteLater();
+    }
+    m_clients.clear();
+    m_tcpBuffers.clear();
+}
+
 void NetworkListener::connectTo(const QString& host, uint16_t port) {
+    // Disconnect any existing outgoing connections to avoid duplicates
+    disconnectAll();
+
     auto* socket = new QTcpSocket(this);
     socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
     connect(socket, &QTcpSocket::connected, this, [this, socket]() {
-        qDebug() << "Connected to sender:" << socket->peerAddress().toString() << socket->peerPort();
+        LogManager::instance().log("Connected to " + socket->peerAddress().toString());
         m_clients.append(socket);
         m_tcpBuffers[socket] = QByteArray();
         emit connectionEstablished();
@@ -168,8 +182,9 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
 void NetworkListener::handleVideoData(const QByteArray& data) {
     static int frameCount = 0;
     frameCount++;
-    if (frameCount <= 3 || frameCount % 100 == 0) {
-        qDebug() << "NetworkListener: Received video data" << data.size() << "bytes (frame" << frameCount << ")";
+    if (frameCount <= 5 || frameCount % 300 == 0) {
+        LogManager::instance().log(QString("Video: frame %1, %2 bytes")
+                                   .arg(frameCount).arg(data.size()));
     }
     if (m_decoder) {
         m_decoder->decode(data);
