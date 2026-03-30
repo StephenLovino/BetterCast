@@ -325,9 +325,42 @@ void MainWindow::setupUi() {
     setupSettingsPage();
     setupLogsPage();
 
-    // Video page (last)
+    // Video page (last) — renderer with floating toolbar overlay
     m_renderer->setStyleSheet("background-color: black;");
-    m_pageVideo = m_stack->addWidget(m_renderer);
+    m_videoContainer = new QWidget();
+    m_videoContainer->setStyleSheet("background-color: black;");
+    auto* videoLayout = new QVBoxLayout(m_videoContainer);
+    videoLayout->setContentsMargins(0, 0, 0, 0);
+    videoLayout->setSpacing(0);
+
+    // Toolbar bar at top of video
+    m_videoToolbar = new QWidget();
+    m_videoToolbar->setFixedHeight(36);
+    m_videoToolbar->setStyleSheet(
+        "QWidget { background-color: rgba(0,0,0,0.7); }"
+        "QPushButton { background-color: transparent; color: #ccc; border: none;"
+        "  padding: 4px 12px; font-size: 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: rgba(255,255,255,0.15); color: #fff; }"
+    );
+    auto* tbLayout = new QHBoxLayout(m_videoToolbar);
+    tbLayout->setContentsMargins(8, 2, 8, 2);
+
+    auto* backBtn = new QPushButton("< Back");
+    connect(backBtn, &QPushButton::clicked, this, [this]() {
+        if (isFullScreen()) toggleFullscreen();
+        selectSidebarItem(m_pageReceive);
+    });
+
+    auto* fullscreenBtn = new QPushButton("[ ] Fullscreen");
+    connect(fullscreenBtn, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
+
+    tbLayout->addWidget(backBtn);
+    tbLayout->addStretch();
+    tbLayout->addWidget(fullscreenBtn);
+
+    videoLayout->addWidget(m_videoToolbar);
+    videoLayout->addWidget(m_renderer, 1);
+    m_pageVideo = m_stack->addWidget(m_videoContainer);
 
     // Build sidebar
     setupSidebar();
@@ -1214,13 +1247,15 @@ void MainWindow::mouseDoubleClickEvent(QMouseEvent* event) {
 
 void MainWindow::toggleFullscreen() {
     if (isFullScreen()) {
-        // Exit fullscreen — restore sidebar and window frame
+        // Exit fullscreen — restore sidebar, toolbar, and window frame
         m_splitter->widget(0)->show();  // sidebar
+        if (m_videoToolbar) m_videoToolbar->show();
         showNormal();
         LogManager::instance().log("Exited fullscreen");
     } else {
-        // Enter fullscreen — hide sidebar, go borderless fullscreen
+        // Enter fullscreen — hide sidebar and toolbar for clean view
         m_splitter->widget(0)->hide();  // sidebar
+        if (m_videoToolbar) m_videoToolbar->hide();
         showFullScreen();
         LogManager::instance().log("Entered fullscreen (F11 or Escape to exit)");
     }

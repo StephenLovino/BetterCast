@@ -150,6 +150,10 @@ private:
     // Logs page
     QTextEdit* m_logViewer = nullptr;
 
+    // Video page toolbar
+    QWidget* m_videoContainer = nullptr;
+    QWidget* m_videoToolbar = nullptr;
+
 #ifdef ENABLE_SENDER
     // Send page
     QComboBox* m_receiverCombo = nullptr;

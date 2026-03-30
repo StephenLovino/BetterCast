@@ -112,10 +112,15 @@ bool VideoDecoder::initDecoder(const uint8_t* sps, int spsLen, const uint8_t* pp
     m_codecCtx->extradata = extradata;
     m_codecCtx->extradata_size = extradataSize;
 
-    // Low latency settings
+    // Low latency settings with error resilience
     m_codecCtx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     m_codecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
-    m_codecCtx->thread_count = 1; // Single thread for lowest latency
+    m_codecCtx->thread_count = 2; // 2 threads for better throughput
+    m_codecCtx->thread_type = FF_THREAD_SLICE;
+
+    // Error concealment — show best-effort frames instead of artifacts
+    m_codecCtx->err_recognition = 0;  // Don't reject frames with errors
+    m_codecCtx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
 
     if (avcodec_open2(m_codecCtx, codec, nullptr) < 0) {
         qWarning() << "Failed to open H.264 decoder";
@@ -159,6 +164,9 @@ void VideoDecoder::decodeNalus(const uint8_t* data, int size) {
     int ret = avcodec_send_packet(m_codecCtx, m_packet);
     if (ret < 0) {
         // Not necessarily an error — may happen on SPS/PPS-only packets
+        if (ret != AVERROR_INVALIDDATA) return;
+        // For invalid data, try to flush and recover
+        avcodec_flush_buffers(m_codecCtx);
         return;
     }
 
@@ -168,7 +176,6 @@ void VideoDecoder::decodeNalus(const uint8_t* data, int size) {
             break;
         }
         if (ret < 0) {
-            qWarning() << "Decode error:" << ret;
             break;
         }
 
