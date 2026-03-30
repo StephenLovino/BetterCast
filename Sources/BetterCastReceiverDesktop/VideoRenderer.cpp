@@ -219,7 +219,7 @@ void VideoRenderer::onFrameDecoded(AVFrame* frame) {
             memcpy(m_uvBuffer + row * uvW,
                    frame->data[1] + row * frame->linesize[1], uvW);
         }
-    } else if (frame->format == AV_PIX_FMT_YUV420P) {
+    } else if (frame->format == AV_PIX_FMT_YUV420P || frame->format == AV_PIX_FMT_YUVJ420P) {
         // YUV420P: Y plane row-by-row, then interleave U+V into NV12
         for (int row = 0; row < h; row++) {
             memcpy(m_yBuffer + row * w,
