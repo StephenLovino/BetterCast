@@ -597,28 +597,46 @@ void MainWindow::setupReceivePage() {
     pageTitle->setStyleSheet("font-size: 22px; font-weight: bold; color: white;");
     layout->addWidget(pageTitle);
 
-    // Status
-    m_recvStatusLabel = new QLabel("Waiting for connection...");
-    m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
-    layout->addWidget(m_recvStatusLabel);
+    // Listening status card (prominent, like Mac's Start Listening)
+    auto* listenCard = makeCard("Listening for Senders");
+    auto* listenLayout = new QVBoxLayout(listenCard);
+    listenLayout->setSpacing(10);
+
+    // Status indicator
+    m_recvStatusLabel = new QLabel("Listening on port 51820");
+    m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #4da6ff;");
+    listenLayout->addWidget(m_recvStatusLabel);
 
     m_recvIpLabel = new QLabel();
     m_recvIpLabel->setStyleSheet("font-size: 13px; color: #888;");
     m_recvIpLabel->setWordWrap(true);
-    layout->addWidget(m_recvIpLabel);
+    listenLayout->addWidget(m_recvIpLabel);
 
-    layout->addSpacing(8);
+    auto* instrLabel = new QLabel(
+        "This device is ready to receive. On the sender device:\n"
+        "  1. Open BetterCast and go to Send Screen\n"
+        "  2. This device should appear automatically\n"
+        "  3. Or enter this device's IP address manually");
+    instrLabel->setStyleSheet("color: #888; font-size: 12px;");
+    instrLabel->setWordWrap(true);
+    listenLayout->addWidget(instrLabel);
 
-    // Manual connect card
-    auto* manualCard = makeCard("Manual Connect");
+    layout->addWidget(listenCard);
+
+    // Manual connect card (secondary)
+    auto* manualCard = makeCard("Connect to a Sender (Manual)");
     auto* manualLayout = new QVBoxLayout(manualCard);
     manualLayout->setSpacing(10);
+
+    auto* manualDesc = new QLabel("Connect to a sender that isn't auto-discovered:");
+    manualDesc->setStyleSheet("font-size: 12px; color: #888;");
+    manualLayout->addWidget(manualDesc);
 
     auto* connRow = new QHBoxLayout();
     connRow->setSpacing(8);
 
-    m_hostEdit = new QLineEdit("localhost");
-    m_hostEdit->setPlaceholderText("Host / IP");
+    m_hostEdit = new QLineEdit();
+    m_hostEdit->setPlaceholderText("Sender IP address");
     m_hostEdit->setFixedWidth(180);
     connRow->addWidget(m_hostEdit);
 
@@ -932,7 +950,7 @@ void MainWindow::onConnectionLost() {
         attemptAdbReconnect();
         m_reconnectTimer->start();
     } else {
-        m_recvStatusLabel->setText("Connection lost. Reconnect?");
+        m_recvStatusLabel->setText("Connection lost — still listening on port 51820");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
         LogManager::instance().log("Connection lost");
     }
