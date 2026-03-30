@@ -48,25 +48,41 @@ class NetworkListenerIOS {
         startHeartbeat()
     }
     
+    private static let knownPort: NWEndpoint.Port = 51820
+
     private func startTCP() {
         do {
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
+            tcpOptions.noDelay = true
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
             parameters.includePeerToPeer = true
-            
-            let listener = try NWListener(using: parameters)
-            listener.service = NWListener.Service(name: "BetterCast Receiver iOS", type: "_bettercast._tcp")
-            
+            parameters.serviceClass = .interactiveVideo
+
+            // Bind to well-known port so non-Apple senders (Windows/Linux) can connect
+            // reliably without depending on mDNS port resolution
+            let listener: NWListener
+            do {
+                listener = try NWListener(using: parameters, on: Self.knownPort)
+                LogManager.shared.log("ReceiverIOS (TCP): Bound to port \(Self.knownPort)")
+            } catch {
+                // Port in use — fall back to system-assigned port
+                LogManager.shared.log("ReceiverIOS (TCP): Port \(Self.knownPort) unavailable, using system port")
+                listener = try NWListener(using: parameters)
+            }
+
+            let deviceName = UIDevice.current.name
+            listener.service = NWListener.Service(name: deviceName, type: "_bettercast._tcp")
+
             listener.stateUpdateHandler = { [weak self] state in
                 self?.handleListenerState(state, type: "TCP")
             }
-            
+
             listener.newConnectionHandler = { [weak self] connection in
                 LogManager.shared.log("ReceiverIOS (TCP): New connection from \(connection.endpoint)")
                 self?.handleNewConnection(connection, type: "TCP")
             }
-            
+
             listener.start(queue: networkQueue)
             self.tcpListener = listener
         } catch {
@@ -80,7 +96,8 @@ class NetworkListenerIOS {
             parameters.includePeerToPeer = true
             
             let listener = try NWListener(using: parameters)
-            listener.service = NWListener.Service(name: "BetterCast Receiver UDP iOS", type: "_bettercast._udp")
+            let udpDeviceName = UIDevice.current.name
+            listener.service = NWListener.Service(name: udpDeviceName, type: "_bettercast._udp")
             
             listener.stateUpdateHandler = { [weak self] state in
                 self?.handleListenerState(state, type: "UDP")
@@ -234,11 +251,11 @@ class NetworkListenerIOS {
             self.videoDecoder?.decode(data: fullData)
             udpBuffer.removeValue(forKey: frameID)
             
-            // Simple cleanup
+            // Aggressive cleanup to prevent memory buildup on iOS
             udpPacketsReceived += 1
-            if udpPacketsReceived % 100 == 0 {
+            if udpPacketsReceived % 30 == 0 || udpBuffer.count > 10 {
                  for (key, val) in udpBuffer {
-                    if val.time.timeIntervalSinceNow < -1.0 { 
+                    if val.time.timeIntervalSinceNow < -0.5 {
                         udpBuffer.removeValue(forKey: key)
                     }
                 }
@@ -247,9 +264,9 @@ class NetworkListenerIOS {
     }
     
     private func startHeartbeat() {
-        LogManager.shared.log("ReceiverIOS: Starting heartbeat timer (5s interval)")
+        LogManager.shared.log("ReceiverIOS: Starting heartbeat timer (0.5s interval)")
         DispatchQueue.main.async { [weak self] in
-            self?.heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                 self?.sendHeartbeat()
             }
         }
@@ -260,10 +277,7 @@ class NetworkListenerIOS {
         // Send a simple heartbeat message (empty input event with type .command and keyCode 888)
         let heartbeat = InputEvent(
             type: .command,
-            x: 0, y: 0,
-            deltaX: 0, deltaY: 0,
-            keyCode: 888, // Special code for heartbeat
-            modifiers: 0
+            keyCode: 888 // Special code for heartbeat
         )
         sendInputEvent(heartbeat)
     }

@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QTcpSocket>
+#include <QTimer>
 #include <QByteArray>
 #include <cstdint>
 
@@ -27,6 +28,12 @@ signals:
 
 private:
     void sendPacket(uint8_t type, const QByteArray& payload);
+    void attemptConnect();
 
     QTcpSocket* m_socket = nullptr;
+    QString m_host;
+    uint16_t m_port = 0;
+    int m_retryCount = 0;
+    static constexpr int MaxRetries = 4;
+    QTimer m_retryTimer;
 };

@@ -1,4 +1,5 @@
 #include "NetworkSender.h"
+#include "MainWindow.h"  // for LogManager
 #include <QDebug>
 #include <QtEndian>
 
@@ -6,8 +7,12 @@ NetworkSender::NetworkSender(QObject* parent)
     : QObject(parent)
     , m_socket(new QTcpSocket(this))
 {
+    m_retryTimer.setSingleShot(true);
+    connect(&m_retryTimer, &QTimer::timeout, this, &NetworkSender::attemptConnect);
+
     connect(m_socket, &QTcpSocket::connected, this, [this]() {
-        qDebug() << "Sender: TCP connected to receiver";
+        m_retryCount = 0;
+        LogManager::instance().log("Sender: TCP connected to receiver");
         emit connected();
     });
 
@@ -17,7 +22,14 @@ NetworkSender::NetworkSender(QObject* parent)
     });
 
     connect(m_socket, &QTcpSocket::errorOccurred, this, [this](QAbstractSocket::SocketError err) {
-        Q_UNUSED(err);
+        if (err == QAbstractSocket::ConnectionRefusedError && m_retryCount < MaxRetries) {
+            m_retryCount++;
+            int delayMs = m_retryCount * 1000;  // 1s, 2s, 3s, 4s
+            LogManager::instance().log(QString("Sender: Connection refused, retry %1/%2 in %3s...")
+                .arg(m_retryCount).arg(MaxRetries).arg(delayMs / 1000));
+            m_retryTimer.start(delayMs);
+            return;
+        }
         qWarning() << "Sender: TCP error:" << m_socket->errorString();
         emit error(m_socket->errorString());
     });
@@ -28,14 +40,23 @@ NetworkSender::~NetworkSender() {
 }
 
 void NetworkSender::connectTo(const QString& host, uint16_t port) {
+    m_host = host;
+    m_port = port;
+    m_retryCount = 0;
+    attemptConnect();
+}
+
+void NetworkSender::attemptConnect() {
     if (m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->abort();
     }
-    qDebug() << "Sender: Connecting to" << host << ":" << port;
-    m_socket->connectToHost(host, port);
+    LogManager::instance().log(QString("Sender: Connecting to %1:%2").arg(m_host).arg(m_port));
+    m_socket->connectToHost(m_host, m_port);
 }
 
 void NetworkSender::disconnect() {
+    m_retryTimer.stop();
+    m_retryCount = MaxRetries;  // prevent further retries
     if (m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->abort();
     }
