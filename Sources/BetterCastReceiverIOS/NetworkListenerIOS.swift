@@ -20,7 +20,8 @@ class NetworkListenerIOS {
     
     // Dependencies
     weak var videoDecoder: VideoDecoder?
-    weak var videoRenderer: VideoRendererIOS? // We will define this later
+    weak var videoRenderer: VideoRendererIOS?
+    private var audioPlayer: AudioPlayerIOS?
     
     private let networkQueue = DispatchQueue(label: "com.bettercast.network.ios", qos: .userInteractive)
     
@@ -41,6 +42,7 @@ class NetworkListenerIOS {
     func setup(decoder: VideoDecoder, renderer: VideoRendererIOS) {
         self.videoDecoder = decoder
         self.videoRenderer = renderer
+        self.audioPlayer = AudioPlayerIOS()
         decoder.delegate = self
     }
     
@@ -268,8 +270,9 @@ class NetworkListenerIOS {
             let payload = body.dropFirst(1)
             if firstByte == 0x01 {
                 videoDecoder?.decode(data: payload)
+            } else if firstByte == 0x02 {
+                audioPlayer?.decode(aacData: payload)
             }
-            // 0x02 = audio — ignore for now
         } else {
             // Legacy framing: raw video data (with 8-byte PTS prefix handled by decoder)
             videoDecoder?.decode(data: body)
