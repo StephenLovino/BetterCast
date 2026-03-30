@@ -18,6 +18,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     var videoDecoder: ReceiverVideoDecoder?
     var adbInputInjector: ADBInputInjector?
 
+    // Per-connection format detection: true = has type byte, false = legacy, nil = unknown
+    private var connectionFormat: [ObjectIdentifier: Bool] = [:]
+
     // Auto-reconnect state
     private var lastADBPort: UInt16?
     private var lastADBPath: String?
@@ -393,14 +396,48 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                 let bodyLength = Int(length)
 
                 connection.receive(minimumIncompleteLength: bodyLength, maximumLength: bodyLength) { body, bodyContext, isComplete, error in
-                    if let body = body {
-                        self?.videoDecoder?.decode(data: body)
+                    if let body = body, !body.isEmpty {
+                        self?.handleReceivedBody(body, connection: connection)
                     }
                     self?.receiveTCP(on: connection)
                 }
             } else {
                 self?.receiveTCP(on: connection)
             }
+        }
+    }
+
+    private func handleReceivedBody(_ body: Data, connection: NWConnection) {
+        let connId = ObjectIdentifier(connection)
+        let hasTypeByte: Bool
+
+        if let known = connectionFormat[connId] {
+            hasTypeByte = known
+        } else {
+            // Auto-detect on first frame: type-byte format starts with 0x01 (video)
+            // or 0x02 (audio). Legacy format starts with 8-byte PTS (little-endian),
+            // where the first frame always has PTS=0 so byte[0]=0x00.
+            let firstByte = body[body.startIndex]
+            if firstByte == 0x01 || firstByte == 0x02 {
+                hasTypeByte = true
+                LogManager.shared.log("Receiver: Detected type-byte framing (desktop sender)")
+            } else {
+                hasTypeByte = false
+                LogManager.shared.log("Receiver: Detected legacy framing (Swift sender)")
+            }
+            connectionFormat[connId] = hasTypeByte
+        }
+
+        if hasTypeByte {
+            let typeByte = body[body.startIndex]
+            let payload = Data(body.dropFirst(1))
+            if typeByte == 0x01 && !payload.isEmpty {
+                videoDecoder?.decode(data: payload)
+            } else if typeByte == 0x02 {
+                // TODO: route to audio decoder
+            }
+        } else {
+            videoDecoder?.decode(data: body)
         }
     }
 
@@ -484,8 +521,10 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     }
 
     private func removeConnection(_ connection: NWConnection) {
+        let connId = ObjectIdentifier(connection)
         DispatchQueue.main.async {
             self.connectedClients.removeAll(where: { $0 === connection })
+            self.connectionFormat.removeValue(forKey: connId)
             self.wirelessADBEnabled = false
             if self.connectedClients.isEmpty && self.lastADBPort != nil {
                 self.startReconnectTimer()

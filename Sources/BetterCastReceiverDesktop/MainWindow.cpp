@@ -902,14 +902,16 @@ void MainWindow::onAdbConnectClicked() {
 }
 
 void MainWindow::onConnectionEstablished() {
-    m_stack->setCurrentIndex(m_pageVideo);
     m_connectBtn->setEnabled(true);
     m_reconnectTimer->stop();
     m_reconnectAttempts = 0;
     LogManager::instance().log("Connection established — streaming video");
 
-    // Keep sidebar visible — select Receive in sidebar to show it's active
+    // Highlight Receive in sidebar, then override stack to show video page.
+    // selectSidebarItem triggers onSidebarSelectionChanged which sets the stack,
+    // so we must set the video page AFTER the sidebar selection.
     selectSidebarItem(m_pageReceive);
+    m_stack->setCurrentIndex(m_pageVideo);
 
     if (m_adbHelper->wasAdbConnection()) {
         std::thread([this]() {
