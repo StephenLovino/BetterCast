@@ -81,14 +81,17 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     m_announceCount = 0;
 
     ensureMdnsSocket();
-    if (!m_mdnsSocket) return;
+    if (!m_mdnsSocket) {
+        qWarning() << "mDNS: FAILED to create socket — auto-discovery will NOT work";
+        qWarning() << "mDNS: Manual IP connection still works";
+        return;
+    }
 
     // Send gratuitous announcement so the Mac sender discovers us immediately
     m_announceTimer = new QTimer(this);
     connect(m_announceTimer, &QTimer::timeout, this, &ServiceDiscovery::sendAnnouncement);
-    // Announce frequently at startup (every 1s for first 5), then every 20s
-    // macOS NWBrowser needs to see announcements within its browse window
-    m_announceTimer->start(1000);
+    // Announce frequently at startup (every 500ms for first 20), then every 3s
+    m_announceTimer->start(500);
     sendAnnouncement();
 
     auto addrs = getLocalAddresses();
@@ -154,23 +157,26 @@ void ServiceDiscovery::ensureMdnsSocket() {
 
     m_mdnsSocket = new QUdpSocket(this);
 
+    // Try binding to port 5353 — needed to receive mDNS queries from other devices
     bool boundTo5353 = m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
                                            QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint);
     if (boundTo5353) {
-        qDebug() << "mDNS: Bound to port 5353 (can receive queries from other devices)";
+        qDebug() << "mDNS: ✓ Bound to port 5353 — can receive queries";
     } else {
-        qWarning() << "mDNS: Could not bind port 5353:" << m_mdnsSocket->errorString()
-                    << "— other devices won't be able to discover us via query/response";
+        qWarning() << "mDNS: ✗ Could not bind port 5353:" << m_mdnsSocket->errorString();
+        qWarning() << "mDNS:   (Another process may hold port 5353 — announcements still work)";
         // Fallback: bind to any port (we can still send announcements but can't receive queries)
         if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, 0)) {
-            qWarning() << "mDNS: Failed to bind any port:" << m_mdnsSocket->errorString();
+            qWarning() << "mDNS: ✗ Failed to bind ANY port:" << m_mdnsSocket->errorString();
             delete m_mdnsSocket;
             m_mdnsSocket = nullptr;
             return;
         }
-        qDebug() << "mDNS: Bound to fallback port" << m_mdnsSocket->localPort();
+        qDebug() << "mDNS: ✓ Bound to fallback port" << m_mdnsSocket->localPort()
+                  << "(send-only, cannot receive queries)";
     }
 
+    // Join multicast group on all eligible interfaces
     bool joined = false;
     for (const auto& iface : QNetworkInterface::allInterfaces()) {
         if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
@@ -178,22 +184,24 @@ void ServiceDiscovery::ensureMdnsSocket() {
             iface.flags().testFlag(QNetworkInterface::CanMulticast) &&
             !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
             if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
-                qDebug() << "mDNS: Joined multicast on" << iface.humanReadableName();
+                qDebug() << "mDNS: ✓ Joined multicast 224.0.0.251 on" << iface.humanReadableName();
                 joined = true;
+            } else {
+                qDebug() << "mDNS: ✗ Failed multicast join on" << iface.humanReadableName()
+                         << m_mdnsSocket->errorString();
             }
         }
     }
     if (!joined) {
         if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress)) {
-            qDebug() << "mDNS: Joined multicast on default interface";
+            qDebug() << "mDNS: ✓ Joined multicast on default interface";
             joined = true;
         } else {
-            qWarning() << "mDNS: Failed to join multicast group 224.0.0.251";
+            qWarning() << "mDNS: ✗ Failed to join ANY multicast group — discovery may not work";
         }
     }
 
     m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastTtlOption, QVariant(255));
-    // Enable multicast loopback so we can see our own announcements for debugging
     m_mdnsSocket->setSocketOption(QAbstractSocket::MulticastLoopbackOption, QVariant(1));
     connect(m_mdnsSocket, &QUdpSocket::readyRead, this, &ServiceDiscovery::onMdnsReadyRead);
 }
@@ -381,6 +389,9 @@ void ServiceDiscovery::onMdnsReadyRead() {
         uint16_t senderPort;
         m_mdnsSocket->readDatagram(data.data(), data.size(), &sender, &senderPort);
 
+        // Skip our own announcements
+        if (isOwnAddress(sender)) continue;
+
         if (data.size() < 12) continue;
 
         uint16_t flags = qFromBigEndian<uint16_t>(
@@ -447,13 +458,16 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
         if (qname.contains("_bettercast._tcp") ||
             (qtype == kTypePTR && qname.contains("_services._dns-sd")) ||
             (qtype == kTypePTR && qname.contains("_tcp.local"))) {
-            // Send our response
             auto addrs = getLocalAddresses();
-            qDebug() << "mDNS: Received query for" << qname << "from"
-                      << sender.toString() << "— responding with" << addrs.size() << "addresses";
+            qDebug() << "mDNS: Query for" << qname << "from" << sender.toString()
+                      << ":" << senderPort << "— responding with" << addrs.size() << "addresses";
             for (const auto& addr : addrs) {
                 QByteArray response = buildMdnsResponse(txId, addr);
+                // Send to multicast (standard mDNS)
                 m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+                // Also send unicast directly to the querier — this works even if
+                // multicast is blocked by Windows Firewall on the return path
+                m_mdnsSocket->writeDatagram(response, sender, senderPort);
             }
             return;
         }
@@ -465,10 +479,10 @@ void ServiceDiscovery::sendAnnouncement() {
 
     m_announceCount++;
 
-    // After initial burst (10 announcements at 1s), slow to every 3s
-    // macOS mDNSResponder needs frequent announcements to pick up new services
-    if (m_announceCount == 10 && m_announceTimer) {
+    // After initial burst (20 at 500ms = 10s), slow to every 3s
+    if (m_announceCount == 20 && m_announceTimer) {
         m_announceTimer->setInterval(3000);
+        qDebug() << "mDNS: Initial announcement burst complete, continuing every 3s";
     }
 
     auto addrs = getLocalAddresses();

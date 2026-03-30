@@ -8,32 +8,41 @@
 #include "MainWindow.h"
 
 #ifdef _WIN32
-// Add Windows Firewall exception for mDNS multicast (needed for auto-discovery)
+// Add Windows Firewall exceptions for mDNS and streaming
 static void ensureFirewallRule() {
-    // Check if our firewall rule already exists
+    // Check if our firewall rules already exist
     QProcess check;
-    check.start("netsh", {"advfirewall", "firewall", "show", "rule", "name=BetterCast mDNS"});
+    check.start("netsh", {"advfirewall", "firewall", "show", "rule", "name=BetterCast mDNS In"});
     check.waitForFinished(3000);
     QString output = QString::fromUtf8(check.readAllStandardOutput());
-    if (output.contains("BetterCast mDNS")) return; // Already exists
-
-    // Try to add inbound UDP rule for mDNS port 5353
-    // This requires admin, so it may fail silently — that's OK
-    QProcess add;
-    add.start("netsh", {"advfirewall", "firewall", "add", "rule",
-                         "name=BetterCast mDNS",
-                         "dir=in", "action=allow", "protocol=UDP",
-                         "localport=5353",
-                         "profile=private,public",
-                         "description=Allow mDNS for BetterCast auto-discovery"});
-    add.waitForFinished(3000);
-    if (add.exitCode() == 0) {
-        qDebug() << "Firewall: Added mDNS rule for auto-discovery";
-    } else {
-        qDebug() << "Firewall: Could not add mDNS rule (needs admin) — manual IP still works";
+    if (output.contains("BetterCast mDNS In")) {
+        qDebug() << "Firewall: Rules already exist";
+        return;
     }
 
-    // Also add rule for the app itself on TCP 51820
+    qDebug() << "Firewall: Adding rules (requires admin)...";
+
+    // Inbound UDP 5353 — receive mDNS queries from Mac/other devices
+    QProcess addIn;
+    addIn.start("netsh", {"advfirewall", "firewall", "add", "rule",
+                          "name=BetterCast mDNS In",
+                          "dir=in", "action=allow", "protocol=UDP",
+                          "localport=5353",
+                          "profile=private,public",
+                          "description=Allow inbound mDNS for BetterCast auto-discovery"});
+    addIn.waitForFinished(3000);
+
+    // Outbound UDP 5353 — send mDNS announcements to multicast
+    QProcess addOut;
+    addOut.start("netsh", {"advfirewall", "firewall", "add", "rule",
+                           "name=BetterCast mDNS Out",
+                           "dir=out", "action=allow", "protocol=UDP",
+                           "remoteport=5353",
+                           "profile=private,public",
+                           "description=Allow outbound mDNS for BetterCast auto-discovery"});
+    addOut.waitForFinished(3000);
+
+    // Inbound TCP 51820 — accept streaming connections
     QProcess addTcp;
     addTcp.start("netsh", {"advfirewall", "firewall", "add", "rule",
                             "name=BetterCast Receiver",
@@ -42,6 +51,13 @@ static void ensureFirewallRule() {
                             "profile=private,public",
                             "description=Allow BetterCast screen streaming"});
     addTcp.waitForFinished(3000);
+
+    if (addIn.exitCode() == 0) {
+        qDebug() << "Firewall: ✓ Rules added successfully";
+    } else {
+        qDebug() << "Firewall: ✗ Could not add rules (needs admin) — manual IP still works";
+        qDebug() << "Firewall:   Run BetterCast as Administrator once to enable auto-discovery";
+    }
 }
 #endif
 
