@@ -12,7 +12,8 @@ protocol NetworkListenerDelegate: AnyObject {
 class NetworkListenerIOS {
     weak var delegate: NetworkListenerDelegate?
     
-    private var tcpListener: NWListener?
+    private var tcpListener: NWListener?       // Wi-Fi — reachable by all devices
+    private var tcpP2PListener: NWListener?    // AWDL — low-latency for Apple devices
     private var udpListener: NWListener?
     
     private var connectedClients: [NWConnection] = []
@@ -50,24 +51,22 @@ class NetworkListenerIOS {
     }
     
     private func startTCP() {
+        let deviceName = UIDevice.current.name
+
+        // 1. Wi-Fi listener — reachable by ALL devices (Windows, Linux, Android, Mac)
         do {
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
             tcpOptions.noDelay = true
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
-            // Do NOT set includePeerToPeer — it causes the listener to bind to the
-            // AWDL interface which is unreachable from non-Apple devices (Windows/Linux).
-            // Mac senders can still connect via regular Wi-Fi TCP.
             parameters.serviceClass = .interactiveVideo
 
             let listener = try NWListener(using: parameters)
-            let deviceName = UIDevice.current.name
             listener.service = NWListener.Service(name: deviceName, type: "_bettercast._tcp")
 
             listener.stateUpdateHandler = { [weak self] state in
                 self?.handleListenerState(state, type: "TCP")
             }
-
             listener.newConnectionHandler = { [weak self] connection in
                 LogManager.shared.log("ReceiverIOS (TCP): New connection from \(connection.endpoint)")
                 self?.handleNewConnection(connection, type: "TCP")
@@ -77,6 +76,32 @@ class NetworkListenerIOS {
             self.tcpListener = listener
         } catch {
             LogManager.shared.log("ReceiverIOS (TCP): Error \(error)")
+        }
+
+        // 2. AWDL/P2P listener — low-latency direct link for Apple devices (Mac sender)
+        do {
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.enableKeepalive = true
+            tcpOptions.noDelay = true
+            let p2pParams = NWParameters(tls: nil, tcp: tcpOptions)
+            p2pParams.includePeerToPeer = true
+            p2pParams.serviceClass = .interactiveVideo
+
+            let p2pListener = try NWListener(using: p2pParams)
+            p2pListener.service = NWListener.Service(name: "\(deviceName) P2P", type: "_bettercast._tcp")
+
+            p2pListener.stateUpdateHandler = { [weak self] state in
+                self?.handleListenerState(state, type: "TCP-P2P")
+            }
+            p2pListener.newConnectionHandler = { [weak self] connection in
+                LogManager.shared.log("ReceiverIOS (TCP-P2P): New AWDL connection from \(connection.endpoint)")
+                self?.handleNewConnection(connection, type: "TCP")
+            }
+
+            p2pListener.start(queue: networkQueue)
+            self.tcpP2PListener = p2pListener
+        } catch {
+            LogManager.shared.log("ReceiverIOS (TCP-P2P): Error \(error)")
         }
     }
     
@@ -108,7 +133,14 @@ class NetworkListenerIOS {
     private func handleListenerState(_ state: NWListener.State, type: String) {
         switch state {
         case .ready:
-            if let port = (type == "TCP" ? self.tcpListener : self.udpListener)?.port {
+            let listener: NWListener? = {
+                switch type {
+                case "TCP": return self.tcpListener
+                case "TCP-P2P": return self.tcpP2PListener
+                default: return self.udpListener
+                }
+            }()
+            if let port = listener?.port {
                 LogManager.shared.log("ReceiverIOS (\(type)): Ready on port \(port)")
             } else {
                 LogManager.shared.log("ReceiverIOS (\(type)): Ready")
@@ -126,13 +158,19 @@ class NetworkListenerIOS {
                 }
             }
             // Auto-restart the failed listener
-            if type == "TCP" {
+            switch type {
+            case "TCP":
                 self.tcpListener?.cancel()
                 self.tcpListener = nil
                 DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
                     self?.startTCP()
                 }
-            } else {
+            case "TCP-P2P":
+                // P2P failure is non-critical — just log it
+                self.tcpP2PListener?.cancel()
+                self.tcpP2PListener = nil
+                LogManager.shared.log("ReceiverIOS (TCP-P2P): AWDL listener stopped, Wi-Fi listener still active")
+            default:
                 self.udpListener?.cancel()
                 self.udpListener = nil
                 DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
