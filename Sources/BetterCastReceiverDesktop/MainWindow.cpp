@@ -967,7 +967,6 @@ void MainWindow::onAdbConnectClicked() {
 void MainWindow::onConnectionEstablished() {
     m_connectBtn->setEnabled(true);
     m_reconnectTimer->stop();
-    m_reconnectAttempts = 0;
     LogManager::instance().log("Connection established — streaming video");
 
     // Highlight Receive in sidebar, then override stack to show video page.
@@ -975,6 +974,15 @@ void MainWindow::onConnectionEstablished() {
     // so we must set the video page AFTER the sidebar selection.
     selectSidebarItem(m_pageReceive);
     m_stack->setCurrentIndex(m_pageVideo);
+
+    // Reset reconnect counter only after video actually starts flowing
+    // (delayed so brief connect-then-disconnect during reconnect doesn't reset it)
+    QTimer::singleShot(3000, this, [this]() {
+        // Only reset if we're still connected (not in a reconnect cycle)
+        if (!m_network->clients().isEmpty()) {
+            m_reconnectAttempts = 0;
+        }
+    });
 
     if (m_adbHelper->wasAdbConnection() && !m_wirelessAdbEnabled) {
         // Delay wireless ADB by 5 seconds — adb tcpip 5555 temporarily kills
@@ -992,11 +1000,18 @@ void MainWindow::onConnectionEstablished() {
 }
 
 void MainWindow::onConnectionLost() {
-    selectSidebarItem(m_pageReceive);
     m_connectBtn->setEnabled(true);
 
     if (m_adbHelper->wasAdbConnection()) {
-        m_reconnectAttempts = 0;
+        // Don't reset m_reconnectAttempts here — if the reconnect itself
+        // succeeds briefly then disconnects, we'd loop forever.
+        // The counter only resets after a sustained connection (3s in onConnectionEstablished).
+        if (m_reconnectAttempts == 0) {
+            // First disconnect — show on receive page
+            selectSidebarItem(m_pageReceive);
+        }
+        // else: during reconnect cycle, don't switch pages (avoids flicker)
+
         m_recvStatusLabel->setText("Connection lost — reconnecting in 2s...");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
         LogManager::instance().log("Connection lost — will reconnect via ADB in 2s...");
@@ -1006,6 +1021,7 @@ void MainWindow::onConnectionLost() {
             m_reconnectTimer->start();
         });
     } else {
+        selectSidebarItem(m_pageReceive);
         m_recvStatusLabel->setText("Connection lost — still listening on port 51820");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: orange;");
         LogManager::instance().log("Connection lost");
@@ -1077,11 +1093,11 @@ void MainWindow::resizeToFitVideo(int videoWidth, int videoHeight) {
 void MainWindow::attemptAdbReconnect() {
     m_reconnectAttempts++;
 
-    if (m_reconnectAttempts > 20) {
+    if (m_reconnectAttempts > 15) {
         m_reconnectTimer->stop();
         m_recvStatusLabel->setText("Auto-reconnect failed. Click 'Connect to Android (ADB)' to retry.");
         m_recvStatusLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #d32f2f;");
-        LogManager::instance().log("ADB auto-reconnect failed after 20 attempts");
+        LogManager::instance().log("ADB auto-reconnect failed after 15 attempts");
         return;
     }
 

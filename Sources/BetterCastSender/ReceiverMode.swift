@@ -162,7 +162,11 @@ class ReceiverManager: ObservableObject {
                     self.windowController.open(renderer: self.videoRenderer)
                     self.windowController.updateTitle(senderCount: clients.count)
                 } else if self.windowController.isOpen {
-                    self.windowController.close()
+                    // Don't close window during ADB reconnect — it causes flicker
+                    let isReconnecting = self.networkListener.isReconnecting
+                    if !isReconnecting {
+                        self.windowController.close()
+                    }
                 }
             }
             .store(in: &cancellables)

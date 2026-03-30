@@ -28,9 +28,12 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     private var lastADBSerial: String?
     private var reconnectTimer: Timer?
     private var heartbeatTimer: Timer?
-    private var isReconnecting = false
+    private(set) var isReconnecting = false
     private var isConnectingADB = false
     private var wirelessADBEnabled = false
+    private var isStopped = false
+    private var reconnectAttempts = 0
+    private static let maxReconnectAttempts = 15
 
     init() {}
 
@@ -41,6 +44,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     }
 
     func start() {
+        isStopped = false
+        reconnectAttempts = 0
         // Start listeners on background queue to avoid blocking UI
         networkQueue.async { [weak self] in
             self?.startTCP()
@@ -53,6 +58,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     }
 
     func stop() {
+        isStopped = true
+        isReconnecting = false
+        reconnectAttempts = 0
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
         tcpListener?.cancel()
@@ -61,6 +69,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         udpListener = nil
         reconnectTimer?.invalidate()
         reconnectTimer = nil
+        lastADBPort = nil
+        lastADBLocalPort = nil
+        wirelessADBEnabled = false
         for connection in connectedClients {
             connection.cancel()
         }
@@ -532,6 +543,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             self.connectionFormat.removeValue(forKey: connId)
             // Do NOT reset wirelessADBEnabled — once enabled, it stays enabled
             // to prevent re-running adb tcpip 5555 on every reconnect
+            guard !self.isStopped else { return }
             if self.connectedClients.isEmpty && self.lastADBPort != nil {
                 self.startReconnectTimer()
             }
@@ -539,8 +551,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     }
 
     private func startReconnectTimer() {
-        guard !isReconnecting else { return }
+        guard !isReconnecting, !isStopped else { return }
         isReconnecting = true
+        reconnectAttempts = 0
         stopReconnectTimer()
         LogManager.shared.log("Receiver: Connection lost. Will auto-reconnect via ADB...")
         DispatchQueue.main.async {
@@ -559,10 +572,22 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     }
 
     private func attemptADBReconnect() {
-        guard let port = lastADBPort else { return }
+        guard let port = lastADBPort, !isStopped else { return }
 
+        reconnectAttempts += 1
+        if reconnectAttempts > Self.maxReconnectAttempts {
+            stopReconnectTimer()
+            isReconnecting = false
+            LogManager.shared.log("Receiver: ADB auto-reconnect failed after \(Self.maxReconnectAttempts) attempts")
+            DispatchQueue.main.async {
+                self.status = "Reconnect failed. Tap 'Connect via ADB' to retry."
+            }
+            return
+        }
+
+        LogManager.shared.log("Receiver: ADB reconnect attempt \(reconnectAttempts)/\(Self.maxReconnectAttempts)")
         DispatchQueue.main.async {
-            self.status = "Reconnecting via ADB..."
+            self.status = "Reconnecting via ADB (\(self.reconnectAttempts)/\(Self.maxReconnectAttempts))..."
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -612,6 +637,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                     DispatchQueue.main.async {
                         self.adbInputInjector = injector
                         self.isReconnecting = false
+                        self.reconnectAttempts = 0
                         self.stopReconnectTimer()
                     }
                     self.connectTo(host: "localhost", port: localPort)
