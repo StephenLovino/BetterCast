@@ -52,11 +52,14 @@ static void ensureFirewallRule() {
                             "description=Allow BetterCast screen streaming"});
     addTcp.waitForFinished(3000);
 
+    // Log firewall status — this runs before LogManager UI is set up,
+    // so we store the result and MainWindow will log it later
     if (addIn.exitCode() == 0) {
-        qDebug() << "Firewall: ✓ Rules added successfully";
+        qputenv("BETTERCAST_FW_STATUS", "ok");
+        qDebug() << "Firewall: Rules added successfully";
     } else {
-        qDebug() << "Firewall: ✗ Could not add rules (needs admin) — manual IP still works";
-        qDebug() << "Firewall:   Run BetterCast as Administrator once to enable auto-discovery";
+        qputenv("BETTERCAST_FW_STATUS", "failed");
+        qDebug() << "Firewall: Could not add rules (needs admin)";
     }
 }
 #endif

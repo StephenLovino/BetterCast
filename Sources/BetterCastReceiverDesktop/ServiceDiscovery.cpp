@@ -1,9 +1,17 @@
 #include "ServiceDiscovery.h"
+#include "MainWindow.h"  // for LogManager
 #include <QDebug>
 #include <QNetworkInterface>
 #include <QHostInfo>
 #include <QtEndian>
 #include <QVariant>
+
+// Log to both qDebug and the app's visible log viewer
+#define MDNS_LOG(msg) do { \
+    QString _m = (msg); \
+    qDebug().noquote() << _m; \
+    LogManager::instance().log(_m); \
+} while(0)
 
 #ifdef HAS_MDNS
 #include <dns_sd.h>
@@ -82,8 +90,8 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
 
     ensureMdnsSocket();
     if (!m_mdnsSocket) {
-        qWarning() << "mDNS: FAILED to create socket — auto-discovery will NOT work";
-        qWarning() << "mDNS: Manual IP connection still works";
+        MDNS_LOG("mDNS: FAILED to create socket — auto-discovery will NOT work");
+        MDNS_LOG("mDNS: Manual IP connection still works");
         return;
     }
 
@@ -95,8 +103,10 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     sendAnnouncement();
 
     auto addrs = getLocalAddresses();
-    qDebug() << "mDNS: Advertising" << m_serviceName << "on port" << tcpPort
-             << "IPs:" << addrs;
+    QStringList ipStrs;
+    for (const auto& a : addrs) ipStrs.append(a.toString());
+    MDNS_LOG(QString("mDNS: Advertising \"%1\" on port %2 — IPs: %3")
+             .arg(m_serviceName).arg(tcpPort).arg(ipStrs.join(", ")));
 }
 
 void ServiceDiscovery::stopAdvertising() {
@@ -161,19 +171,17 @@ void ServiceDiscovery::ensureMdnsSocket() {
     bool boundTo5353 = m_mdnsSocket->bind(QHostAddress::AnyIPv4, kMdnsPort,
                                            QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint);
     if (boundTo5353) {
-        qDebug() << "mDNS: ✓ Bound to port 5353 — can receive queries";
+        MDNS_LOG("mDNS: Bound to port 5353 (can receive queries)");
     } else {
-        qWarning() << "mDNS: ✗ Could not bind port 5353:" << m_mdnsSocket->errorString();
-        qWarning() << "mDNS:   (Another process may hold port 5353 — announcements still work)";
+        MDNS_LOG(QString("mDNS: Could not bind port 5353: %1").arg(m_mdnsSocket->errorString()));
         // Fallback: bind to any port (we can still send announcements but can't receive queries)
         if (!m_mdnsSocket->bind(QHostAddress::AnyIPv4, 0)) {
-            qWarning() << "mDNS: ✗ Failed to bind ANY port:" << m_mdnsSocket->errorString();
+            MDNS_LOG(QString("mDNS: Failed to bind ANY port: %1").arg(m_mdnsSocket->errorString()));
             delete m_mdnsSocket;
             m_mdnsSocket = nullptr;
             return;
         }
-        qDebug() << "mDNS: ✓ Bound to fallback port" << m_mdnsSocket->localPort()
-                  << "(send-only, cannot receive queries)";
+        MDNS_LOG(QString("mDNS: Bound to fallback port %1 (send-only)").arg(m_mdnsSocket->localPort()));
     }
 
     // Join multicast group on all eligible interfaces
@@ -184,20 +192,20 @@ void ServiceDiscovery::ensureMdnsSocket() {
             iface.flags().testFlag(QNetworkInterface::CanMulticast) &&
             !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
             if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
-                qDebug() << "mDNS: ✓ Joined multicast 224.0.0.251 on" << iface.humanReadableName();
+                MDNS_LOG(QString("mDNS: Joined multicast on %1").arg(iface.humanReadableName()));
                 joined = true;
             } else {
-                qDebug() << "mDNS: ✗ Failed multicast join on" << iface.humanReadableName()
-                         << m_mdnsSocket->errorString();
+                MDNS_LOG(QString("mDNS: Failed multicast join on %1: %2")
+                         .arg(iface.humanReadableName(), m_mdnsSocket->errorString()));
             }
         }
     }
     if (!joined) {
         if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress)) {
-            qDebug() << "mDNS: ✓ Joined multicast on default interface";
+            MDNS_LOG("mDNS: Joined multicast on default interface");
             joined = true;
         } else {
-            qWarning() << "mDNS: ✗ Failed to join ANY multicast group — discovery may not work";
+            MDNS_LOG("mDNS: FAILED to join any multicast group — discovery will not work");
         }
     }
 
@@ -459,8 +467,8 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
             (qtype == kTypePTR && qname.contains("_services._dns-sd")) ||
             (qtype == kTypePTR && qname.contains("_tcp.local"))) {
             auto addrs = getLocalAddresses();
-            qDebug() << "mDNS: Query for" << qname << "from" << sender.toString()
-                      << ":" << senderPort << "— responding with" << addrs.size() << "addresses";
+            MDNS_LOG(QString("mDNS: Query for %1 from %2:%3 — responding")
+                     .arg(qname, sender.toString()).arg(senderPort));
             for (const auto& addr : addrs) {
                 QByteArray response = buildMdnsResponse(txId, addr);
                 // Send to multicast (standard mDNS)
@@ -482,7 +490,7 @@ void ServiceDiscovery::sendAnnouncement() {
     // After initial burst (20 at 500ms = 10s), slow to every 3s
     if (m_announceCount == 20 && m_announceTimer) {
         m_announceTimer->setInterval(3000);
-        qDebug() << "mDNS: Initial announcement burst complete, continuing every 3s";
+        MDNS_LOG("mDNS: Announcement burst complete, continuing every 3s");
     }
 
     auto addrs = getLocalAddresses();

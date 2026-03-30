@@ -272,6 +272,16 @@ MainWindow::MainWindow(QWidget* parent)
     m_discovery->startBrowsing();
 #endif
     LogManager::instance().log("BetterCast started — listening on port 51820");
+#ifdef _WIN32
+    QByteArray fwStatus = qgetenv("BETTERCAST_FW_STATUS");
+    if (fwStatus == "ok") {
+        LogManager::instance().log("Firewall: Rules added (mDNS + TCP)");
+    } else if (fwStatus == "failed") {
+        LogManager::instance().log("Firewall: Rules NOT added — run as Administrator once for auto-discovery");
+    } else {
+        LogManager::instance().log("Firewall: Rules already exist");
+    }
+#endif
 
     // Default window size (landscape 16:9, 70% screen)
     QScreen* screen = QApplication::primaryScreen();
