@@ -24,6 +24,7 @@
 #include <QNetworkInterface>
 #include <QUrl>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <thread>
 
 // ─── Dark theme stylesheet ─────────────────────────────────────────────────────
@@ -1172,7 +1173,17 @@ void MainWindow::onReportIssue() {
 // ─── Key Events ─────────────────────────────────────────────────────────────────
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_F11) {
+        if (m_stack->currentIndex() == m_pageVideo) {
+            toggleFullscreen();
+            return;
+        }
+    }
     if (event->key() == Qt::Key_Escape) {
+        if (isFullScreen()) {
+            toggleFullscreen();
+            return;
+        }
         // If viewing video, go back to receive page
         if (m_stack->currentIndex() == m_pageVideo) {
             selectSidebarItem(m_pageReceive);
@@ -1180,6 +1191,29 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         }
     }
     QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (m_stack->currentIndex() == m_pageVideo) {
+        toggleFullscreen();
+        event->accept();
+        return;
+    }
+    QMainWindow::mouseDoubleClickEvent(event);
+}
+
+void MainWindow::toggleFullscreen() {
+    if (isFullScreen()) {
+        // Exit fullscreen — restore sidebar and window frame
+        m_splitter->widget(0)->show();  // sidebar
+        showNormal();
+        LogManager::instance().log("Exited fullscreen");
+    } else {
+        // Enter fullscreen — hide sidebar, go borderless fullscreen
+        m_splitter->widget(0)->hide();  // sidebar
+        showFullScreen();
+        LogManager::instance().log("Entered fullscreen (F11 or Escape to exit)");
+    }
 }
 
 // ─── Local IP Display ───────────────────────────────────────────────────────────

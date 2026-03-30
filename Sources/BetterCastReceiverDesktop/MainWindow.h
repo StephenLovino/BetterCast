@@ -13,6 +13,7 @@
 #include <QSpinBox>
 #include <QTimer>
 #include <QSize>
+#include <QMouseEvent>
 #include <QStringList>
 #include <QTime>
 
@@ -87,6 +88,7 @@ private slots:
 
 private:
     void keyPressEvent(QKeyEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void setupUi();
     void setupSidebar();
     void setupOverviewPage();
@@ -99,6 +101,7 @@ private:
     void resizeToFitVideo(int videoWidth, int videoHeight);
     void updateLocalIpDisplay();
     void selectSidebarItem(int pageIndex);
+    void toggleFullscreen();
 
     // Core components
     VideoDecoder* m_decoder = nullptr;
