@@ -154,6 +154,7 @@ private:
     // Send page
     QComboBox* m_receiverCombo = nullptr;
     QLineEdit* m_sendHostEdit = nullptr;
+    uint16_t m_selectedReceiverPort = 51820;
     QSpinBox* m_fpsSpinBox = nullptr;
     QSpinBox* m_bitrateSpinBox = nullptr;
     QPushButton* m_sendBtn = nullptr;

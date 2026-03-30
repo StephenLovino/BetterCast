@@ -1060,7 +1060,7 @@ void MainWindow::onSendScreenClicked() {
     int bitrate = m_bitrateSpinBox->value();
     LogManager::instance().log(QString("Starting sender to %1 at %2 FPS, %3 Mbps")
                                    .arg(host).arg(fps).arg(bitrate));
-    m_sender->startSending(host, 51820, fps, bitrate);
+    m_sender->startSending(host, m_selectedReceiverPort, fps, bitrate);
 }
 
 void MainWindow::onStopSendingClicked() {
@@ -1085,22 +1085,32 @@ void MainWindow::onReceiverDiscovered(const DiscoveredService& service) {
     // Check if already in the list
     QString entry = QString("%1  (%2:%3)").arg(service.name, service.host).arg(service.port);
     for (int i = 0; i < m_receiverCombo->count(); i++) {
-        if (m_receiverCombo->itemData(i).toString() == service.host) {
+        QVariantMap existing = m_receiverCombo->itemData(i).toMap();
+        if (existing.value("host").toString() == service.host) {
             m_receiverCombo->setItemText(i, entry);
+            QVariantMap updated;
+            updated["host"] = service.host;
+            updated["port"] = service.port;
+            m_receiverCombo->setItemData(i, updated);
             return;
         }
     }
 
-    m_receiverCombo->addItem(entry, service.host);
+    QVariantMap data;
+    data["host"] = service.host;
+    data["port"] = service.port;
+    m_receiverCombo->addItem(entry, data);
     LogManager::instance().log(QString("Discovered receiver: %1 at %2:%3")
                                    .arg(service.name, service.host).arg(service.port));
 }
 
 void MainWindow::onReceiverSelected(int index) {
     if (!m_receiverCombo || !m_sendHostEdit) return;
-    QString host = m_receiverCombo->itemData(index).toString();
+    QVariantMap data = m_receiverCombo->itemData(index).toMap();
+    QString host = data.value("host").toString();
     if (!host.isEmpty()) {
         m_sendHostEdit->setText(host);
+        m_selectedReceiverPort = static_cast<uint16_t>(data.value("port", 51820).toUInt());
     }
 }
 #endif
