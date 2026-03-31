@@ -97,23 +97,39 @@ jobs:
         shell: pwsh
         run: |
           $vddTag = "${{ env.VDD_VERSION }}"
-          # Repo moved to VirtualDrivers org; asset name includes version
-          $vddUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/${vddTag}/VDD.Control.${vddTag}.zip"
-          Write-Host "Downloading VDD from: $vddUrl"
+          $baseUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/${vddTag}"
 
           mkdir "vdd" -Force
           try {
-            Invoke-WebRequest -Uri $vddUrl -OutFile "vdd-release.zip" -MaximumRedirection 5
-            Expand-Archive -Path "vdd-release.zip" -DestinationPath "vdd-extract"
+            # Download the actual driver package (contains .inf + .dll for pnputil)
+            $driverUrl = "${baseUrl}/VirtualDisplayDriver-x86.Driver.Only.zip"
+            Write-Host "Downloading VDD driver from: $driverUrl"
+            Invoke-WebRequest -Uri $driverUrl -OutFile "vdd-driver.zip" -MaximumRedirection 5
+            Expand-Archive -Path "vdd-driver.zip" -DestinationPath "vdd-driver-extract"
+            Get-ChildItem "vdd-driver-extract" -Recurse -File | ForEach-Object {
+              Copy-Item $_.FullName "vdd/" -Force
+            }
 
-            # Flatten: copy all files into vdd/ regardless of subfolder structure
-            Get-ChildItem "vdd-extract" -Recurse -File | ForEach-Object {
+            # Also download VDD Control app (UI for managing virtual displays)
+            $controlUrl = "${baseUrl}/VDD.Control.${vddTag}.zip"
+            Write-Host "Downloading VDD Control from: $controlUrl"
+            Invoke-WebRequest -Uri $controlUrl -OutFile "vdd-control.zip" -MaximumRedirection 5
+            Expand-Archive -Path "vdd-control.zip" -DestinationPath "vdd-control-extract"
+            Get-ChildItem "vdd-control-extract" -Recurse -File | ForEach-Object {
               Copy-Item $_.FullName "vdd/" -Force
             }
 
             $fileCount = (Get-ChildItem "vdd" -File).Count
             Write-Host "VDD: $fileCount files extracted"
             Get-ChildItem "vdd" | ForEach-Object { Write-Host "  $_" }
+
+            # Verify we have the .inf file needed for driver installation
+            $infFiles = Get-ChildItem "vdd" -Filter "*.inf"
+            if ($infFiles.Count -eq 0) {
+              Write-Host "WARNING: No .inf file found in VDD package"
+            } else {
+              Write-Host "VDD driver .inf found: $($infFiles.Name)"
+            }
           } catch {
             Write-Host "WARNING: Failed to download VDD: $_"
             Write-Host "Installer will be built without VDD bundled"

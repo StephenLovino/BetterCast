@@ -107,23 +107,32 @@ Section "Virtual Display Driver (VDD)" SecVDD
     ; Copy VDD files (/nonfatal = don't fail if no files bundled)
     File /nonfatal /r "vdd\*.*"
 
-    ; Check if any VDD files were actually installed
+    ; Check if any VDD driver files were actually copied
     IfFileExists "$INSTDIR\VirtualDisplayDriver\*.inf" 0 try_exe
 
-    ; Install via .inf file using pnputil
+    ; Install via .inf file using pnputil (find whichever .inf exists)
     DetailPrint "Installing VDD driver via pnputil..."
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\VirtualDisplayDriver.inf" /install'
+    FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.inf"
+    StrCmp $2 "" try_exe
+    DetailPrint "Found driver: $2"
+    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
+    FindClose $1
+    Pop $0
+    DetailPrint "pnputil exit code: $0"
+    StrCmp $0 "0" vdd_done
+    ; pnputil failed — try alternate inf names
+    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\*.inf" /install /subdirs'
     Pop $0
     StrCmp $0 "0" vdd_done
     Goto vdd_manual
 
     try_exe:
-    ; Try VDD installer exe
+    ; Try VDD Control exe to install driver
     IfFileExists "$INSTDIR\VirtualDisplayDriver\*.exe" 0 vdd_not_found
     DetailPrint "Running VDD installer..."
-    ; Find and run the first exe in the directory
     FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.exe"
     StrCmp $2 "" vdd_manual
+    DetailPrint "Running: $2"
     nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\$2" /S'
     FindClose $1
     Goto vdd_done
