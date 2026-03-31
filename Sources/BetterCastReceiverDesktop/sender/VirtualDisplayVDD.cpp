@@ -339,6 +339,48 @@ bool VirtualDisplayVDD::installDriver() {
 
 // ─── Virtual Display Management ────────────────────────────────────────────────
 
+bool VirtualDisplayVDD::ensureVddControlRunning() {
+#ifdef _WIN32
+    // Check if pipe already exists (VDD Control is running)
+    HANDLE pipe = CreateFileA(kVddPipeName, GENERIC_READ | GENERIC_WRITE,
+                              0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (pipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(pipe);
+        VDD_LOG("VDD: VDD Control is already running (pipe available)");
+        return true;
+    }
+
+    // Try to launch VDD Control
+    QString controlExe = m_vddPath + "/VDD Control.exe";
+    if (!QFileInfo::exists(controlExe)) {
+        controlExe = m_vddPath + "/VDD.Control.exe";
+    }
+    if (!QFileInfo::exists(controlExe)) {
+        VDD_LOG("VDD: VDD Control.exe not found in " + m_vddPath);
+        return false;
+    }
+
+    VDD_LOG("VDD: Starting VDD Control: " + controlExe);
+    QProcess::startDetached(controlExe, {});
+
+    // Wait for the pipe to become available (VDD Control needs startup time)
+    for (int i = 0; i < 20; i++) {  // Up to 10 seconds
+        QThread::msleep(500);
+        pipe = CreateFileA(kVddPipeName, GENERIC_READ | GENERIC_WRITE,
+                           0, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (pipe != INVALID_HANDLE_VALUE) {
+            CloseHandle(pipe);
+            VDD_LOG("VDD: VDD Control started, pipe available");
+            return true;
+        }
+    }
+    VDD_LOG("VDD: VDD Control started but pipe not available after 10s");
+    return false;
+#else
+    return false;
+#endif
+}
+
 bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshRate) {
     if (!m_vddInstalled) {
         emit error("VDD is not installed. Download from github.com/itsmikethetech/Virtual-Display-Driver");
@@ -360,6 +402,9 @@ bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshR
         }
         VDD_LOG("VDD: Driver installed successfully");
     }
+
+    // Ensure VDD Control is running (provides the named pipe interface)
+    ensureVddControlRunning();
 
     // Method 1: Try VDD named pipe (modern versions)
     VDD_LOG("VDD: Trying named pipe to create display...");
