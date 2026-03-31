@@ -9,6 +9,7 @@ import IOKit.graphics
 struct BetterCastSenderApp: App {
     @StateObject private var networkClient = NetworkClient()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("hasCompletedTour") private var hasCompletedTour = false
 
     var body: some Scene {
         WindowGroup {
@@ -26,6 +27,7 @@ struct BetterCastSenderApp: App {
 
     enum SidebarSelection: Hashable {
         case devices
+        case receive
         case settings
         case device(UUID)
         case discovered(String) // Unconnected device by service name
@@ -34,6 +36,7 @@ struct BetterCastSenderApp: App {
 
     @State private var sidebarSelection: SidebarSelection? = .devices
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var showTour = false
 
     private var mainView: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -43,13 +46,318 @@ struct BetterCastSenderApp: App {
             DetailPanelView(client: networkClient, selection: $sidebarSelection, hasCompletedOnboarding: $hasCompletedOnboarding)
         }
         .frame(minWidth: 750, minHeight: 540)
+        .overlay {
+            if showTour {
+                GuidedTourOverlay(
+                    selection: $sidebarSelection,
+                    onDismiss: {
+                        withAnimation { showTour = false }
+                        hasCompletedTour = true
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
         .onAppear {
             networkClient.checkScreenRecordingPermission()
             networkClient.startBrowsing()
+            _ = ReceiverManager.shared
+            UpdateChecker.shared.checkForUpdates()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 InputHandler.shared.checkAccessibility()
             }
+            if !hasCompletedTour {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    withAnimation { showTour = true }
+                }
+            }
         }
+        .onChange(of: hasCompletedTour) { completed in
+            if !completed {
+                sidebarSelection = .devices
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation { showTour = true }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Tour Anchor Store (global coordinates)
+
+/// Stores sidebar item frames in global coordinate space for the tour spotlight.
+class TourAnchorStore: ObservableObject {
+    static let shared = TourAnchorStore()
+    @Published var globalFrames: [String: CGRect] = [:]
+    @Published var overlayOrigin: CGPoint = .zero
+
+    /// Returns the frame of a tour anchor relative to the overlay.
+    func frame(for key: String) -> CGRect? {
+        guard let gf = globalFrames[key] else { return nil }
+        return CGRect(
+            x: gf.minX - overlayOrigin.x,
+            y: gf.minY - overlayOrigin.y,
+            width: gf.width,
+            height: gf.height
+        )
+    }
+}
+
+extension View {
+    /// Tags this view so the guided tour can spotlight it.
+    func tourAnchor(_ key: String) -> some View {
+        self.background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear {
+                        TourAnchorStore.shared.globalFrames[key] = geo.frame(in: .global)
+                    }
+                    .onChange(of: geo.frame(in: .global).origin.x) { _ in
+                        TourAnchorStore.shared.globalFrames[key] = geo.frame(in: .global)
+                    }
+                    .onChange(of: geo.frame(in: .global).origin.y) { _ in
+                        TourAnchorStore.shared.globalFrames[key] = geo.frame(in: .global)
+                    }
+            }
+        )
+    }
+}
+
+// MARK: - Guided Tour
+
+struct TourStep {
+    let title: String
+    let description: String
+    let icon: String
+    let sidebarTarget: BetterCastSenderApp.SidebarSelection?
+    let anchorKey: String?  // key into TourAnchorKey dict to spotlight
+}
+
+struct GuidedTourOverlay: View {
+    @Binding var selection: BetterCastSenderApp.SidebarSelection?
+    @ObservedObject var anchorStore: TourAnchorStore = .shared
+    let onDismiss: () -> Void
+    @State private var currentStep = 0
+
+    private let steps: [TourStep] = [
+        TourStep(
+            title: "Welcome to BetterCast",
+            description: "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac.",
+            icon: "hand.wave.fill",
+            sidebarTarget: nil,
+            anchorKey: nil
+        ),
+        TourStep(
+            title: "Overview",
+            description: "This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings.",
+            icon: "rectangle.on.rectangle",
+            sidebarTarget: .devices,
+            anchorKey: "sidebar_overview"
+        ),
+        TourStep(
+            title: "Device Settings",
+            description: "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display.",
+            icon: "gearshape",
+            sidebarTarget: .devices,
+            anchorKey: "sidebar_devices_section"
+        ),
+        TourStep(
+            title: "Receive Screen",
+            description: "BetterCast can also receive streams from other Macs. Start listening here and incoming video opens in a separate window.",
+            icon: "display.and.arrow.down",
+            sidebarTarget: .receive,
+            anchorKey: "sidebar_receive"
+        ),
+        TourStep(
+            title: "Settings",
+            description: "Configure global preferences like connection mode, auto-connect, and manage connected displays.",
+            icon: "gearshape.2",
+            sidebarTarget: .settings,
+            anchorKey: "sidebar_settings"
+        ),
+        TourStep(
+            title: "Logs",
+            description: "View detailed connection and streaming logs for troubleshooting. Useful if something isn't working right.",
+            icon: "text.alignleft",
+            sidebarTarget: .logs,
+            anchorKey: "sidebar_logs"
+        ),
+        TourStep(
+            title: "You're All Set!",
+            description: "Connect a receiver device from the sidebar or use \"Receive Screen\" to receive from another Mac. Enjoy your extended display!",
+            icon: "checkmark.circle.fill",
+            sidebarTarget: .devices,
+            anchorKey: nil
+        ),
+    ]
+
+    var body: some View {
+        let step = steps[currentStep]
+        let spotlightRect = step.anchorKey.flatMap { anchorStore.frame(for: $0) }
+
+        GeometryReader { geo in
+            let size = geo.size
+
+            ZStack {
+                // Dimmed background with spotlight cutout
+                SpotlightCutoutShape(spotlight: spotlightRect, cornerRadius: 8)
+                    .fill(Color.black.opacity(0.6))
+                    .onTapGesture { }
+
+                // Highlight border around the spotlighted item
+                if let rect = spotlightRect {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.accentColor.opacity(0.08))
+                        )
+                        .frame(width: rect.width + 12, height: rect.height + 6)
+                        .position(x: rect.midX, y: rect.midY)
+                }
+
+                // Tour card — positioned near the spotlight or centered
+                tourCard
+                    .frame(maxWidth: 380)
+                    .position(cardPosition(in: size, spotlight: spotlightRect))
+            }
+            .onAppear {
+                anchorStore.overlayOrigin = CGPoint(
+                    x: geo.frame(in: .global).minX,
+                    y: geo.frame(in: .global).minY
+                )
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: currentStep)
+        .onChange(of: currentStep) { _ in
+            if let target = steps[currentStep].sidebarTarget {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selection = target
+                }
+            }
+        }
+    }
+
+    /// Positions the card to the right of the spotlight, or centered if no spotlight.
+    private func cardPosition(in size: CGSize, spotlight: CGRect?) -> CGPoint {
+        guard let spot = spotlight else {
+            return CGPoint(x: size.width / 2, y: size.height / 2)
+        }
+
+        let cardWidth: CGFloat = 380
+        let cardHeight: CGFloat = 260
+        let padding: CGFloat = 20
+
+        // Try to place to the right of the spotlight
+        let rightX = spot.maxX + padding + cardWidth / 2
+        let leftX = spot.minX - padding - cardWidth / 2
+
+        let x: CGFloat
+        if rightX + cardWidth / 2 < size.width {
+            x = rightX
+        } else if leftX - cardWidth / 2 > 0 {
+            x = leftX
+        } else {
+            x = size.width / 2
+        }
+
+        // Vertically align with spotlight center, clamped to window
+        let y = min(max(spot.midY, cardHeight / 2 + 20), size.height - cardHeight / 2 - 20)
+
+        return CGPoint(x: x, y: y)
+    }
+
+    private var tourCard: some View {
+        let step = steps[currentStep]
+
+        return VStack(spacing: 16) {
+            Image(systemName: step.icon)
+                .font(.system(size: 36))
+                .foregroundColor(.accentColor)
+                .padding(.top, 8)
+
+            Text(step.title)
+                .font(.system(size: 18, weight: .bold))
+
+            Text(step.description)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Progress dots
+            HStack(spacing: 6) {
+                ForEach(0..<steps.count, id: \.self) { i in
+                    Circle()
+                        .fill(i == currentStep ? Color.accentColor : Color.gray.opacity(0.4))
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .padding(.top, 4)
+
+            // Navigation
+            HStack {
+                if currentStep > 0 {
+                    Button("Back") {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            currentStep -= 1
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                }
+
+                Spacer()
+
+                Button("Skip Tour") {
+                    onDismiss()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+
+                Spacer()
+
+                if currentStep < steps.count - 1 {
+                    Button("Next") {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            currentStep += 1
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                } else {
+                    Button("Done") {
+                        onDismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(.green)
+                }
+            }
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
+        )
+    }
+}
+
+/// Shape that fills the entire rect but cuts out a rounded-rect spotlight hole.
+struct SpotlightCutoutShape: Shape {
+    var spotlight: CGRect?
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        if let spot = spotlight {
+            let cutout = Path(roundedRect: spot.insetBy(dx: -6, dy: -6), cornerRadius: cornerRadius)
+            path = path.subtracting(cutout)
+        }
+        return path
     }
 }
 
@@ -413,11 +721,11 @@ struct SidebarView: View {
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
 
     var body: some View {
-        List(selection: $selection) {
+        List {
             // Devices first — the main dashboard
             Section("Devices") {
-                Label("Overview", systemImage: "rectangle.on.rectangle")
-                    .tag(BetterCastSenderApp.SidebarSelection.devices)
+                sidebarRow("Overview", icon: "rectangle.on.rectangle", tag: .devices)
+                    .tourAnchor("sidebar_overview")
 
                 if client.foundServices.isEmpty && client.connectedServices.isEmpty {
                     HStack {
@@ -429,51 +737,45 @@ struct SidebarView: View {
                     }
                 } else {
                     ForEach(client.foundServices.filter { service in
-                        // Hide ADB synthetic entries when the mDNS Android device is visible
                         let isADBSynthetic = service.name.contains("Android (USB)") || service.name.contains("Android (WiFi ADB)")
                         let hasMDNSAndroid = client.foundServices.contains(where: {
                             $0.name.lowercased().contains("android") && !$0.name.contains("Android (USB)") && !$0.name.contains("Android (WiFi ADB)")
                         })
                         return !(isADBSynthetic && hasMDNSAndroid)
                     }, id: \.name) { service in
-                        SidebarDeviceRow(service: service, client: client)
+                        SidebarDeviceRow(service: service, client: client, selection: $selection)
                     }
                 }
 
-                // Connected ADB tunnels not in foundServices — but hide Android ADB
-                // entries when the mDNS Android device is already shown
+                // Connected ADB tunnels not in foundServices
                 ForEach(client.connectedDisplays.filter { display in
                     let inFoundServices = client.foundServices.contains(where: { $0.name == display.name })
                     let isADBDuplicate = (display.name.contains("Android (USB)") || display.name.contains("Android (WiFi ADB)"))
                         && client.foundServices.contains(where: { $0.name.lowercased().contains("android") })
                     return !inFoundServices && !isADBDuplicate
                 }) { display in
-                    Label {
-                        VStack(alignment: .leading) {
-                            Text(display.name)
-                            Text(display.resolution)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "display")
-                            .foregroundStyle(.green)
-                    }
-                    .tag(BetterCastSenderApp.SidebarSelection.device(display.id))
+                    sidebarRow(display.name, subtitle: display.resolution, icon: "display", tag: .device(display.id), iconTint: .green)
                 }
             }
+            .tourAnchor("sidebar_devices_section")
 
             // Manual Connect
             Section("Connect") {
                 ManualConnectRow(client: client)
             }
 
+            // Receive mode
+            Section("Receive") {
+                sidebarRow("Receive Screen", icon: "display.and.arrow.down", tag: .receive)
+                    .tourAnchor("sidebar_receive")
+            }
+
             // Settings & Logs at the bottom
             Section {
-                Label("Settings", systemImage: "gearshape")
-                    .tag(BetterCastSenderApp.SidebarSelection.settings)
-                Label("Logs", systemImage: "text.alignleft")
-                    .tag(BetterCastSenderApp.SidebarSelection.logs)
+                sidebarRow("Settings", icon: "gearshape", tag: .settings)
+                    .tourAnchor("sidebar_settings")
+                sidebarRow("Logs", icon: "text.alignleft", tag: .logs)
+                    .tourAnchor("sidebar_logs")
             }
         }
         .navigationTitle("BetterCast")
@@ -494,6 +796,49 @@ struct SidebarView: View {
             .padding(.vertical, 8)
         }
     }
+
+    // Apple Music-style sidebar row: tinted icon+text when selected, subtle matte bg
+    @ViewBuilder
+    private func sidebarRow(
+        _ title: String,
+        subtitle: String? = nil,
+        icon: String,
+        tag: BetterCastSenderApp.SidebarSelection,
+        iconTint: Color? = nil
+    ) -> some View {
+        let isSelected = selection == tag
+        let tint = iconTint ?? .accentColor
+
+        Button {
+            selection = tag
+        } label: {
+            Label {
+                if let subtitle = subtitle {
+                    VStack(alignment: .leading) {
+                        Text(title)
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(isSelected ? tint.opacity(0.7) : .secondary)
+                    }
+                } else {
+                    Text(title)
+                }
+            } icon: {
+                Image(systemName: icon)
+                    .foregroundColor(isSelected ? tint : .secondary)
+            }
+            .foregroundColor(isSelected ? tint : .primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            isSelected
+                ? RoundedRectangle(cornerRadius: 6)
+                    .fill(tint.opacity(0.1))
+                : nil
+        )
+    }
 }
 
 // MARK: - Sidebar Device Row
@@ -501,6 +846,7 @@ struct SidebarView: View {
 struct SidebarDeviceRow: View {
     let service: DiscoveredService
     @ObservedObject var client: NetworkClient
+    @Binding var selection: BetterCastSenderApp.SidebarSelection?
 
     private var isAndroid: Bool {
         service.name.lowercased().contains("android")
@@ -553,37 +899,51 @@ struct SidebarDeviceRow: View {
         return "display"
     }
 
+    private var rowTag: BetterCastSenderApp.SidebarSelection {
+        isConnected
+            ? connectedDisplayId.map { .device($0) } ?? .discovered(service.name)
+            : .discovered(service.name)
+    }
+
+    private var isSelected: Bool { selection == rowTag }
+
     var body: some View {
-        HStack {
-            Label {
-                VStack(alignment: .leading) {
-                    Text(service.name)
-                        .lineLimit(1)
-                    Text(isAndroid ? connectionMethod : (isConnected ? "Connected" : "Available"))
-                        .font(.caption)
-                        .foregroundStyle(isConnected ? .green : .secondary)
+        Button {
+            selection = rowTag
+        } label: {
+            HStack {
+                Label {
+                    VStack(alignment: .leading) {
+                        Text(service.name)
+                            .lineLimit(1)
+                        Text(isAndroid ? connectionMethod : (isConnected ? "Connected" : "Available"))
+                            .font(.caption)
+                            .foregroundStyle(isConnected ? .green : .secondary)
+                    }
+                } icon: {
+                    Image(systemName: deviceIcon)
+                        .foregroundColor(isSelected ? .accentColor : (isConnected ? .green : .secondary))
                 }
-            } icon: {
-                Image(systemName: deviceIcon)
-                    .foregroundStyle(isConnected ? .green : .secondary)
-            }
-            Spacer()
-            if !isConnected && !isAndroid {
-                Button {
-                    client.connect(to: service)
-                } label: {
-                    Image(systemName: "link")
+                .foregroundColor(isSelected ? .accentColor : .primary)
+                Spacer()
+                if !isConnected && !isAndroid {
+                    Button {
+                        client.connect(to: service)
+                    } label: {
+                        Image(systemName: "link")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .tint(.accentColor)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .tint(.accentColor)
             }
+            .contentShape(Rectangle())
         }
-        .tag(
-            isConnected
-                ? connectedDisplayId.map { BetterCastSenderApp.SidebarSelection.device($0) }
-                    ?? BetterCastSenderApp.SidebarSelection.discovered(service.name)
-                : BetterCastSenderApp.SidebarSelection.discovered(service.name)
+        .buttonStyle(.plain)
+        .listRowBackground(
+            isSelected
+                ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.1))
+                : nil
         )
     }
 }
@@ -656,6 +1016,7 @@ struct DetailPanelView: View {
     @ObservedObject var client: NetworkClient
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
     @Binding var hasCompletedOnboarding: Bool
+    @AppStorage("hasCompletedTour") private var hasCompletedTour = false
 
     var body: some View {
         switch selection {
@@ -671,6 +1032,8 @@ struct DetailPanelView: View {
             } else {
                 settingsForm
             }
+        case .receive:
+            ReceiverModeView()
         case .logs:
             LogView()
                 .navigationTitle("Logs")
@@ -806,28 +1169,37 @@ struct DetailPanelView: View {
             }
 
             Section("Controls") {
-                HStack(spacing: 10) {
-                    Button("Apply Settings") {
-                        if client.isConnected {
-                            client.updateStreamResolution()
+                VStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        Button("Apply Settings") {
+                            if client.isConnected {
+                                client.updateStreamResolution()
+                            }
+                        }
+                        .disabled(!client.isConnected)
+
+                        Button("Screen Recording") {
+                            client.openPrivacySettings()
+                        }
+
+                        Button("Reset Permissions") {
+                            client.resetScreenCapturePermissions()
+                        }
+
+                        Button("Restart") {
+                            client.restartApp()
                         }
                     }
-                    .disabled(!client.isConnected)
 
-                    Button("Screen Recording") {
-                        client.openPrivacySettings()
-                    }
+                    HStack(spacing: 10) {
+                        Button("Setup Wizard") {
+                            hasCompletedOnboarding = false
+                        }
 
-                    Button("Reset Permissions") {
-                        client.resetScreenCapturePermissions()
-                    }
-
-                    Button("Restart") {
-                        client.restartApp()
-                    }
-
-                    Button("Setup Wizard") {
-                        hasCompletedOnboarding = false
+                        Button("Replay Tour") {
+                            hasCompletedTour = false
+                            selection = .devices
+                        }
                     }
                 }
             }
@@ -858,10 +1230,65 @@ struct DetailPanelView: View {
                     }
                 }
             }
+            // About & Changelog
+            Section("About") {
+                LabeledContent("Version") {
+                    Text("BetterCast \(UpdateChecker.currentVersion)")
+                        .foregroundStyle(.secondary)
+                }
+
+                if updateChecker.checkedOnce {
+                    if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
+                        HStack {
+                            Label("Update available: \(version)", systemImage: "arrow.down.circle.fill")
+                                .foregroundColor(.green)
+                            Spacer()
+                            Button("Download") {
+                                if let urlStr = updateChecker.downloadURL, let url = URL(string: urlStr) {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
+                    } else {
+                        Label("You're on the latest version", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    }
+                }
+            }
+
+            Section("What's New") {
+                ForEach(Changelog.entries) { entry in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(entry.version)
+                                .font(.system(size: 14, weight: .bold))
+                            Spacer()
+                            Text(entry.date)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(entry.highlights, id: \.self) { item in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("\u{2022}")
+                                    .foregroundStyle(.secondary)
+                                Text(item)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .onAppear { updateChecker.checkForUpdates() }
     }
+
+    @ObservedObject private var updateChecker = UpdateChecker.shared
 
     private func deviceIcon(for service: DiscoveredService) -> String {
         let name = service.name.lowercased()
@@ -871,7 +1298,7 @@ struct DetailPanelView: View {
         return "display"
     }
 
-    // MARK: - Getting Started (empty state)
+    // MARK: - Getting Started / Overview
 
     private var hasAnyDevices: Bool {
         !client.foundServices.isEmpty || !client.connectedDisplays.isEmpty
@@ -879,7 +1306,10 @@ struct DetailPanelView: View {
 
     private var gettingStartedView: some View {
         VStack(spacing: 0) {
-            if hasAnyDevices {
+            if !client.connectedDisplays.isEmpty {
+                // Display arrangement overview
+                DisplayOverviewView(client: client, selection: $selection)
+            } else if hasAnyDevices {
                 // Devices are visible in sidebar — show a nudge
                 VStack(spacing: 16) {
                     Image(systemName: "arrow.left")
@@ -895,7 +1325,6 @@ struct DetailPanelView: View {
                 VStack(spacing: 32) {
                     Spacer()
 
-                    // Header
                     VStack(spacing: 12) {
                         Image(systemName: "display.2")
                             .font(.system(size: 56, weight: .thin))
@@ -911,7 +1340,6 @@ struct DetailPanelView: View {
                             .frame(maxWidth: 400)
                     }
 
-                    // Steps
                     VStack(alignment: .leading, spacing: 16) {
                         gettingStartedStep(
                             number: 1,
@@ -931,7 +1359,6 @@ struct DetailPanelView: View {
                     }
                     .padding(.horizontal, 40)
 
-                    // Download button
                     Button {
                         if let url = URL(string: "https://bettercast.online/#install") {
                             NSWorkspace.shared.open(url)
@@ -943,7 +1370,6 @@ struct DetailPanelView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    // Searching indicator
                     HStack(spacing: 8) {
                         ProgressView()
                             .scaleEffect(0.7)
@@ -975,6 +1401,456 @@ struct DetailPanelView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+// MARK: - Display Overview (arrangement view)
+
+/// A display item in the arrangement view — either the built-in display or a BetterCast virtual display.
+struct DisplayItem: Identifiable {
+    let id: String
+    let name: String
+    let width: CGFloat   // pixels
+    let height: CGFloat  // pixels
+    let originX: CGFloat // CG coordinate origin
+    let originY: CGFloat
+    let isBuiltIn: Bool
+    var connectionId: UUID? = nil
+    var cgDisplayID: CGDirectDisplayID? = nil
+}
+
+/// Captures periodic screenshots for all active displays.
+class DisplayThumbnailProvider: ObservableObject {
+    @Published var thumbnails: [String: NSImage] = [:] // keyed by DisplayItem.id
+    private var timer: Timer?
+
+    func start(displays: [DisplayItem]) {
+        capture(displays: displays)
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.capture(displays: displays)
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func capture(displays: [DisplayItem]) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var newThumbs: [String: NSImage] = [:]
+
+            for display in displays {
+                let displayID: CGDirectDisplayID
+                if display.isBuiltIn {
+                    displayID = CGMainDisplayID()
+                    // Try to find actual built-in display
+                    var onlineDisplays = [CGDirectDisplayID](repeating: 0, count: 16)
+                    var displayCount: UInt32 = 0
+                    CGGetOnlineDisplayList(16, &onlineDisplays, &displayCount)
+                    let builtIn = onlineDisplays.prefix(Int(displayCount)).first { CGDisplayIsBuiltin($0) != 0 }
+                    if let builtIn = builtIn {
+                        if let cgImage = CGDisplayCreateImage(builtIn) {
+                            newThumbs[display.id] = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                        }
+                        continue
+                    }
+                } else if let did = display.cgDisplayID {
+                    displayID = did
+                } else {
+                    continue
+                }
+
+                if let cgImage = CGDisplayCreateImage(displayID) {
+                    newThumbs[display.id] = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                }
+            }
+
+            DispatchQueue.main.async {
+                self?.thumbnails = newThumbs
+            }
+        }
+    }
+}
+
+/// macOS System Settings–style display arrangement overview with drag and live previews.
+struct DisplayOverviewView: View {
+    @ObservedObject var client: NetworkClient
+    @Binding var selection: BetterCastSenderApp.SidebarSelection?
+    @State private var selectedDisplayId: String? = nil
+    @StateObject private var thumbProvider = DisplayThumbnailProvider()
+
+    private var displays: [DisplayItem] {
+        var items: [DisplayItem] = []
+
+        // Built-in display
+        if let builtinScreen = NSScreen.builtin ?? NSScreen.main {
+            let frame = builtinScreen.frame
+            items.append(DisplayItem(
+                id: "builtin",
+                name: builtinScreen.localizedName,
+                width: frame.width,
+                height: frame.height,
+                originX: frame.origin.x,
+                originY: frame.origin.y,
+                isBuiltIn: true
+            ))
+        }
+
+        // Connected BetterCast displays
+        for display in client.connectedDisplays {
+            let b = display.displayBounds
+            let w = b.width > 0 ? b.width : 1920
+            let h = b.height > 0 ? b.height : 1080
+            items.append(DisplayItem(
+                id: display.id.uuidString,
+                name: display.name,
+                width: w,
+                height: h,
+                originX: b.origin.x,
+                originY: b.origin.y,
+                isBuiltIn: false,
+                connectionId: display.id,
+                cgDisplayID: display.cgDisplayID
+            ))
+        }
+
+        return items
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                // Display arrangement area
+                DashboardCard {
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("Displays")
+                                .font(.system(size: 14, weight: .semibold))
+                            Spacer()
+                            Button {
+                                openDisplaySettings()
+                            } label: {
+                                Label("Arrange...", systemImage: "rectangle.3.group")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
+
+                        displayArrangementView
+                            .frame(height: 240)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+
+                // Selected display info
+                if let selected = displays.first(where: { $0.id == selectedDisplayId }) {
+                    selectedDisplayCard(selected)
+                }
+
+                // Connected devices list
+                DashboardCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Connected Devices")
+                            .font(.system(size: 14, weight: .semibold))
+
+                        ForEach(client.connectedDisplays) { display in
+                            HStack(spacing: 12) {
+                                Image(systemName: deviceIcon(for: display.name))
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(.green)
+                                    .frame(width: 28)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(display.name)
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text(display.resolution)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button("Settings") {
+                                    selection = .device(display.id)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                Button("Disconnect") {
+                                    client.disconnectConnection(display.id)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .tint(.red)
+                            }
+                            .padding(.vertical, 4)
+
+                            if display.id != client.connectedDisplays.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+
+                // Discovered (not yet connected)
+                if !client.foundServices.isEmpty {
+                    let unconnected = client.foundServices.filter { svc in
+                        !client.connectedDisplays.contains(where: { $0.name == svc.name })
+                    }
+                    if !unconnected.isEmpty {
+                        DashboardCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Available Devices")
+                                    .font(.system(size: 14, weight: .semibold))
+
+                                ForEach(unconnected) { service in
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "display")
+                                            .font(.system(size: 20))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 28)
+
+                                        Text(service.name)
+                                            .font(.system(size: 13))
+
+                                        Spacer()
+
+                                        Button("Connect") {
+                                            client.connect(to: service)
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.small)
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Transfer speed
+                if !client.connectedDisplays.isEmpty {
+                    DashboardCard {
+                        HStack {
+                            Text("Transfer Speed")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(client.transferRate)
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle("Devices")
+        .onAppear { thumbProvider.start(displays: displays) }
+        .onDisappear { thumbProvider.stop() }
+        .onChange(of: client.connectedDisplays.count) { _ in
+            thumbProvider.start(displays: displays)
+        }
+    }
+
+    // MARK: - Display Arrangement (draggable + live preview)
+
+    private var displayArrangementView: some View {
+        GeometryReader { geo in
+            let allDisplays = displays
+            let layout = computeLayout(displays: allDisplays, containerSize: geo.size)
+
+            ZStack {
+                ForEach(allDisplays) { display in
+                    let info = layout.positions[display.id]!
+
+                    displayThumbnail(display: display, width: info.thumbW, height: info.thumbH)
+                        .position(x: info.centerX, y: info.centerY)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedDisplayId = display.id
+                            }
+                        }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.5))
+            )
+        }
+    }
+
+    private func displayThumbnail(display: DisplayItem, width: CGFloat, height: CGFloat) -> some View {
+        let isSelected = selectedDisplayId == display.id
+
+        return VStack(spacing: 4) {
+            ZStack {
+                // Live preview or fallback
+                if let thumb = thumbProvider.thumbnails[display.id] {
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: width, height: height)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                } else {
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(display.isBuiltIn
+                            ? Color(nsColor: .controlBackgroundColor)
+                            : Color.accentColor.opacity(0.1))
+                }
+
+                // Border
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : Color.gray.opacity(0.5),
+                        lineWidth: isSelected ? 2.5 : 1
+                    )
+            }
+            .frame(width: width, height: height)
+            .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : .clear, radius: 4)
+
+            Text(displayLabel(display))
+                .font(.system(size: 9))
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .lineLimit(1)
+                .frame(width: max(width, 60))
+        }
+    }
+
+    private func displayLabel(_ display: DisplayItem) -> String {
+        if display.isBuiltIn { return "Built-in Display" }
+        let name = display.name
+        if name.count > 20 { return String(name.prefix(18)) + "..." }
+        return name
+    }
+
+    // MARK: - Layout Computation
+
+    private struct LayoutInfo {
+        var positions: [String: ThumbPosition] = [:]
+        var scale: CGFloat = 1
+    }
+
+    private struct ThumbPosition {
+        var centerX: CGFloat
+        var centerY: CGFloat
+        var thumbW: CGFloat
+        var thumbH: CGFloat
+    }
+
+    /// Compute positions based on actual CG display origins, scaled to fit the container.
+    private func computeLayout(displays: [DisplayItem], containerSize: CGSize) -> LayoutInfo {
+        guard !displays.isEmpty else { return LayoutInfo() }
+
+        // Find the bounding box of all displays in CG coordinates
+        var minX = CGFloat.infinity, minY = CGFloat.infinity
+        var maxX = -CGFloat.infinity, maxY = -CGFloat.infinity
+        for d in displays {
+            minX = min(minX, d.originX)
+            minY = min(minY, d.originY)
+            maxX = max(maxX, d.originX + d.width)
+            maxY = max(maxY, d.originY + d.height)
+        }
+        let totalW = maxX - minX
+        let totalH = maxY - minY
+
+        // Scale to fit in container with padding
+        let padW = containerSize.width * 0.85
+        let padH = containerSize.height * 0.7
+        let scale = min(padW / max(totalW, 1), padH / max(totalH, 1), 0.15)
+
+        // Center offset
+        let scaledTotalW = totalW * scale
+        let scaledTotalH = totalH * scale
+        let offsetX = (containerSize.width - scaledTotalW) / 2
+        let offsetY = (containerSize.height - scaledTotalH) / 2 - 10
+
+        var info = LayoutInfo(scale: scale)
+        for d in displays {
+            let thumbW = d.width * scale
+            let thumbH = d.height * scale
+            let x = (d.originX - minX) * scale + offsetX
+            let y = (d.originY - minY) * scale + offsetY
+            info.positions[d.id] = ThumbPosition(
+                centerX: x + thumbW / 2,
+                centerY: y + thumbH / 2,
+                thumbW: thumbW,
+                thumbH: thumbH
+            )
+        }
+        return info
+    }
+
+    private func openDisplaySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Displays-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: - Selected Display Card
+
+    private func selectedDisplayCard(_ display: DisplayItem) -> some View {
+        DashboardCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: display.isBuiltIn ? "laptopcomputer" : "display")
+                        .font(.system(size: 18))
+                        .foregroundColor(display.isBuiltIn ? .secondary : .green)
+                    Text(display.isBuiltIn ? "Built-in Display" : display.name)
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                }
+
+                HStack(spacing: 20) {
+                    LabeledContent("Resolution") {
+                        Text("\(Int(display.width)) x \(Int(display.height))")
+                            .foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Position") {
+                        Text("(\(Int(display.originX)), \(Int(display.originY)))")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 13))
+
+                if !display.isBuiltIn, let connId = display.connectionId {
+                    HStack {
+                        Button("View Settings") {
+                            selection = .device(connId)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+    }
+
+    private func deviceIcon(for name: String) -> String {
+        let lower = name.lowercased()
+        if lower.contains("android") { return "apps.iphone" }
+        if lower.contains("ipad") || lower.contains("ios") { return "ipad" }
+        if lower.contains("windows") { return "pc" }
+        if lower.contains("linux") { return "desktopcomputer" }
+        return "display"
+    }
+}
+
+// Helper to find the built-in screen
+private extension NSScreen {
+    static var builtin: NSScreen? {
+        NSScreen.screens.first { screen in
+            // Built-in displays have a specific device description key
+            if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+                return CGDisplayIsBuiltin(screenNumber) != 0
+            }
+            return false
         }
     }
 }
@@ -1284,6 +2160,7 @@ struct ConnectedDisplayInfo: Identifiable {
     let resolution: String
     let displayBounds: CGRect
     var audioEnabled: Bool
+    var cgDisplayID: CGDirectDisplayID? = nil
 }
 
 struct DiscoveredService: Identifiable {
@@ -1347,6 +2224,9 @@ struct ConnectionPipeline {
     var forceTCP: Bool = false
     // iOS/Mac Swift receivers don't strip the type byte — send raw payloads for them
     var supportsTypeByte: Bool = true
+    // Receiver-reported screen dimensions (pixels) — used to match aspect ratio
+    var reportedScreenWidth: Int? = nil
+    var reportedScreenHeight: Int? = nil
 }
 
 class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegate {
@@ -1358,7 +2238,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     @Published var connectedServices: [DiscoveredService] = []
     private var connectingServiceNames: Set<String> = [] // Prevent double-connect race
     @Published var useVirtualDisplay: Bool = true // Toggle between mirroring and extended display
-    @Published var audioStreamingEnabled: Bool = false // Master toggle for audio streaming
+    @Published var audioStreamingEnabled: Bool = true // Master toggle for audio streaming
     @Published var displayBrightness: Float = Float(DisplayBrightnessControl.getBrightness()) {
         didSet { DisplayBrightnessControl.setBrightness(Double(displayBrightness)) }
     }
@@ -1617,7 +2497,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
         // Smart routing: Apple receivers (iOS/Mac) get P2P/AWDL, others get infrastructure
         let nameLower = service.name.lowercased()
-        let isAppleReceiver = !nameLower.contains("android") && !nameLower.contains("windows") && !nameLower.contains("linux")
+        // Manual IP connections (e.g. "10.0.0.5:51820") are never Apple receivers
+        let isManualIP = service.name.contains(":") && service.name.first?.isNumber == true
+        let isAppleReceiver = !isManualIP && !nameLower.contains("android") && !nameLower.contains("windows") && !nameLower.contains("linux")
 
         let parameters: NWParameters
         switch connectionType {
@@ -1719,7 +2601,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     pipeline.isP2P = isP2P
                     pipeline.isLoopback = isLoopback
                     // iOS/Mac Swift receivers don't handle the type byte in TCP framing
-                    let isLegacyReceiver = service.name == "BetterCast Receiver" || service.name == "BetterCast Receiver iOS"
+                    // Match Mac/iOS Swift receivers that don't handle the type byte.
+                    // Bonjour appends " (2)", " (3)" etc. for duplicate names, so we can't use exact match.
+                    // Android/Windows/Linux receivers contain their platform keyword and DO support typeByte.
+                    let nameLower = service.name.lowercased()
+                    let isLegacyReceiver = nameLower.hasPrefix("bettercast receiver")
+                        && !nameLower.contains("android") && !nameLower.contains("windows") && !nameLower.contains("linux")
                     pipeline.supportsTypeByte = !isLegacyReceiver
                     self?.pipelines[connectionId] = pipeline
                     self?.connectedServices.append(service)
@@ -2139,7 +3026,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     pipeline.isWiFiADB = isLoopback && service.name.contains("WiFi")
                     // iOS/Mac Swift receivers don't handle the type byte in TCP framing
                     // Android and desktop (C++/Qt) receivers do strip it
-                    let isLegacyReceiver = service.name == "BetterCast Receiver" || service.name == "BetterCast Receiver iOS"
+                    // Match Mac/iOS Swift receivers that don't handle the type byte.
+                    // Bonjour appends " (2)", " (3)" etc. for duplicate names, so we can't use exact match.
+                    // Android/Windows/Linux receivers contain their platform keyword and DO support typeByte.
+                    let nameLower = service.name.lowercased()
+                    let isLegacyReceiver = nameLower.hasPrefix("bettercast receiver")
+                        && !nameLower.contains("android") && !nameLower.contains("windows") && !nameLower.contains("linux")
                     pipeline.supportsTypeByte = !isLegacyReceiver
                     self?.pipelines[connectionId] = pipeline
                     self?.connectedServices.append(service)
@@ -2407,7 +3299,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 name: pipeline.service.name,
                 resolution: res,
                 displayBounds: bounds,
-                audioEnabled: connectedDisplays.first(where: { $0.id == id })?.audioEnabled ?? audioStreamingEnabled
+                audioEnabled: connectedDisplays.first(where: { $0.id == id })?.audioEnabled ?? audioStreamingEnabled,
+                cgDisplayID: pipeline.virtualDisplayManager?.displayID
             )
         }
     }
@@ -2468,6 +3361,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                                     // Heartbeat - ignore
                                 } else if event.type == .command && event.keyCode == 999 {
                                     self?.pipelines[connectionId]?.videoEncoder?.forceKeyframe()
+                                } else if event.type == .command && event.keyCode == 777 {
+                                    // Screen info from receiver: deltaX=width, deltaY=height (pixels)
+                                    self?.handleScreenInfo(for: connectionId, width: Int(event.deltaX), height: Int(event.deltaY))
                                 } else if self?.isDuplicateEvent(event.eventId) == false {
                                     InputHandler.shared.handle(event: event, for: connectionId)
                                 }
@@ -2511,6 +3407,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                                 // Heartbeat - ignore
                             } else if event.type == .command && event.keyCode == 999 {
                                 self?.pipelines[connectionId]?.videoEncoder?.forceKeyframe()
+                            } else if event.type == .command && event.keyCode == 777 {
+                                self?.handleScreenInfo(for: connectionId, width: Int(event.deltaX), height: Int(event.deltaY))
                             } else if self?.isDuplicateEvent(event.eventId) == false {
                                 InputHandler.shared.handle(event: event, for: connectionId)
                             }
@@ -2522,6 +3420,44 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
     }
     
+    // Handle screen info from iOS receiver (command 777)
+    // Receiver reports its native screen dimensions so we can match the aspect ratio
+    private func handleScreenInfo(for connectionId: UUID, width: Int, height: Int) {
+        guard width > 0 && height > 0 else { return }
+        guard let pipeline = pipelines[connectionId] else { return }
+
+        let serviceName = pipeline.service.name
+
+        // Command 777 is sent by iOS/Mac Swift receivers to report screen dimensions.
+        // These receivers now support type-byte framing (auto-detect), so keep supportsTypeByte = true.
+        LogManager.shared.log("Sender: Screen info (command 777) from \(serviceName)")
+
+        let oldW = pipeline.reportedScreenWidth
+        let oldH = pipeline.reportedScreenHeight
+
+        // Skip if dimensions haven't changed
+        if oldW == width && oldH == height { return }
+
+        pipelines[connectionId]?.reportedScreenWidth = width
+        pipelines[connectionId]?.reportedScreenHeight = height
+        LogManager.shared.log("Sender: Screen info from \(serviceName): \(width)x\(height)")
+
+        // Restart pipeline with new dimensions
+        stopPipeline(for: connectionId)
+        startPipeline(for: connectionId)
+    }
+
+    private func stopPipeline(for connectionId: UUID) {
+        pipelines[connectionId]?.screenRecorder?.stopCapture()
+        pipelines[connectionId]?.screenRecorder = nil
+        pipelines[connectionId]?.videoEncoder = nil
+        pipelines[connectionId]?.audioEncoder = nil
+        if let dm = pipelines[connectionId]?.virtualDisplayManager {
+            dm.destroyDisplay()
+            pipelines[connectionId]?.virtualDisplayManager = nil
+        }
+    }
+
     func startPipeline(for connectionId: UUID) {
         guard pipelines[connectionId] != nil else { return }
 
@@ -2535,7 +3471,15 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             LogManager.shared.log("Sender: Creating virtual display for \(serviceName)...")
             let displayManager = VirtualDisplayManager()
 
-            let res = selectedResolution
+            // Use receiver-reported screen dimensions if available (matches device aspect ratio)
+            let res: (width: Int, height: Int, ppi: Int)
+            if let rw = pipelines[connectionId]?.reportedScreenWidth,
+               let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
+                res = (width: rw, height: rh, ppi: selectedResolution.ppi)
+                LogManager.shared.log("Sender: Using device-reported resolution \(rw)x\(rh) for \(serviceName)")
+            } else {
+                res = (width: selectedResolution.width, height: selectedResolution.height, ppi: selectedResolution.ppi)
+            }
             let resolution = VirtualDisplayManager.Resolution(
                 width: res.width,
                 height: res.height,
@@ -2582,9 +3526,18 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         // Calculate Physical Capture Resolution
-        let scale = isRetina ? 2 : 1
-        let captureWidth = selectedResolution.width * scale
-        let captureHeight = selectedResolution.height * scale
+        // Use reported screen dimensions if available (already in pixels)
+        let captureWidth: Int
+        let captureHeight: Int
+        if let rw = pipelines[connectionId]?.reportedScreenWidth,
+           let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
+            captureWidth = rw
+            captureHeight = rh
+        } else {
+            let scale = isRetina ? 2 : 1
+            captureWidth = selectedResolution.width * scale
+            captureHeight = selectedResolution.height * scale
+        }
 
         // Adaptive quality: P2P gets full, loopback (ADB) gets medium-high, infrastructure gets capped
         let isP2P = pipelines[connectionId]?.isP2P ?? false
@@ -2593,7 +3546,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let bitrate: Int
         let keyframeInterval: Double
         if isP2P {
-            fps = 120
+            fps = 60  // AWDL can't sustain 120fps at typical bitrates; 60fps = 2x bits per frame
             bitrate = selectedQuality.rawValue
             keyframeInterval = 10.0 // P2P is reliable, long interval is fine
         } else if isLoopback {
@@ -2621,9 +3574,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 5s for \(serviceName)")
         }
 
-        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight) (Scale: \(scale)x) @ \(selectedQuality.name) [\(fps) FPS, P2P: \(isP2P)]")
+        let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil
+        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, P2P: \(isP2P)]")
 
-        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval)
+        // P2P: tight 0.1s rate limit window prevents AWDL buffer bloat
+        // Infrastructure: loose 1.0s window lets the encoder handle burst scenes naturally
+        let rateLimitWindow: Double = isP2P ? 0.1 : 1.0
+        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow)
         encoder.delegate = self
         pipelines[connectionId]?.videoEncoder = encoder
 
@@ -2673,7 +3630,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // ADB (USB or WiFi): NEVER drop P-frames — dropping breaks the decoder's
         // reference chain causing pixelation. Instead, we control bandwidth via
         // lower bitrate/FPS settings. TCP flow control handles the rest.
-        // Only infrastructure connections use completion-based backpressure.
+        // P2P: no backpressure — dropping P-frames causes decoder glitches.
+        // Infrastructure only: completion-based backpressure.
         if !pipeline.isP2P && !pipeline.isLoopback && useTCP && !isKeyframe {
             if pipeline.sendInProgress {
                 return // Infrastructure only: completion-based backpressure
@@ -2759,7 +3717,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
             bytesSentWindow += packet.count
 
-            // Mark send in progress for backpressure (infrastructure)
+            // Mark send in progress for backpressure (infrastructure only)
             // Track send time for ADB loopback time-based pacing
             if !pipeline.isP2P {
                 pipelines[connectionId]?.sendInProgress = true
