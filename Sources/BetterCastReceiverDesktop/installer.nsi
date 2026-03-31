@@ -104,45 +104,37 @@ Section "Virtual Display Driver (VDD)" SecVDD
 
     SetOutPath "$INSTDIR\VirtualDisplayDriver"
 
-    ; Check if VDD files were bundled
-    IfFileExists "vdd\*.*" 0 vdd_not_found
+    ; Copy VDD files (/nonfatal = don't fail if no files bundled)
+    File /nonfatal /r "vdd\*.*"
 
-    ; Copy VDD files
-    File /r "vdd\*.*"
+    ; Check if any VDD files were actually installed
+    IfFileExists "$INSTDIR\VirtualDisplayDriver\*.inf" 0 try_exe
 
-    ; Install the VDD driver using the bundled installer or pnputil
-    DetailPrint "Installing Virtual Display Driver..."
-
-    ; Try the VDD installer first (if bundled)
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\VDDSetup.exe" 0 try_inf
-    DetailPrint "Running VDD installer..."
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\VDDSetup.exe" /S'
-    Pop $0
-    StrCmp $0 "0" vdd_done
-
-    try_inf:
-    ; Fallback: install via .inf file using pnputil
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\VirtualDisplayDriver.inf" 0 try_devcon
+    ; Install via .inf file using pnputil
     DetailPrint "Installing VDD driver via pnputil..."
     nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\VirtualDisplayDriver.inf" /install'
     Pop $0
     StrCmp $0 "0" vdd_done
+    Goto vdd_manual
 
-    try_devcon:
-    ; Fallback: try devcon
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 vdd_manual
-    DetailPrint "Installing VDD driver via devcon..."
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" install "$INSTDIR\VirtualDisplayDriver\VirtualDisplayDriver.inf" Root\VirtualDisplayDriver'
-    Pop $0
-    StrCmp $0 "0" vdd_done
+    try_exe:
+    ; Try VDD installer exe
+    IfFileExists "$INSTDIR\VirtualDisplayDriver\*.exe" 0 vdd_not_found
+    DetailPrint "Running VDD installer..."
+    ; Find and run the first exe in the directory
+    FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.exe"
+    StrCmp $2 "" vdd_manual
+    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\$2" /S'
+    FindClose $1
+    Goto vdd_done
 
     vdd_manual:
     DetailPrint "VDD driver files copied. You may need to install manually from $INSTDIR\VirtualDisplayDriver"
     Goto vdd_done
 
     vdd_not_found:
-    DetailPrint "VDD files not found in build — skipping driver installation"
-    DetailPrint "You can install VDD manually from github.com/itsmikethetech/Virtual-Display-Driver"
+    DetailPrint "VDD files not bundled in this build"
+    DetailPrint "Install VDD manually from github.com/itsmikethetech/Virtual-Display-Driver"
 
     vdd_done:
 

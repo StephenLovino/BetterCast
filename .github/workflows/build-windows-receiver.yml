@@ -10,7 +10,7 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   QT_VERSION: '6.7.0'
-  VDD_VERSION: '24.10.18.1'  # Virtual Display Driver release tag
+  VDD_VERSION: '25.7.23'  # Virtual Display Driver release tag
 
 jobs:
   build-windows:
@@ -96,18 +96,17 @@ jobs:
       - name: Download Virtual Display Driver (VDD)
         shell: pwsh
         run: |
-          # Download VDD release from GitHub
           $vddTag = "${{ env.VDD_VERSION }}"
-          $vddUrl = "https://github.com/itsmikethetech/Virtual-Display-Driver/releases/download/${vddTag}/VDD.-.Virtual.Display.Driver.zip"
+          # Repo moved to VirtualDrivers org; asset name includes version
+          $vddUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/${vddTag}/VDD.Control.${vddTag}.zip"
           Write-Host "Downloading VDD from: $vddUrl"
 
+          mkdir "vdd" -Force
           try {
             Invoke-WebRequest -Uri $vddUrl -OutFile "vdd-release.zip" -MaximumRedirection 5
             Expand-Archive -Path "vdd-release.zip" -DestinationPath "vdd-extract"
 
-            # Find the VDD files (structure may vary between releases)
-            mkdir "vdd" -Force
-            # Copy all files from the extracted archive
+            # Flatten: copy all files into vdd/ regardless of subfolder structure
             Get-ChildItem "vdd-extract" -Recurse -File | ForEach-Object {
               Copy-Item $_.FullName "vdd/" -Force
             }
@@ -118,7 +117,6 @@ jobs:
           } catch {
             Write-Host "WARNING: Failed to download VDD: $_"
             Write-Host "Installer will be built without VDD bundled"
-            mkdir "vdd" -Force
           }
 
       - name: Package artifact
@@ -191,7 +189,7 @@ jobs:
           Copy-Item -Recurse "${{ github.workspace }}/vdd" "vdd"
 
           # Build the installer
-          makensis /DPRODUCT_VERSION="${{ env.VDD_VERSION }}" installer.nsi
+          makensis /DPRODUCT_VERSION="1.0.0" installer.nsi
 
           # Move installer to workspace root
           Move-Item "BetterCast-Setup-*.exe" "${{ github.workspace }}/"
