@@ -159,9 +159,17 @@ bool VirtualDisplayVDD::detectVddInstall() {
             }
             // Check for driver files even without settings
             if (QFileInfo::exists(basePath + "/VirtualDisplayDriver.dll") ||
-                QFileInfo::exists(basePath + "/IddSampleDriver.dll")) {
+                QFileInfo::exists(basePath + "/IddSampleDriver.dll") ||
+                QFileInfo::exists(basePath + "/MttVDD.dll")) {
                 m_vddPath = basePath;
                 VDD_LOG("VDD [Method 1]: Found driver DLL in " + basePath);
+                return true;
+            }
+            // Check for driver .inf files
+            if (QFileInfo::exists(basePath + "/VirtualDisplayDriver.inf") ||
+                QFileInfo::exists(basePath + "/MttVDD.inf")) {
+                m_vddPath = basePath;
+                VDD_LOG("VDD [Method 1]: Found driver .inf in " + basePath);
                 return true;
             }
             // Check for VDD Control exe (newer versions)

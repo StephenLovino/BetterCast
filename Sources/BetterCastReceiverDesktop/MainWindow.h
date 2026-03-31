@@ -30,7 +30,7 @@ public:
         QString entry = QString("[%1] %2")
             .arg(QTime::currentTime().toString("HH:mm:ss"), msg);
         m_entries.append(entry);
-        if (m_entries.size() > 200) m_entries.removeFirst();
+        if (m_entries.size() > 1000) m_entries.removeFirst();
         qDebug().noquote() << msg;
         emit logAdded(entry);
     }

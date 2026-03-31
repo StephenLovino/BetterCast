@@ -474,8 +474,11 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
             (qtype == kTypePTR && qname.contains("_services._dns-sd")) ||
             (qtype == kTypePTR && qname.contains("_tcp.local"))) {
             auto addrs = getLocalAddresses();
-            MDNS_LOG(QString("mDNS: Query for %1 from %2:%3 — responding")
-                     .arg(qname, sender.toString()).arg(senderPort));
+            // Only log BetterCast-specific queries; skip noisy general browse traffic
+            if (qname.contains("_bettercast._tcp")) {
+                MDNS_LOG(QString("mDNS: Query for %1 from %2:%3 — responding")
+                         .arg(qname, sender.toString()).arg(senderPort));
+            }
             for (const auto& addr : addrs) {
                 QByteArray response = buildMdnsResponse(txId, addr);
                 // Send to multicast (standard mDNS)
