@@ -166,6 +166,13 @@ jobs:
           # Copy app icon for runtime (embedded via Qt resource, but also keep as fallback)
           Copy-Item "Sources/BetterCastReceiverDesktop/appicon.ico" "artifact/" -ErrorAction SilentlyContinue
 
+          # Bundle VDD files into portable artifact too
+          if ((Test-Path "vdd") -and (Get-ChildItem "vdd" -File).Count -gt 0) {
+            mkdir "artifact/VirtualDisplayDriver" -Force
+            Copy-Item "vdd/*" "artifact/VirtualDisplayDriver/" -Force
+            Write-Host "VDD files bundled into portable artifact"
+          }
+
       - name: Install NSIS
         shell: pwsh
         run: |
