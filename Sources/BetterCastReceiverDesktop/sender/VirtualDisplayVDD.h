@@ -56,6 +56,8 @@ signals:
 
 private:
     bool detectVddInstall();
+    bool isDriverLoaded() const;
+    bool installDriver();
     bool writeVddSettings(const QVector<VddResolution>& displays);
     QVector<VddResolution> readVddSettings() const;
     bool notifyDriverRefresh();

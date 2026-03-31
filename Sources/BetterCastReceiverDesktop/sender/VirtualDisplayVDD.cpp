@@ -260,6 +260,83 @@ bool VirtualDisplayVDD::detectVddInstall() {
     return false;
 }
 
+bool VirtualDisplayVDD::isDriverLoaded() const {
+#ifdef _WIN32
+    // Check if any VDD service is registered
+    static const wchar_t* serviceKeys[] = {
+        L"SYSTEM\\CurrentControlSet\\Services\\MttVDD",
+        L"SYSTEM\\CurrentControlSet\\Services\\VirtualDisplayDriver",
+        L"SYSTEM\\CurrentControlSet\\Services\\IddSampleDriver",
+    };
+    for (const auto* svcKey : serviceKeys) {
+        HKEY hKey;
+        if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, svcKey, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return true;
+        }
+    }
+
+    // Also check via named pipe — if pipe exists, driver is running
+    HANDLE pipe = CreateFileA(kVddPipeName, GENERIC_READ | GENERIC_WRITE,
+                              0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (pipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(pipe);
+        return true;
+    }
+#endif
+    return false;
+}
+
+bool VirtualDisplayVDD::installDriver() {
+#ifdef _WIN32
+    if (m_vddPath.isEmpty()) return false;
+
+    // Try installing each .inf file found in the VDD directory
+    QDir vddDir(m_vddPath);
+    QStringList infFiles = vddDir.entryList({"*.inf"}, QDir::Files);
+
+    if (infFiles.isEmpty()) {
+        VDD_LOG("VDD: No .inf files found in " + m_vddPath);
+        return false;
+    }
+
+    for (const auto& inf : infFiles) {
+        QString infPath = m_vddPath + "/" + inf;
+        VDD_LOG("VDD: Attempting pnputil /add-driver \"" + infPath + "\" /install");
+
+        QProcess proc;
+        proc.setProgram("pnputil");
+        proc.setArguments({"/add-driver", infPath, "/install"});
+        proc.start();
+        if (proc.waitForFinished(30000)) {
+            QString output = proc.readAllStandardOutput() + proc.readAllStandardError();
+            VDD_LOG("VDD: pnputil output: " + output.trimmed());
+            if (proc.exitCode() == 0) {
+                VDD_LOG("VDD: Driver installed via " + inf);
+                // Give Windows time to register the device
+                QThread::msleep(2000);
+                return true;
+            }
+        }
+    }
+
+    // Try launching VDD Control to install
+    QString controlExe = m_vddPath + "/VDD Control.exe";
+    if (!QFileInfo::exists(controlExe)) {
+        controlExe = m_vddPath + "/VDD.Control.exe";
+    }
+    if (QFileInfo::exists(controlExe)) {
+        VDD_LOG("VDD: Launching VDD Control for driver installation: " + controlExe);
+        QProcess::startDetached(controlExe, {});
+        emit error("VDD Control launched — use it to install the driver, then try again");
+        return false;
+    }
+
+    VDD_LOG("VDD: All driver install methods failed");
+#endif
+    return false;
+}
+
 // ─── Virtual Display Management ────────────────────────────────────────────────
 
 bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshRate) {
@@ -271,21 +348,39 @@ bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshR
     emit statusChanged(QString("Creating virtual display %1x%2 @ %3Hz...")
                             .arg(width).arg(height).arg(refreshRate));
 
+    // First check if the driver is actually loaded in Windows
+    // (files on disk ≠ driver installed)
+    if (!isDriverLoaded()) {
+        VDD_LOG("VDD: Driver files found but driver not loaded in Windows — attempting install...");
+        if (!installDriver()) {
+            emit error("VDD driver files exist but the driver isn't installed in Windows. "
+                       "Try running 'VDD Control.exe' from the VirtualDisplayDriver folder, "
+                       "or run as admin: pnputil /add-driver MttVDD.inf /install");
+            return false;
+        }
+        VDD_LOG("VDD: Driver installed successfully");
+    }
+
     // Method 1: Try VDD named pipe (modern versions)
+    VDD_LOG("VDD: Trying named pipe to create display...");
     QString pipeCmd = QString("{\"command\":\"add\",\"width\":%1,\"height\":%2,\"refreshRate\":%3}")
                           .arg(width).arg(height).arg(refreshRate);
     if (tryNamedPipe(pipeCmd)) {
+        VDD_LOG("VDD: Named pipe succeeded");
         m_createdDisplayCount++;
         emit statusChanged(QString("Virtual display created: %1x%2 @ %3Hz")
                                .arg(width).arg(height).arg(refreshRate));
-        // Wait for Windows to register the new display
         QThread::msleep(1500);
         int outputIdx = findVirtualDisplayOutput();
+        if (outputIdx < 0) {
+            VDD_LOG("VDD: Warning — pipe reported success but virtual display not found in monitor list");
+        }
         emit virtualDisplayCreated(outputIdx);
         return true;
     }
 
     // Method 2: Modify settings file + notify driver
+    VDD_LOG("VDD: Named pipe unavailable, trying settings file method...");
     auto displays = readVddSettings();
     displays.append({width, height, refreshRate});
 
@@ -293,6 +388,7 @@ bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshR
         emit error("Failed to write VDD settings file");
         return false;
     }
+    VDD_LOG("VDD: Settings file written, notifying driver...");
 
     if (!notifyDriverRefresh()) {
         emit error("Failed to notify VDD driver — try restarting the driver manually");
@@ -303,9 +399,11 @@ bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshR
     emit statusChanged(QString("Virtual display created: %1x%2 @ %3Hz")
                            .arg(width).arg(height).arg(refreshRate));
 
-    // Wait for the display to appear
     QThread::msleep(2000);
     int outputIdx = findVirtualDisplayOutput();
+    if (outputIdx < 0) {
+        VDD_LOG("VDD: Warning — settings written but virtual display not found in monitor list");
+    }
     emit virtualDisplayCreated(outputIdx);
     return true;
 }
@@ -530,7 +628,7 @@ bool VirtualDisplayVDD::writeVddSettings(const QVector<VddResolution>& displays)
     xml.writeEndDocument();
 
     file.close();
-    qDebug() << "VDD: Wrote" << displays.size() << "display(s) to" << settingsPath;
+    VDD_LOG(QString("VDD: Wrote %1 display(s) to %2").arg(displays.size()).arg(settingsPath));
     return true;
 }
 
@@ -546,7 +644,7 @@ bool VirtualDisplayVDD::tryNamedPipe(const QString& command) {
         0, nullptr);
 
     if (pipe == INVALID_HANDLE_VALUE) {
-        qDebug() << "VDD: Named pipe not available, falling back to config file";
+        VDD_LOG("VDD: Named pipe not available (error " + QString::number(GetLastError()) + ")");
         return false;
     }
 
@@ -561,7 +659,7 @@ bool VirtualDisplayVDD::tryNamedPipe(const QString& command) {
         ReadFile(pipe, buffer, sizeof(buffer) - 1, &bytesRead, nullptr);
         if (bytesRead > 0) {
             QString response = QString::fromUtf8(buffer, bytesRead);
-            qDebug() << "VDD pipe response:" << response;
+            VDD_LOG("VDD: Pipe response: " + response);
         }
     }
 
@@ -580,27 +678,40 @@ bool VirtualDisplayVDD::notifyDriverRefresh() {
         return true;
     }
 
-    // Method 2: Use devcon to restart the driver device
-    // This is heavier-handed but reliable
-    QProcess proc;
-    proc.setProgram("pnputil");
-    proc.setArguments({"/restart-device", "Root\\VirtualDisplayDriver\\0000"});
-    proc.start();
-    if (proc.waitForFinished(10000) && proc.exitCode() == 0) {
-        qDebug() << "VDD: Driver restarted via pnputil";
-        return true;
+    // Method 2: Try pnputil restart with various device IDs
+    static const char* deviceIds[] = {
+        "Root\\MttVDD\\0000",
+        "Root\\VirtualDisplayDriver\\0000",
+        "Root\\IddSampleDriver\\0000",
+    };
+    for (const auto* devId : deviceIds) {
+        QProcess proc;
+        proc.setProgram("pnputil");
+        proc.setArguments({"/restart-device", devId});
+        proc.start();
+        if (proc.waitForFinished(10000) && proc.exitCode() == 0) {
+            VDD_LOG(QString("VDD: Driver restarted via pnputil (%1)").arg(devId));
+            return true;
+        }
     }
 
-    // Method 3: Try devcon (if installed)
-    proc.setProgram("devcon");
-    proc.setArguments({"restart", "Root\\VirtualDisplayDriver"});
-    proc.start();
-    if (proc.waitForFinished(10000) && proc.exitCode() == 0) {
-        qDebug() << "VDD: Driver restarted via devcon";
-        return true;
+    // Method 3: Try devcon (bundled in VDD directory or system PATH)
+    QString devconPath = m_vddPath + "/devcon.exe";
+    if (!QFileInfo::exists(devconPath)) devconPath = "devcon";
+
+    static const char* hwIds[] = {"Root\\MttVDD", "Root\\VirtualDisplayDriver"};
+    for (const auto* hwId : hwIds) {
+        QProcess proc;
+        proc.setProgram(devconPath);
+        proc.setArguments({"restart", hwId});
+        proc.start();
+        if (proc.waitForFinished(10000) && proc.exitCode() == 0) {
+            VDD_LOG(QString("VDD: Driver restarted via devcon (%1)").arg(hwId));
+            return true;
+        }
     }
 
-    qWarning() << "VDD: Could not notify driver — virtual display may require manual restart";
+    VDD_LOG("VDD: Could not notify driver — all restart methods failed");
     return false;
 #else
     return false;
