@@ -32,22 +32,25 @@
 #pragma comment(lib, "setupapi.lib")
 #endif
 
-// Known VDD installation paths
-static QStringList buildVddPaths() {
-    QStringList paths = {
-        "C:/VirtualDisplayDriver",
-        "C:/Program Files/Virtual Display Driver",
-        "C:/Program Files/VirtualDisplayDriver",
-        "C:/IddSampleDriver",
-    };
-    // Also check next to the app executable (NSIS installs VDD here)
+// Known VDD installation paths (static fallbacks)
+static const QStringList kVddPathsBase = {
+    "C:/VirtualDisplayDriver",
+    "C:/Program Files/Virtual Display Driver",
+    "C:/Program Files/VirtualDisplayDriver",
+    "C:/IddSampleDriver",
+};
+
+// Build full path list at runtime (QCoreApplication must exist)
+static QStringList getVddPaths() {
+    QStringList paths;
+    // Check next to the app executable first (NSIS installs VDD here)
     QString appDir = QCoreApplication::applicationDirPath();
     if (!appDir.isEmpty()) {
-        paths.prepend(appDir + "/VirtualDisplayDriver");
+        paths.append(appDir + "/VirtualDisplayDriver");
     }
+    paths.append(kVddPathsBase);
     return paths;
 }
-static const QStringList kVddPaths = buildVddPaths();
 
 // VDD settings file names (varies by version)
 static const QStringList kSettingsFiles = {
@@ -145,7 +148,7 @@ bool VirtualDisplayVDD::detectVddInstall() {
 #endif
 
     // Method 1: Check known installation paths
-    for (const auto& basePath : kVddPaths) {
+    for (const auto& basePath : getVddPaths()) {
         QDir dir(basePath);
         if (dir.exists()) {
             VDD_LOG("VDD [Method 1]: Directory exists: " + basePath);
@@ -172,9 +175,9 @@ bool VirtualDisplayVDD::detectVddInstall() {
                 VDD_LOG("VDD [Method 1]: Found driver .inf in " + basePath);
                 return true;
             }
-            // Check for VDD Control exe (newer versions)
-            if (QFileInfo::exists(basePath + "/VDD.Control.exe") ||
-                QFileInfo::exists(basePath + "/vdd.control.exe")) {
+            // Check for VDD Control exe (newer versions — filename may use space or dot)
+            if (QFileInfo::exists(basePath + "/VDD Control.exe") ||
+                QFileInfo::exists(basePath + "/VDD.Control.exe")) {
                 m_vddPath = basePath;
                 VDD_LOG("VDD [Method 1]: Found VDD.Control.exe in " + basePath);
                 return true;
@@ -237,7 +240,7 @@ bool VirtualDisplayVDD::detectVddInstall() {
                     if (id.contains(vddId.toLower())) {
                         SetupDiDestroyDeviceInfoList(devInfo);
                         if (m_vddPath.isEmpty()) {
-                            for (const auto& p : kVddPaths) {
+                            for (const auto& p : getVddPaths()) {
                                 if (QDir(p).exists()) { m_vddPath = p; break; }
                             }
                         }
