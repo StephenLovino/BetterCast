@@ -155,12 +155,30 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: |
-          # Download NSIS directly (avoids flaky Chocolatey CDN)
+          # Use portable NSIS ZIP from nsis.sourceforge.io (no installer needed)
           $nsisVersion = "3.10"
-          $nsisUrl = "https://sourceforge.net/projects/nsis/files/NSIS%203/${nsisVersion}/nsis-${nsisVersion}-setup.exe/download"
-          Invoke-WebRequest -Uri $nsisUrl -OutFile "nsis-setup.exe" -MaximumRedirection 10 -UserAgent "Mozilla/5.0"
-          Start-Process -FilePath "nsis-setup.exe" -ArgumentList "/S" -Wait
-          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+          $nsisUrl = "https://github.com/nicehash/NSIS/releases/download/v${nsisVersion}/nsis-${nsisVersion}.zip"
+          try {
+            Invoke-WebRequest -Uri $nsisUrl -OutFile "nsis.zip"
+          } catch {
+            # Fallback: try winget
+            Write-Host "GitHub download failed, trying winget..."
+            winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements --silent
+          }
+
+          if (Test-Path "nsis.zip") {
+            Expand-Archive -Path "nsis.zip" -DestinationPath "C:/nsis"
+            # Find the extracted folder (may be nsis-3.10/)
+            $nsisDir = Get-ChildItem "C:/nsis" -Directory | Select-Object -First 1
+            if ($nsisDir) {
+              echo "$($nsisDir.FullName)" >> $env:GITHUB_PATH
+              Write-Host "NSIS portable extracted to $($nsisDir.FullName)"
+            } else {
+              echo "C:/nsis" >> $env:GITHUB_PATH
+            }
+          } else {
+            echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+          }
 
       - name: Build installer
         shell: pwsh
