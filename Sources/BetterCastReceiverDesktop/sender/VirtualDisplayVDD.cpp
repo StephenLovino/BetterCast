@@ -73,6 +73,18 @@ QString VirtualDisplayVDD::vddInstallPath() const {
     return m_vddPath;
 }
 
+void VirtualDisplayVDD::refreshInstallStatus() {
+    bool wasInstalled = m_vddInstalled;
+    m_vddPath.clear();
+    m_vddInstalled = detectVddInstall();
+    if (m_vddInstalled && !wasInstalled) {
+        qDebug() << "VDD: Now detected at" << m_vddPath;
+        emit statusChanged("Virtual Display Driver detected");
+    } else if (!m_vddInstalled) {
+        qDebug() << "VDD: Still not detected after refresh";
+    }
+}
+
 bool VirtualDisplayVDD::detectVddInstall() {
     // Method 0: Check BetterCast's own bundled VDD path (set by installer)
 #ifdef _WIN32

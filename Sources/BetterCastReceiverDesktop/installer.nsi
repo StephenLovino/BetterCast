@@ -135,11 +135,14 @@ Section "Virtual Display Driver (VDD)" SecVDD
     vdd_not_found:
     DetailPrint "VDD files not bundled in this build"
     DetailPrint "Install VDD manually from github.com/itsmikethetech/Virtual-Display-Driver"
+    Goto vdd_skip_registry
 
     vdd_done:
 
     ; Write VDD install path to registry for BetterCast to detect
     WriteRegStr HKLM "Software\${PRODUCT_NAME}" "VDDPath" "$INSTDIR\VirtualDisplayDriver"
+
+    vdd_skip_registry:
 SectionEnd
 
 ; ─── Section Descriptions ────────────────────────────────────────────────────────

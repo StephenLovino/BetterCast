@@ -508,6 +508,31 @@ void MainWindow::setupSendPage() {
     m_vddStatusLabel->setWordWrap(true);
     vddLayout->addWidget(m_vddStatusLabel);
 
+    // Re-check button (shown when VDD not detected)
+    m_recheckVddBtn = new QPushButton("Re-check VDD Installation");
+    m_recheckVddBtn->setVisible(!vddInstalled);
+    m_recheckVddBtn->setStyleSheet(
+        "QPushButton { background-color: #333; color: #4da6ff; padding: 6px 14px; "
+        "border-radius: 5px; font-size: 12px; border: 1px solid #4da6ff; }"
+        "QPushButton:hover { background-color: #1a3a5c; }");
+    connect(m_recheckVddBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_sender || !m_sender->vdd()) return;
+        m_sender->vdd()->refreshInstallStatus();
+        bool found = m_sender->vdd()->isVddInstalled();
+        if (found) {
+            m_vddStatusLabel->setText("Virtual Display Driver detected");
+            m_vddStatusLabel->setStyleSheet("font-size: 13px; color: #4caf50;");
+            m_recheckVddBtn->setVisible(false);
+            m_vddResolutionCombo->setEnabled(true);
+            m_createVddBtn->setEnabled(true);
+        } else {
+            m_vddStatusLabel->setText(
+                "Still not detected — make sure VDD is installed and try restarting the app");
+            m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #ff9800;");
+        }
+    });
+    vddLayout->addWidget(m_recheckVddBtn);
+
     // Resolution picker
     auto* resRow = new QHBoxLayout();
     auto* resLabel = new QLabel("Resolution:");

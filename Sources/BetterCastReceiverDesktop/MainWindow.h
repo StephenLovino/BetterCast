@@ -171,6 +171,7 @@ private:
     QComboBox* m_vddResolutionCombo = nullptr;
     QPushButton* m_createVddBtn = nullptr;
     QPushButton* m_removeVddBtn = nullptr;
+    QPushButton* m_recheckVddBtn = nullptr;
     QLabel* m_vddStatusLabel = nullptr;
 #endif
 };

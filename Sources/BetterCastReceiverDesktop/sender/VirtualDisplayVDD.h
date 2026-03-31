@@ -34,6 +34,7 @@ public:
     // VDD detection
     bool isVddInstalled() const;
     QString vddInstallPath() const;
+    void refreshInstallStatus();  // re-run detection (e.g. after user installs VDD)
 
     // Virtual display management
     bool createVirtualDisplay(int width = 1920, int height = 1080, int refreshRate = 60);
