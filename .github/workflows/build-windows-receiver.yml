@@ -155,7 +155,11 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress
+          # Download NSIS directly (avoids flaky Chocolatey CDN)
+          $nsisVersion = "3.10"
+          $nsisUrl = "https://sourceforge.net/projects/nsis/files/NSIS%203/${nsisVersion}/nsis-${nsisVersion}-setup.exe/download"
+          Invoke-WebRequest -Uri $nsisUrl -OutFile "nsis-setup.exe" -MaximumRedirection 10 -UserAgent "Mozilla/5.0"
+          Start-Process -FilePath "nsis-setup.exe" -ArgumentList "/S" -Wait
           echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
 
       - name: Build installer
