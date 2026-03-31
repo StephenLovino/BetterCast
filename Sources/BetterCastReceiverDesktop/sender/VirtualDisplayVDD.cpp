@@ -1,6 +1,8 @@
 #include "VirtualDisplayVDD.h"
+#include "../MainWindow.h"  // LogManager
 
 #include <QDebug>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -11,6 +13,13 @@
 #include <QThread>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+
+// Log to both qDebug and the in-app LogManager
+#define VDD_LOG(msg) do { \
+    QString _m = (msg); \
+    qDebug().noquote() << _m; \
+    LogManager::instance().log(_m); \
+} while(0)
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -24,17 +33,29 @@
 #endif
 
 // Known VDD installation paths
-static const QStringList kVddPaths = {
-    "C:/VirtualDisplayDriver",
-    "C:/Program Files/Virtual Display Driver",
-    "C:/Program Files/VirtualDisplayDriver",
-};
+static QStringList buildVddPaths() {
+    QStringList paths = {
+        "C:/VirtualDisplayDriver",
+        "C:/Program Files/Virtual Display Driver",
+        "C:/Program Files/VirtualDisplayDriver",
+        "C:/IddSampleDriver",
+    };
+    // Also check next to the app executable (NSIS installs VDD here)
+    QString appDir = QCoreApplication::applicationDirPath();
+    if (!appDir.isEmpty()) {
+        paths.prepend(appDir + "/VirtualDisplayDriver");
+    }
+    return paths;
+}
+static const QStringList kVddPaths = buildVddPaths();
 
 // VDD settings file names (varies by version)
 static const QStringList kSettingsFiles = {
     "vdd_settings.xml",
     "settings.xml",
     "config.xml",
+    "option.txt",
+    "options.xml",
 };
 
 // VDD named pipe (modern versions)
@@ -44,7 +65,10 @@ static const char* kVddPipeName = "\\\\.\\pipe\\VDDPipe";
 static const QStringList kVddHardwareIds = {
     "Root\\VirtualDisplayDriver",
     "Root\\IddSampleDriver",
+    "Root\\VDD",
     "VDD",
+    "IddSampleDriver",
+    "MttVDD",
 };
 
 VirtualDisplayVDD::VirtualDisplayVDD(QObject* parent)
@@ -52,9 +76,9 @@ VirtualDisplayVDD::VirtualDisplayVDD(QObject* parent)
 {
     m_vddInstalled = detectVddInstall();
     if (m_vddInstalled) {
-        qDebug() << "VDD: Found installation at" << m_vddPath;
+        VDD_LOG("VDD: Found installation at " + m_vddPath);
     } else {
-        qDebug() << "VDD: Not installed";
+        VDD_LOG("VDD: Not installed — checked registry, known paths, services, and devices");
     }
 }
 
@@ -78,14 +102,16 @@ void VirtualDisplayVDD::refreshInstallStatus() {
     m_vddPath.clear();
     m_vddInstalled = detectVddInstall();
     if (m_vddInstalled && !wasInstalled) {
-        qDebug() << "VDD: Now detected at" << m_vddPath;
+        VDD_LOG("VDD: Now detected at " + m_vddPath);
         emit statusChanged("Virtual Display Driver detected");
     } else if (!m_vddInstalled) {
-        qDebug() << "VDD: Still not detected after refresh";
+        VDD_LOG("VDD: Still not detected after refresh");
     }
 }
 
 bool VirtualDisplayVDD::detectVddInstall() {
+    VDD_LOG("VDD: Starting detection...");
+
     // Method 0: Check BetterCast's own bundled VDD path (set by installer)
 #ifdef _WIN32
     {
@@ -101,12 +127,19 @@ bool VirtualDisplayVDD::detectVddInstall() {
             RegCloseKey(hKey);
             if (result == ERROR_SUCCESS) {
                 QString path = QString::fromWCharArray(vddPath);
+                VDD_LOG("VDD [Method 0]: Registry key found, path=" + path);
                 if (QDir(path).exists()) {
                     m_vddPath = path;
-                    qDebug() << "VDD: Found bundled installation at" << path;
+                    VDD_LOG("VDD [Method 0]: Directory exists — detected via registry");
                     return true;
+                } else {
+                    VDD_LOG("VDD [Method 0]: Directory does NOT exist");
                 }
+            } else {
+                VDD_LOG("VDD [Method 0]: Registry key exists but VDDPath value not found");
             }
+        } else {
+            VDD_LOG("VDD [Method 0]: No HKLM\\Software\\BetterCast registry key");
         }
     }
 #endif
@@ -115,10 +148,12 @@ bool VirtualDisplayVDD::detectVddInstall() {
     for (const auto& basePath : kVddPaths) {
         QDir dir(basePath);
         if (dir.exists()) {
+            VDD_LOG("VDD [Method 1]: Directory exists: " + basePath);
             // Verify there's actually a driver or settings file here
             for (const auto& settingsFile : kSettingsFiles) {
                 if (QFileInfo::exists(basePath + "/" + settingsFile)) {
                     m_vddPath = basePath;
+                    VDD_LOG("VDD [Method 1]: Found settings file " + settingsFile + " in " + basePath);
                     return true;
                 }
             }
@@ -126,31 +161,54 @@ bool VirtualDisplayVDD::detectVddInstall() {
             if (QFileInfo::exists(basePath + "/VirtualDisplayDriver.dll") ||
                 QFileInfo::exists(basePath + "/IddSampleDriver.dll")) {
                 m_vddPath = basePath;
+                VDD_LOG("VDD [Method 1]: Found driver DLL in " + basePath);
                 return true;
+            }
+            // Check for VDD Control exe (newer versions)
+            if (QFileInfo::exists(basePath + "/VDD.Control.exe") ||
+                QFileInfo::exists(basePath + "/vdd.control.exe")) {
+                m_vddPath = basePath;
+                VDD_LOG("VDD [Method 1]: Found VDD.Control.exe in " + basePath);
+                return true;
+            }
+            // List what IS in the directory for debugging
+            QStringList files = dir.entryList(QDir::Files);
+            VDD_LOG("VDD [Method 1]: Files in " + basePath + ": " +
+                    (files.isEmpty() ? "(empty)" : files.join(", ")));
+        }
+    }
+    VDD_LOG("VDD [Method 1]: No known paths matched");
+
+#ifdef _WIN32
+    // Method 2: Check registry for VDD driver service
+    static const wchar_t* serviceKeys[] = {
+        L"SYSTEM\\CurrentControlSet\\Services\\VirtualDisplayDriver",
+        L"SYSTEM\\CurrentControlSet\\Services\\IddSampleDriver",
+        L"SYSTEM\\CurrentControlSet\\Services\\MttVDD",
+    };
+    for (const auto* svcKey : serviceKeys) {
+        HKEY hKey;
+        LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, svcKey, 0, KEY_READ, &hKey);
+        if (result == ERROR_SUCCESS) {
+            wchar_t imagePath[MAX_PATH] = {};
+            DWORD size = sizeof(imagePath);
+            result = RegQueryValueExW(hKey, L"ImagePath", nullptr, nullptr,
+                                       reinterpret_cast<LPBYTE>(imagePath), &size);
+            RegCloseKey(hKey);
+            if (result == ERROR_SUCCESS) {
+                QString path = QString::fromWCharArray(imagePath);
+                QFileInfo fi(path);
+                m_vddPath = fi.absolutePath();
+                VDD_LOG("VDD [Method 2]: Found service at " + QString::fromWCharArray(svcKey) +
+                        ", imagePath=" + path);
+                return true;
+            } else {
+                VDD_LOG("VDD [Method 2]: Service key " + QString::fromWCharArray(svcKey) +
+                        " exists but no ImagePath");
             }
         }
     }
-
-#ifdef _WIN32
-    // Method 2: Check registry for VDD driver
-    HKEY hKey;
-    LONG result = RegOpenKeyExW(
-        HKEY_LOCAL_MACHINE,
-        L"SYSTEM\\CurrentControlSet\\Services\\VirtualDisplayDriver",
-        0, KEY_READ, &hKey);
-    if (result == ERROR_SUCCESS) {
-        wchar_t imagePath[MAX_PATH] = {};
-        DWORD size = sizeof(imagePath);
-        result = RegQueryValueExW(hKey, L"ImagePath", nullptr, nullptr,
-                                   reinterpret_cast<LPBYTE>(imagePath), &size);
-        RegCloseKey(hKey);
-        if (result == ERROR_SUCCESS) {
-            QString path = QString::fromWCharArray(imagePath);
-            QFileInfo fi(path);
-            m_vddPath = fi.absolutePath();
-            return true;
-        }
-    }
+    VDD_LOG("VDD [Method 2]: No VDD service found in registry");
 
     // Method 3: Check for VDD device via SetupDI
     HDEVINFO devInfo = SetupDiGetClassDevsW(
@@ -159,27 +217,32 @@ bool VirtualDisplayVDD::detectVddInstall() {
     if (devInfo != INVALID_HANDLE_VALUE) {
         SP_DEVINFO_DATA devData = {};
         devData.cbSize = sizeof(devData);
+        int deviceCount = 0;
         for (DWORD i = 0; SetupDiEnumDeviceInfo(devInfo, i, &devData); i++) {
             wchar_t hwId[512] = {};
             if (SetupDiGetDeviceRegistryPropertyW(devInfo, &devData,
                     SPDRP_HARDWAREID, nullptr,
                     reinterpret_cast<PBYTE>(hwId), sizeof(hwId), nullptr)) {
                 QString id = QString::fromWCharArray(hwId).toLower();
+                deviceCount++;
                 for (const auto& vddId : kVddHardwareIds) {
                     if (id.contains(vddId.toLower())) {
                         SetupDiDestroyDeviceInfoList(devInfo);
-                        // Try to find the install path from device
                         if (m_vddPath.isEmpty()) {
                             for (const auto& p : kVddPaths) {
                                 if (QDir(p).exists()) { m_vddPath = p; break; }
                             }
                         }
+                        VDD_LOG("VDD [Method 3]: Found device with hwId=" + id);
                         return true;
                     }
                 }
             }
         }
         SetupDiDestroyDeviceInfoList(devInfo);
+        VDD_LOG(QString("VDD [Method 3]: Scanned %1 display devices, none matched VDD hardware IDs").arg(deviceCount));
+    } else {
+        VDD_LOG("VDD [Method 3]: SetupDiGetClassDevs failed");
     }
 #endif
 
