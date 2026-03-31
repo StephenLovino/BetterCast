@@ -16,10 +16,11 @@ class AudioPlayerIOS {
 
     private var outputFormat: AVAudioFormat?
     private var started = false
+    private var decodeCount = 0
 
     // Shared state for the converter input callback
     fileprivate var currentPacketData: Data?
-    fileprivate var currentPacketOffset: Int = 0
+    fileprivate var currentPacketConsumed: Bool = false
     fileprivate var packetDesc = AudioStreamPacketDescription()
 
     init() {
@@ -41,7 +42,9 @@ class AudioPlayerIOS {
 
         engine.attach(player)
 
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: outputSampleRate, channels: AVAudioChannelCount(outputChannels)) else {
+        // Standard format: non-interleaved float32 (AVAudioEngine default)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: outputSampleRate,
+                                          channels: AVAudioChannelCount(outputChannels)) else {
             LogManager.shared.log("AudioPlayer: Failed to create output format")
             return
         }
@@ -69,14 +72,14 @@ class AudioPlayerIOS {
             mReserved: 0
         )
 
-        // Output: PCM float32 interleaved
+        // Output: PCM float32 non-interleaved (matches AVAudioEngine standard format)
         var outputDesc = AudioStreamBasicDescription(
             mSampleRate: outputSampleRate,
             mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-            mBytesPerPacket: UInt32(outputChannels) * 4,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: 4,
             mFramesPerPacket: 1,
-            mBytesPerFrame: UInt32(outputChannels) * 4,
+            mBytesPerFrame: 4,
             mChannelsPerFrame: outputChannels,
             mBitsPerChannel: 32,
             mReserved: 0
@@ -108,6 +111,9 @@ class AudioPlayerIOS {
     // MARK: - Public API
 
     func decode(aacData: Data) {
+        // Skip tiny silence frames (< 10 bytes)
+        guard aacData.count >= 10 else { return }
+
         setupConverter()
         startIfNeeded()
 
@@ -116,7 +122,7 @@ class AudioPlayerIOS {
 
         // Store packet for converter callback
         currentPacketData = aacData
-        currentPacketOffset = 0
+        currentPacketConsumed = false
 
         // Decode one AAC frame (1024 samples)
         let frameCount: UInt32 = 1024
@@ -137,14 +143,19 @@ class AudioPlayerIOS {
 
         currentPacketData = nil
 
-        if status != noErr && status != 1 {
-            AudioConverterReset(converter)
-            return
-        }
-
-        if outputDataPacketSize > 0 {
+        if status == noErr && outputDataPacketSize > 0 {
             pcmBuffer.frameLength = outputDataPacketSize
             playerNode?.scheduleBuffer(pcmBuffer)
+
+            decodeCount += 1
+            if decodeCount % 100 == 1 {
+                LogManager.shared.log("AudioPlayer: Decoded packet \(decodeCount), \(outputDataPacketSize) frames")
+            }
+        } else if status != noErr {
+            decodeCount += 1
+            if decodeCount % 50 == 1 {
+                LogManager.shared.log("AudioPlayer: Decode failed (status \(status))")
+            }
         }
     }
 
@@ -171,32 +182,34 @@ private func audioPlayerConverterInputCallback(
 
     let player = Unmanaged<AudioPlayerIOS>.fromOpaque(userData).takeUnretainedValue()
 
-    guard let data = player.currentPacketData, player.currentPacketOffset < data.count else {
+    // Only provide data once per decode call
+    guard let data = player.currentPacketData, !player.currentPacketConsumed else {
         ioNumberDataPackets.pointee = 0
         return 1
     }
 
-    let remaining = data.count - player.currentPacketOffset
+    player.currentPacketConsumed = true
 
     data.withUnsafeBytes { rawBuffer in
-        let ptr = rawBuffer.baseAddress!.advanced(by: player.currentPacketOffset)
+        let ptr = rawBuffer.baseAddress!
         ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: ptr)
-        ioData.pointee.mBuffers.mDataByteSize = UInt32(remaining)
+        ioData.pointee.mBuffers.mDataByteSize = UInt32(data.count)
         ioData.pointee.mBuffers.mNumberChannels = player.outputChannels
     }
 
     // Packet description for variable-bitrate AAC
+    player.packetDesc = AudioStreamPacketDescription(
+        mStartOffset: 0,
+        mVariableFramesInPacket: 0,
+        mDataByteSize: UInt32(data.count)
+    )
     if let descPtr = outDataPacketDescription {
-        player.packetDesc = AudioStreamPacketDescription(
-            mStartOffset: 0,
-            mVariableFramesInPacket: 0,
-            mDataByteSize: UInt32(remaining)
-        )
-        descPtr.pointee = withUnsafeMutablePointer(to: &player.packetDesc) { $0 }
+        withUnsafeMutablePointer(to: &player.packetDesc) { ptr in
+            descPtr.pointee = ptr
+        }
     }
 
     ioNumberDataPackets.pointee = 1
-    player.currentPacketOffset = data.count
     return noErr
 }
 #endif

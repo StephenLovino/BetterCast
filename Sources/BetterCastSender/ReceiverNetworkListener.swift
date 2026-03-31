@@ -301,7 +301,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             parameters.serviceClass = .interactiveVideo
 
             let listener = try NWListener(using: parameters, on: 51820)
-            listener.service = NWListener.Service(name: "BetterCast Receiver", type: "_bettercast._tcp")
+            let macName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+            listener.service = NWListener.Service(name: macName, type: "_bettercast._tcp")
 
             listener.stateUpdateHandler = { [weak self] state in
                 self?.handleListenerState(state, type: "TCP")
@@ -328,7 +329,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             parameters.preferNoProxies = true
 
             let listener = try NWListener(using: parameters)
-            listener.service = NWListener.Service(name: "BetterCast Receiver UDP", type: "_bettercast._udp")
+            let udpName = (Host.current().localizedName ?? ProcessInfo.processInfo.hostName) + " UDP"
+            listener.service = NWListener.Service(name: udpName, type: "_bettercast._udp")
 
             listener.stateUpdateHandler = { [weak self] state in
                 self?.handleListenerState(state, type: "UDP")

@@ -61,7 +61,11 @@ struct BetterCastSenderApp: App {
         .onAppear {
             networkClient.checkScreenRecordingPermission()
             networkClient.startBrowsing()
-            _ = ReceiverManager.shared
+            // Auto-start receiver so incoming connections work immediately
+            let receiver = ReceiverManager.shared
+            if !receiver.isRunning {
+                receiver.start()
+            }
             UpdateChecker.shared.checkForUpdates()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 InputHandler.shared.checkAccessibility()
@@ -741,7 +745,10 @@ struct SidebarView: View {
                         let hasMDNSAndroid = client.foundServices.contains(where: {
                             $0.name.lowercased().contains("android") && !$0.name.contains("Android (USB)") && !$0.name.contains("Android (WiFi ADB)")
                         })
-                        return !(isADBSynthetic && hasMDNSAndroid)
+                        // Hide " P2P" entry when base device exists (merged into one entry)
+                        let isP2PDuplicate = service.name.hasSuffix(" P2P")
+                            && client.foundServices.contains(where: { $0.name == String(service.name.dropLast(4)) })
+                        return !(isADBSynthetic && hasMDNSAndroid) && !isP2PDuplicate
                     }, id: \.name) { service in
                         SidebarDeviceRow(service: service, client: client, selection: $selection)
                     }
@@ -752,7 +759,10 @@ struct SidebarView: View {
                     let inFoundServices = client.foundServices.contains(where: { $0.name == display.name })
                     let isADBDuplicate = (display.name.contains("Android (USB)") || display.name.contains("Android (WiFi ADB)"))
                         && client.foundServices.contains(where: { $0.name.lowercased().contains("android") })
-                    return !inFoundServices && !isADBDuplicate
+                    // Hide " P2P" connected entry when base device is also connected
+                    let isP2PConnected = display.name.hasSuffix(" P2P")
+                        && client.connectedDisplays.contains(where: { $0.name == String(display.name.dropLast(4)) })
+                    return !inFoundServices && !isADBDuplicate && !isP2PConnected
                 }) { display in
                     sidebarRow(display.name, subtitle: display.resolution, icon: "display", tag: .device(display.id), iconTint: .green)
                 }
@@ -2364,6 +2374,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                             && !self.connectingServiceNames.contains(service.name) {
                             // Skip ADB synthetic entries
                             if service.name.contains("Android (USB)") || service.name.contains("Android (WiFi ADB)") { continue }
+                            // Skip " P2P" duplicate — sender uses P2P automatically for Apple devices
+                            if service.name.hasSuffix(" P2P") && services.contains(where: { $0.name == String(service.name.dropLast(4)) }) { continue }
                             LogManager.shared.log("Sender: Auto-connecting to \(service.name)")
                             self.connect(to: service)
                         }
@@ -2514,22 +2526,29 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             parameters.serviceClass = .interactiveVideo
         }
 
+        // For Apple devices, prefer the P2P endpoint if available (AWDL low-latency)
+        var connectEndpoint = service.endpoint
         if isAppleReceiver {
-            // Apple devices: force P2P/AWDL for best quality
-            parameters.includePeerToPeer = true
-            if let awdl = cachedAWDLInterface {
-                parameters.requiredInterface = awdl
-                LogManager.shared.log("Sender: Apple receiver — forcing AWDL (\(awdl.name)) for \(service.name)")
-            } else {
-                // AWDL not cached yet — ban infra to force AWDL negotiation
-                if let infra = cachedInfraInterface {
-                    LogManager.shared.log("Sender: Apple receiver — banning infra (\(infra.name)) to force AWDL for \(service.name)")
-                    parameters.prohibitedInterfaces = [infra]
+            if let p2pService = foundServices.first(where: { $0.name == service.name + " P2P" }) {
+                // Use the P2P-advertised endpoint for AWDL connection
+                connectEndpoint = p2pService.endpoint
+                parameters.includePeerToPeer = true
+                if let awdl = cachedAWDLInterface {
+                    parameters.requiredInterface = awdl
+                    LogManager.shared.log("Sender: Apple receiver — using P2P endpoint + AWDL (\(awdl.name)) for \(service.name)")
                 } else {
-                    LogManager.shared.log("Sender: Apple receiver — no interfaces cached, using Auto for \(service.name)")
+                    if let infra = cachedInfraInterface {
+                        LogManager.shared.log("Sender: Apple receiver — using P2P endpoint, banning infra for \(service.name)")
+                        parameters.prohibitedInterfaces = [infra]
+                    }
+                    parameters.prohibitedInterfaceTypes = [.loopback, .wiredEthernet]
+                    parameters.serviceClass = .interactiveVideo
                 }
-                parameters.prohibitedInterfaceTypes = [.loopback, .wiredEthernet]
+            } else {
+                // No P2P endpoint discovered — connect via Wi-Fi infrastructure
+                parameters.includePeerToPeer = false
                 parameters.serviceClass = .interactiveVideo
+                LogManager.shared.log("Sender: Apple receiver — no P2P endpoint, using Wi-Fi for \(service.name)")
             }
         } else {
             // Non-Apple devices: skip P2P, go straight to infrastructure
@@ -2538,7 +2557,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             LogManager.shared.log("Sender: Non-Apple receiver — using infrastructure for \(service.name)")
         }
 
-        let connection = NWConnection(to: service.endpoint, using: parameters)
+        let connection = NWConnection(to: connectEndpoint, using: parameters)
         let connectionId = UUID()
 
         // Timeout: if connection is still not ready after 5s, retry without P2P

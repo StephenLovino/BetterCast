@@ -68,8 +68,10 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
 #ifdef HAS_MDNS
     // Use system Bonjour/Avahi if available
     DNSServiceRef ref = nullptr;
+    QByteArray svcName = QSysInfo::machineHostName().toUtf8();
+    if (svcName.isEmpty() || svcName == "localhost") svcName = "BetterCast Receiver";
     DNSServiceErrorType err = DNSServiceRegister(
-        &ref, 0, 0, "BetterCast Receiver", "_bettercast._tcp",
+        &ref, 0, 0, svcName.constData(), "_bettercast._tcp",
         nullptr, nullptr, htons(tcpPort), 0, nullptr, nullptr, nullptr);
     if (err == kDNSServiceErr_NoError) {
         m_registerRef = ref;
@@ -78,13 +80,18 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     }
 #endif
 
-    // Embedded mDNS responder — no external dependencies needed
+    // Embedded mDNS responder — use system hostname for friendly device name
     m_advertisedPort = tcpPort;
+    QString hostname = QSysInfo::machineHostName();
+    if (hostname.isEmpty() || hostname == "localhost") {
 #ifdef _WIN32
-    m_serviceName = "BetterCast Receiver Windows";
+        m_serviceName = "Windows PC";
 #else
-    m_serviceName = "BetterCast Receiver Linux";
+        m_serviceName = "Linux PC";
 #endif
+    } else {
+        m_serviceName = hostname;
+    }
     m_advertising = true;
     m_announceCount = 0;
 
