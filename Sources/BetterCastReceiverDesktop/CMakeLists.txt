@@ -134,8 +134,14 @@ if(ENABLE_SENDER)
         sender/SenderController.h
     )
     if(WIN32)
-        list(APPEND SOURCES sender/ScreenCaptureWin.cpp)
-        list(APPEND HEADERS sender/ScreenCaptureWin.h)
+        list(APPEND SOURCES
+            sender/ScreenCaptureWin.cpp
+            sender/VirtualDisplayVDD.cpp
+        )
+        list(APPEND HEADERS
+            sender/ScreenCaptureWin.h
+            sender/VirtualDisplayVDD.h
+        )
     endif()
     # TODO: Linux PipeWire capture
 endif()
@@ -182,7 +188,7 @@ endif()
 if(ENABLE_SENDER)
     target_compile_definitions(BetterCastReceiver PRIVATE ENABLE_SENDER=1)
     if(WIN32)
-        target_link_libraries(BetterCastReceiver PRIVATE d3d11 dxgi)
+        target_link_libraries(BetterCastReceiver PRIVATE d3d11 dxgi setupapi)
     endif()
 endif()
 

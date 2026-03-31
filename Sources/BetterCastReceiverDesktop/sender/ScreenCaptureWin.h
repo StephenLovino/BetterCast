@@ -19,6 +19,10 @@ public:
     explicit ScreenCaptureWin(int targetFPS = 30, QObject* parent = nullptr);
     ~ScreenCaptureWin() override;
 
+    // Set which monitor to capture (adapter + output index).
+    // Must be called before start(). Default: adapter 0, output 0 (primary).
+    void setMonitorIndex(int adapterIndex, int outputIndex);
+
     bool start() override;
     void stop() override;
     bool isRunning() const override { return m_running; }
@@ -38,6 +42,8 @@ private:
 
     QTimer m_timer;
     int m_targetFPS;
+    int m_adapterIndex = 0;
+    int m_outputIndex = 0;
     QSize m_resolution;
     std::atomic<bool> m_running{false};
 };

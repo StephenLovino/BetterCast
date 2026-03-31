@@ -11,6 +11,7 @@
 #include "ServiceDiscovery.h"
 #ifdef ENABLE_SENDER
 #include "sender/SenderController.h"
+#include "sender/VirtualDisplayVDD.h"
 #endif
 
 #include <QVBoxLayout>
@@ -487,7 +488,108 @@ void MainWindow::setupSendPage() {
 
     layout->addSpacing(8);
 
-    // Connection card
+    // ─── Virtual Display card ──────────────────────────────────────────
+    auto* vddCard = makeCard("Virtual Display (Extend Screen)");
+    auto* vddLayout = new QVBoxLayout(vddCard);
+    vddLayout->setSpacing(10);
+
+    // VDD status
+    m_vddStatusLabel = new QLabel();
+    bool vddInstalled = m_sender && m_sender->vdd() && m_sender->vdd()->isVddInstalled();
+    if (vddInstalled) {
+        m_vddStatusLabel->setText("Virtual Display Driver detected");
+        m_vddStatusLabel->setStyleSheet("font-size: 13px; color: #4caf50;");
+    } else {
+        m_vddStatusLabel->setText(
+            "Virtual Display Driver not found — install from "
+            "github.com/itsmikethetech/Virtual-Display-Driver");
+        m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #ff9800;");
+    }
+    m_vddStatusLabel->setWordWrap(true);
+    vddLayout->addWidget(m_vddStatusLabel);
+
+    // Resolution picker
+    auto* resRow = new QHBoxLayout();
+    auto* resLabel = new QLabel("Resolution:");
+    resLabel->setStyleSheet("font-size: 13px; color: #ccc;");
+    resRow->addWidget(resLabel);
+
+    m_vddResolutionCombo = new QComboBox();
+    m_vddResolutionCombo->addItem("1920 x 1080 @ 60Hz", QVariant::fromValue(QSize(1920, 1080)));
+    m_vddResolutionCombo->addItem("2560 x 1440 @ 60Hz", QVariant::fromValue(QSize(2560, 1440)));
+    m_vddResolutionCombo->addItem("3840 x 2160 @ 60Hz", QVariant::fromValue(QSize(3840, 2160)));
+    m_vddResolutionCombo->addItem("1920 x 1200 @ 60Hz", QVariant::fromValue(QSize(1920, 1200)));
+    m_vddResolutionCombo->addItem("2560 x 1600 @ 60Hz", QVariant::fromValue(QSize(2560, 1600)));
+    m_vddResolutionCombo->addItem("1280 x 720 @ 60Hz",  QVariant::fromValue(QSize(1280, 720)));
+    m_vddResolutionCombo->addItem("1024 x 768 @ 60Hz",  QVariant::fromValue(QSize(1024, 768)));
+    m_vddResolutionCombo->setFixedWidth(240);
+    m_vddResolutionCombo->setEnabled(vddInstalled);
+    resRow->addWidget(m_vddResolutionCombo);
+    resRow->addStretch();
+    vddLayout->addLayout(resRow);
+
+    // Create / Remove buttons
+    auto* vddBtnRow = new QHBoxLayout();
+    vddBtnRow->setSpacing(10);
+
+    m_createVddBtn = new QPushButton("Create Virtual Display");
+    m_createVddBtn->setEnabled(vddInstalled);
+    m_createVddBtn->setStyleSheet(
+        "QPushButton { background-color: #4caf50; color: white; font-weight: bold; "
+        "padding: 8px 18px; border-radius: 6px; border: none; }"
+        "QPushButton:hover { background-color: #66bb6a; }"
+        "QPushButton:disabled { background-color: #2a2a2a; color: #666; }");
+    connect(m_createVddBtn, &QPushButton::clicked, this, &MainWindow::onCreateVirtualDisplay);
+    vddBtnRow->addWidget(m_createVddBtn);
+
+    m_removeVddBtn = new QPushButton("Remove");
+    m_removeVddBtn->setEnabled(false);
+    m_removeVddBtn->setStyleSheet(
+        "QPushButton { background-color: #333; color: #ccc; padding: 8px 18px; "
+        "border-radius: 6px; font-size: 13px; border: 1px solid #555; }"
+        "QPushButton:hover { background-color: #444; }"
+        "QPushButton:disabled { background-color: #2a2a2a; color: #666; }");
+    connect(m_removeVddBtn, &QPushButton::clicked, this, &MainWindow::onRemoveVirtualDisplay);
+    vddBtnRow->addWidget(m_removeVddBtn);
+
+    vddBtnRow->addStretch();
+    vddLayout->addLayout(vddBtnRow);
+
+    layout->addWidget(vddCard);
+
+    // ─── Monitor Selection card ────────────────────────────────────────
+    auto* monCard = makeCard("Monitor to Stream");
+    auto* monLayout = new QVBoxLayout(monCard);
+    monLayout->setSpacing(10);
+
+    auto* monDesc = new QLabel("Select which display to capture and stream:");
+    monDesc->setStyleSheet("font-size: 12px; color: #888;");
+    monLayout->addWidget(monDesc);
+
+    auto* monRow = new QHBoxLayout();
+    m_monitorCombo = new QComboBox();
+    m_monitorCombo->setMinimumWidth(300);
+    connect(m_monitorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onMonitorSelected);
+    monRow->addWidget(m_monitorCombo);
+
+    auto* refreshBtn = new QPushButton("Refresh");
+    refreshBtn->setStyleSheet(
+        "QPushButton { background-color: #333; color: #ccc; padding: 6px 14px; "
+        "border-radius: 6px; font-size: 12px; border: 1px solid #555; }"
+        "QPushButton:hover { background-color: #444; }");
+    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::onRefreshMonitors);
+    monRow->addWidget(refreshBtn);
+
+    monRow->addStretch();
+    monLayout->addLayout(monRow);
+
+    layout->addWidget(monCard);
+
+    // Populate monitor list
+    onRefreshMonitors();
+
+    // ─── Connection card ───────────────────────────────────────────────
     auto* connCard = makeCard("Target Receiver");
     auto* connLayout = new QVBoxLayout(connCard);
     connLayout->setSpacing(12);
@@ -506,7 +608,7 @@ void MainWindow::setupSendPage() {
 
     connLayout->addSpacing(4);
 
-    auto* orLabel = new QLabel("— or enter IP manually —");
+    auto* orLabel = new QLabel(QString::fromUtf8("\xe2\x80\x94 or enter IP manually \xe2\x80\x94"));
     orLabel->setStyleSheet("font-size: 11px; color: #666;");
     orLabel->setAlignment(Qt::AlignCenter);
     connLayout->addWidget(orLabel);
@@ -524,7 +626,7 @@ void MainWindow::setupSendPage() {
 
     layout->addWidget(connCard);
 
-    // Quality card
+    // ─── Quality card ──────────────────────────────────────────────────
     auto* qualCard = makeCard("Stream Quality");
     auto* qualLayout = new QVBoxLayout(qualCard);
     qualLayout->setSpacing(10);
@@ -557,7 +659,7 @@ void MainWindow::setupSendPage() {
 
     layout->addWidget(qualCard);
 
-    // Action buttons
+    // ─── Action buttons ────────────────────────────────────────────────
     auto* btnRow = new QHBoxLayout();
     btnRow->setSpacing(12);
 
@@ -584,7 +686,7 @@ void MainWindow::setupSendPage() {
     layout->addLayout(btnRow);
 
     // Status
-    m_senderStatusLabel = new QLabel("Enter a receiver's IP address to stream your screen");
+    m_senderStatusLabel = new QLabel("Select a monitor and receiver to start streaming");
     m_senderStatusLabel->setStyleSheet("font-size: 12px; color: #888;");
     m_senderStatusLabel->setWordWrap(true);
     layout->addWidget(m_senderStatusLabel);
@@ -1048,6 +1150,17 @@ void MainWindow::onSendScreenClicked() {
         return;
     }
 
+    // Apply selected monitor to sender controller
+    if (m_monitorCombo && m_monitorCombo->currentIndex() >= 0) {
+        QVariantMap monData = m_monitorCombo->currentData().toMap();
+        int adapterIdx = monData.value("adapter", 0).toInt();
+        int outputIdx = monData.value("output", 0).toInt();
+        m_sender->setMonitorIndex(adapterIdx, outputIdx);
+        LogManager::instance().log(QString("Capturing monitor: %1 (adapter %2, output %3)")
+                                       .arg(m_monitorCombo->currentText())
+                                       .arg(adapterIdx).arg(outputIdx));
+    }
+
     m_sendBtn->setEnabled(false);
     m_stopSendBtn->setEnabled(true);
     m_sendHostEdit->setEnabled(false);
@@ -1061,6 +1174,112 @@ void MainWindow::onSendScreenClicked() {
     LogManager::instance().log(QString("Starting sender to %1 at %2 FPS, %3 Mbps")
                                    .arg(host).arg(fps).arg(bitrate));
     m_sender->startSending(host, m_selectedReceiverPort, fps, bitrate);
+}
+
+void MainWindow::onCreateVirtualDisplay() {
+    if (!m_sender || !m_sender->vdd()) return;
+
+    QSize res = m_vddResolutionCombo->currentData().toSize();
+    int w = res.width(), h = res.height();
+    if (w <= 0 || h <= 0) { w = 1920; h = 1080; }
+
+    m_createVddBtn->setEnabled(false);
+    m_vddStatusLabel->setText("Creating virtual display...");
+    m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #4da6ff;");
+    LogManager::instance().log(QString("Creating virtual display %1x%2...").arg(w).arg(h));
+
+    // Run in background thread to avoid blocking UI
+    std::thread([this, w, h]() {
+        bool ok = m_sender->vdd()->createVirtualDisplay(w, h, 60);
+        QMetaObject::invokeMethod(this, [this, ok, w, h]() {
+            m_createVddBtn->setEnabled(true);
+            if (ok) {
+                m_removeVddBtn->setEnabled(true);
+                m_vddStatusLabel->setText(QString("Virtual display active: %1x%2").arg(w).arg(h));
+                m_vddStatusLabel->setStyleSheet("font-size: 13px; color: #4caf50;");
+                LogManager::instance().log("Virtual display created successfully");
+                // Refresh monitor list to include the new display
+                onRefreshMonitors();
+                // Auto-select the virtual display
+                for (int i = 0; i < m_monitorCombo->count(); i++) {
+                    QVariantMap data = m_monitorCombo->itemData(i).toMap();
+                    if (data.value("virtual", false).toBool()) {
+                        m_monitorCombo->setCurrentIndex(i);
+                        break;
+                    }
+                }
+            } else {
+                m_vddStatusLabel->setText("Failed to create virtual display — check logs");
+                m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #d32f2f;");
+            }
+        });
+    }).detach();
+}
+
+void MainWindow::onRemoveVirtualDisplay() {
+    if (!m_sender || !m_sender->vdd()) return;
+
+    m_removeVddBtn->setEnabled(false);
+    LogManager::instance().log("Removing virtual display...");
+
+    std::thread([this]() {
+        bool ok = m_sender->vdd()->removeAllVirtualDisplays();
+        QMetaObject::invokeMethod(this, [this, ok]() {
+            if (ok) {
+                m_vddStatusLabel->setText("Virtual display removed");
+                m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #888;");
+                LogManager::instance().log("Virtual display removed");
+            } else {
+                m_removeVddBtn->setEnabled(true);
+                LogManager::instance().log("Failed to remove virtual display");
+            }
+            onRefreshMonitors();
+        });
+    }).detach();
+}
+
+void MainWindow::onRefreshMonitors() {
+    if (!m_monitorCombo || !m_sender || !m_sender->vdd()) return;
+
+    m_monitorCombo->clear();
+
+    auto monitors = m_sender->vdd()->enumerateMonitors();
+    if (monitors.isEmpty()) {
+        m_monitorCombo->addItem("No monitors detected (adapter 0, output 0)");
+        QVariantMap defaultData;
+        defaultData["adapter"] = 0;
+        defaultData["output"] = 0;
+        defaultData["virtual"] = false;
+        m_monitorCombo->setItemData(0, defaultData);
+        return;
+    }
+
+    for (const auto& mon : monitors) {
+        QString label = QString("%1  %2x%3  (%4)")
+                            .arg(mon.name)
+                            .arg(mon.width).arg(mon.height)
+                            .arg(mon.adapterName);
+        if (mon.isVirtual) {
+            label += "  [Virtual]";
+        }
+
+        QVariantMap data;
+        data["adapter"] = mon.adapterIndex;
+        data["output"] = mon.outputIndex;
+        data["virtual"] = mon.isVirtual;
+        m_monitorCombo->addItem(label, data);
+    }
+
+    LogManager::instance().log(QString("Found %1 monitor(s)").arg(monitors.size()));
+}
+
+void MainWindow::onMonitorSelected(int index) {
+    if (!m_monitorCombo || index < 0) return;
+    QVariantMap data = m_monitorCombo->itemData(index).toMap();
+    LogManager::instance().log(QString("Selected monitor: %1 (adapter %2, output %3)")
+                                   .arg(m_monitorCombo->currentText())
+                                   .arg(data.value("adapter", 0).toInt())
+                                   .arg(data.value("output", 0).toInt()));
 }
 
 void MainWindow::onStopSendingClicked() {

@@ -10,6 +10,7 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   QT_VERSION: '6.7.0'
+  VDD_VERSION: '24.10.18.1'  # Virtual Display Driver release tag
 
 jobs:
   build-windows:
@@ -86,11 +87,38 @@ jobs:
           Invoke-WebRequest -Uri "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" `
             -OutFile "platform-tools.zip"
           Expand-Archive -Path "platform-tools.zip" -DestinationPath "."
-          # Verify adb.exe exists
           if (Test-Path "platform-tools/adb.exe") {
             Write-Host "ADB downloaded successfully"
           } else {
             Write-Host "WARNING: adb.exe not found in download"
+          }
+
+      - name: Download Virtual Display Driver (VDD)
+        shell: pwsh
+        run: |
+          # Download VDD release from GitHub
+          $vddTag = "${{ env.VDD_VERSION }}"
+          $vddUrl = "https://github.com/itsmikethetech/Virtual-Display-Driver/releases/download/${vddTag}/VDD.-.Virtual.Display.Driver.zip"
+          Write-Host "Downloading VDD from: $vddUrl"
+
+          try {
+            Invoke-WebRequest -Uri $vddUrl -OutFile "vdd-release.zip" -MaximumRedirection 5
+            Expand-Archive -Path "vdd-release.zip" -DestinationPath "vdd-extract"
+
+            # Find the VDD files (structure may vary between releases)
+            mkdir "vdd" -Force
+            # Copy all files from the extracted archive
+            Get-ChildItem "vdd-extract" -Recurse -File | ForEach-Object {
+              Copy-Item $_.FullName "vdd/" -Force
+            }
+
+            $fileCount = (Get-ChildItem "vdd" -File).Count
+            Write-Host "VDD: $fileCount files extracted"
+            Get-ChildItem "vdd" | ForEach-Object { Write-Host "  $_" }
+          } catch {
+            Write-Host "WARNING: Failed to download VDD: $_"
+            Write-Host "Installer will be built without VDD bundled"
+            mkdir "vdd" -Force
           }
 
       - name: Package artifact
@@ -124,9 +152,38 @@ jobs:
           # Copy app icon for runtime (embedded via Qt resource, but also keep as fallback)
           Copy-Item "Sources/BetterCastReceiverDesktop/appicon.ico" "artifact/" -ErrorAction SilentlyContinue
 
-      - name: Upload artifact
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          cd Sources/BetterCastReceiverDesktop
+
+          # Copy artifact and vdd directories next to installer.nsi
+          # (NSIS references files relative to the .nsi script)
+          Copy-Item -Recurse "${{ github.workspace }}/artifact" "artifact"
+          Copy-Item -Recurse "${{ github.workspace }}/vdd" "vdd"
+
+          # Build the installer
+          makensis /DPRODUCT_VERSION="${{ env.VDD_VERSION }}" installer.nsi
+
+          # Move installer to workspace root
+          Move-Item "BetterCast-Setup-*.exe" "${{ github.workspace }}/"
+
+      - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
           name: BetterCastReceiver-Windows-x64
           path: artifact/
+          retention-days: 30
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterCast-Setup-Windows-x64
+          path: BetterCast-Setup-*.exe
           retention-days: 30

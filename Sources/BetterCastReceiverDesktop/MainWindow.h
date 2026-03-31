@@ -58,6 +58,7 @@ class AdbHelper;
 class VideoWindow;
 #ifdef ENABLE_SENDER
 class SenderController;
+class VirtualDisplayVDD;
 #endif
 
 class MainWindow : public QMainWindow {
@@ -85,6 +86,10 @@ private slots:
     void onStopSendingClicked();
     void onReceiverDiscovered(const DiscoveredService& service);
     void onReceiverSelected(int index);
+    void onCreateVirtualDisplay();
+    void onRemoveVirtualDisplay();
+    void onRefreshMonitors();
+    void onMonitorSelected(int index);
 #endif
 
 private:
@@ -160,5 +165,12 @@ private:
     QPushButton* m_sendBtn = nullptr;
     QPushButton* m_stopSendBtn = nullptr;
     QLabel* m_senderStatusLabel = nullptr;
+
+    // Virtual Display (VDD) controls
+    QComboBox* m_monitorCombo = nullptr;
+    QComboBox* m_vddResolutionCombo = nullptr;
+    QPushButton* m_createVddBtn = nullptr;
+    QPushButton* m_removeVddBtn = nullptr;
+    QLabel* m_vddStatusLabel = nullptr;
 #endif
 };

@@ -2,6 +2,7 @@
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
+// dxgi1_2.h provides IDXGIFactory1 and CreateDXGIFactory1
 #include <QDebug>
 
 #pragma comment(lib, "d3d11.lib")
@@ -12,6 +13,11 @@ ScreenCaptureWin::ScreenCaptureWin(int targetFPS, QObject* parent)
     , m_targetFPS(targetFPS)
 {
     connect(&m_timer, &QTimer::timeout, this, &ScreenCaptureWin::captureFrame);
+}
+
+void ScreenCaptureWin::setMonitorIndex(int adapterIndex, int outputIndex) {
+    m_adapterIndex = adapterIndex;
+    m_outputIndex = outputIndex;
 }
 
 ScreenCaptureWin::~ScreenCaptureWin() {
@@ -25,9 +31,26 @@ bool ScreenCaptureWin::initD3D() {
     flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-    HRESULT hr = D3D11CreateDevice(
-        nullptr,                    // default adapter
-        D3D_DRIVER_TYPE_HARDWARE,
+    // Get the specific adapter for the selected monitor
+    IDXGIFactory1* factory = nullptr;
+    HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory);
+    if (FAILED(hr)) {
+        qWarning() << "Sender: CreateDXGIFactory1 failed";
+        return false;
+    }
+
+    IDXGIAdapter1* selectedAdapter = nullptr;
+    hr = factory->EnumAdapters1(m_adapterIndex, &selectedAdapter);
+    factory->Release();
+
+    if (FAILED(hr)) {
+        qWarning() << "Sender: Adapter" << m_adapterIndex << "not found, falling back to default";
+        selectedAdapter = nullptr;
+    }
+
+    hr = D3D11CreateDevice(
+        selectedAdapter,            // specific adapter (or nullptr for default)
+        selectedAdapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
         nullptr,
         flags,
         nullptr, 0,                 // default feature levels
@@ -37,11 +60,14 @@ bool ScreenCaptureWin::initD3D() {
         &m_context
     );
 
+    if (selectedAdapter) selectedAdapter->Release();
+
     if (FAILED(hr)) {
         qWarning() << "Sender: D3D11CreateDevice failed, hr=" << Qt::hex << hr;
         return false;
     }
-    qDebug() << "Sender: D3D11 device created, feature level:" << Qt::hex << featureLevel;
+    qDebug() << "Sender: D3D11 device created on adapter" << m_adapterIndex
+             << ", feature level:" << Qt::hex << featureLevel;
     return true;
 }
 
@@ -57,9 +83,12 @@ bool ScreenCaptureWin::initDuplication() {
     if (FAILED(hr)) { qWarning() << "Sender: GetAdapter failed"; return false; }
 
     IDXGIOutput* output = nullptr;
-    hr = adapter->EnumOutputs(0, &output);  // primary monitor
+    hr = adapter->EnumOutputs(m_outputIndex, &output);  // selected monitor
     adapter->Release();
-    if (FAILED(hr)) { qWarning() << "Sender: EnumOutputs failed — no monitor?"; return false; }
+    if (FAILED(hr)) {
+        qWarning() << "Sender: EnumOutputs failed for output" << m_outputIndex;
+        return false;
+    }
 
     IDXGIOutput1* output1 = nullptr;
     hr = output->QueryInterface(__uuidof(IDXGIOutput1), (void**)&output1);

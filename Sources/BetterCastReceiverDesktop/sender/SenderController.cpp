@@ -1,4 +1,5 @@
 #include "SenderController.h"
+#include "VirtualDisplayVDD.h"
 #include "VideoEncoderFF.h"
 #include "NetworkSender.h"
 #include <QDebug>
@@ -11,6 +12,18 @@
 SenderController::SenderController(QObject* parent)
     : QObject(parent)
 {
+#ifdef _WIN32
+    m_vdd = new VirtualDisplayVDD(this);
+    connect(m_vdd, &VirtualDisplayVDD::statusChanged,
+            this, &SenderController::statusChanged);
+    connect(m_vdd, &VirtualDisplayVDD::error,
+            this, &SenderController::error);
+#endif
+}
+
+void SenderController::setMonitorIndex(int adapterIndex, int outputIndex) {
+    m_adapterIndex = adapterIndex;
+    m_outputIndex = outputIndex;
 }
 
 SenderController::~SenderController() {
@@ -27,9 +40,11 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
     m_fps = fps;
     m_bitrateMbps = bitrateMbps;
 
-    // Create screen capture
+    // Create screen capture (targeting selected monitor)
 #ifdef _WIN32
-    m_capture = new ScreenCaptureWin(fps, this);
+    auto* cap = new ScreenCaptureWin(fps, this);
+    cap->setMonitorIndex(m_adapterIndex, m_outputIndex);
+    m_capture = cap;
 #else
     emit error("Screen capture not yet supported on this platform");
     emit statusChanged("Sender not available on this platform yet");
