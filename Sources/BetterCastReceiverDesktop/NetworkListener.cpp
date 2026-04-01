@@ -27,19 +27,27 @@ void NetworkListener::setup(VideoDecoder* decoder, VideoRenderer* renderer, Audi
     m_audioDecoder = audioDecoder;
 }
 
+uint16_t NetworkListener::actualTcpPort() const {
+    if (m_tcpServer && m_tcpServer->isListening())
+        return m_tcpServer->serverPort();
+    return kDefaultTcpPort;
+}
+
 void NetworkListener::start() {
     // Start TCP server
     m_tcpServer = new QTcpServer(this);
     connect(m_tcpServer, &QTcpServer::newConnection, this, &NetworkListener::onNewTcpConnection);
 
     if (m_tcpServer->listen(QHostAddress::Any, kDefaultTcpPort)) {
-        qDebug() << "TCP listening on port" << m_tcpServer->serverPort();
+        LogManager::instance().log(QString("TCP listening on port %1").arg(m_tcpServer->serverPort()));
         emit statusChanged(QString("Listening on port %1").arg(m_tcpServer->serverPort()));
     } else {
+        LogManager::instance().log(QString("TCP port %1 unavailable: %2 — trying system-assigned port")
+                                       .arg(kDefaultTcpPort).arg(m_tcpServer->errorString()));
         // Try any available port if default is taken
         if (m_tcpServer->listen(QHostAddress::Any, 0)) {
-            qDebug() << "TCP listening on port" << m_tcpServer->serverPort();
-            emit statusChanged(QString("Listening on port %1").arg(m_tcpServer->serverPort()));
+            LogManager::instance().log(QString("TCP listening on fallback port %1").arg(m_tcpServer->serverPort()));
+            emit statusChanged(QString("Listening on port %1 (fallback)").arg(m_tcpServer->serverPort()));
         } else {
             qWarning() << "TCP listen failed:" << m_tcpServer->errorString();
             emit statusChanged("TCP listen failed: " + m_tcpServer->errorString());

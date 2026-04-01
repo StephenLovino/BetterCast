@@ -28,6 +28,7 @@ public:
     void connectTo(const QString& host, uint16_t port);
     void disconnectAll();
     const QList<QTcpSocket*>& clients() const { return m_clients; }
+    uint16_t actualTcpPort() const;
 
 signals:
     void connectionEstablished();

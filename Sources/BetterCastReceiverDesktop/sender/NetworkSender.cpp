@@ -30,8 +30,18 @@ NetworkSender::NetworkSender(QObject* parent)
             m_retryTimer.start(delayMs);
             return;
         }
-        qWarning() << "Sender: TCP error:" << m_socket->errorString();
-        emit error(m_socket->errorString());
+        QString errMsg = m_socket->errorString();
+        if (err == QAbstractSocket::ConnectionRefusedError) {
+            errMsg += QString("\nThe receiver at %1:%2 is not accepting connections. "
+                              "Check that:\n"
+                              "  1. Receiver mode is started on the target device\n"
+                              "  2. The receiver's firewall allows incoming TCP on this port\n"
+                              "  3. The discovered port matches the receiver's actual listening port")
+                          .arg(m_host).arg(m_port);
+        }
+        qWarning() << "Sender: TCP error:" << errMsg;
+        LogManager::instance().log(QString("Sender error: %1").arg(errMsg));
+        emit error(errMsg);
     });
 }
 

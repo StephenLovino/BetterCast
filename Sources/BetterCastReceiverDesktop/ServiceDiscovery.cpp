@@ -393,8 +393,13 @@ void ServiceDiscovery::handleMdnsResponse(const QByteArray& packet) {
 
         if (!found) {
             m_discovered.append(svc);
-            MDNS_LOG(QString("Discovered receiver: %1 at %2:%3")
+            MDNS_LOG(QString("Discovered receiver: %1 at %2:%3 (from mDNS SRV record)")
                          .arg(svc.name, svc.host).arg(svc.port));
+            if (svc.port != 51820) {
+                MDNS_LOG(QString("NOTE: Receiver port %1 differs from default 51820 — "
+                                 "verify receiver is actually listening on this port")
+                             .arg(svc.port));
+            }
             emit serviceFound(svc);
         }
     }
