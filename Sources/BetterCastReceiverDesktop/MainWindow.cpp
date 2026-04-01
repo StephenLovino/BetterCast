@@ -615,6 +615,17 @@ void MainWindow::setupSendPage() {
     // Populate monitor list
     onRefreshMonitors();
 
+    // Enable Remove button if virtual displays already exist from previous sessions
+    if (m_removeVddBtn && m_monitorCombo) {
+        for (int i = 0; i < m_monitorCombo->count(); i++) {
+            QVariantMap data = m_monitorCombo->itemData(i).toMap();
+            if (data.value("virtual", false).toBool()) {
+                m_removeVddBtn->setEnabled(true);
+                break;
+            }
+        }
+    }
+
     // ─── Connection card ───────────────────────────────────────────────
     auto* connCard = makeCard("Target Receiver");
     auto* connLayout = new QVBoxLayout(connCard);
