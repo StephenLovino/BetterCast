@@ -412,6 +412,66 @@ bool VirtualDisplayVDD::ensureVddControlRunning() {
 #endif
 }
 
+bool VirtualDisplayVDD::activateVirtualDisplay() {
+#ifdef _WIN32
+    // Find an inactive/disconnected virtual display and extend the desktop to it
+    DISPLAY_DEVICEW dd = {};
+    dd.cb = sizeof(dd);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dd, 0); i++) {
+        QString devString = QString::fromWCharArray(dd.DeviceString).toLower();
+        bool isVirtual = devString.contains("virtual") || devString.contains("indirect") ||
+                         devString.contains("idd") || devString.contains("vdd") ||
+                         devString.contains("mtt");
+
+        if (isVirtual && !(dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)) {
+            QString devName = QString::fromWCharArray(dd.DeviceName);
+            VDD_LOG("VDD: Found disconnected virtual display: " + devName + " (" +
+                    QString::fromWCharArray(dd.DeviceString) + ") — activating...");
+
+            // Get the primary monitor's position to place virtual display to the right
+            DEVMODEW primaryDm = {};
+            primaryDm.dmSize = sizeof(primaryDm);
+            EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &primaryDm);
+
+            DEVMODEW dm = {};
+            dm.dmSize = sizeof(dm);
+            dm.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT;
+            dm.dmPosition.x = static_cast<LONG>(primaryDm.dmPelsWidth);  // Place to the right
+            dm.dmPosition.y = 0;
+
+            // Try to get the intended resolution from settings
+            if (EnumDisplaySettingsW(dd.DeviceName, ENUM_REGISTRY_SETTINGS, &dm)) {
+                dm.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT;
+                dm.dmPosition.x = static_cast<LONG>(primaryDm.dmPelsWidth);
+                dm.dmPosition.y = 0;
+            } else {
+                dm.dmPelsWidth = 1920;
+                dm.dmPelsHeight = 1080;
+            }
+
+            LONG ret = ChangeDisplaySettingsExW(
+                dd.DeviceName, &dm, nullptr,
+                CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
+
+            if (ret == DISP_CHANGE_SUCCESSFUL) {
+                // Apply changes globally
+                ChangeDisplaySettingsExW(nullptr, nullptr, nullptr, 0, nullptr);
+                VDD_LOG(QString("VDD: Virtual display activated at position %1,0 (%2x%3)")
+                            .arg(dm.dmPosition.x).arg(dm.dmPelsWidth).arg(dm.dmPelsHeight));
+                QThread::msleep(1000);
+                return true;
+            } else {
+                VDD_LOG(QString("VDD: ChangeDisplaySettingsEx failed with code %1").arg(ret));
+            }
+        }
+        dd = {};
+        dd.cb = sizeof(dd);
+    }
+    VDD_LOG("VDD: No disconnected virtual display found to activate");
+#endif
+    return false;
+}
+
 bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshRate) {
     if (!m_vddInstalled) {
         emit error("VDD is not installed. Download from github.com/itsmikethetech/Virtual-Display-Driver");
@@ -449,7 +509,10 @@ bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshR
         QThread::msleep(1500);
         int outputIdx = findVirtualDisplayOutput();
         if (outputIdx < 0) {
-            VDD_LOG("VDD: Warning — pipe reported success but virtual display not found in monitor list");
+            VDD_LOG("VDD: Display not in monitor list — trying to activate/extend...");
+            activateVirtualDisplay();
+            QThread::msleep(1000);
+            outputIdx = findVirtualDisplayOutput();
         }
         emit virtualDisplayCreated(outputIdx);
         return true;
@@ -478,7 +541,13 @@ bool VirtualDisplayVDD::createVirtualDisplay(int width, int height, int refreshR
     QThread::msleep(2000);
     int outputIdx = findVirtualDisplayOutput();
     if (outputIdx < 0) {
-        VDD_LOG("VDD: Warning — settings written but virtual display not found in monitor list");
+        VDD_LOG("VDD: Display not in monitor list — trying to activate/extend...");
+        activateVirtualDisplay();
+        QThread::msleep(1000);
+        outputIdx = findVirtualDisplayOutput();
+    }
+    if (outputIdx < 0) {
+        VDD_LOG("VDD: Virtual display still not found — it may need manual 'Extend' in Display Settings");
     }
     emit virtualDisplayCreated(outputIdx);
     return true;
@@ -557,51 +626,111 @@ QVector<VirtualDisplayVDD::MonitorInfo> VirtualDisplayVDD::enumerateMonitors() c
     QVector<MonitorInfo> result;
 
 #ifdef _WIN32
+    // Method 1: DXGI enumeration (only sees attached/active displays)
     IDXGIFactory1* factory = nullptr;
     HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory);
     if (FAILED(hr)) {
-        qWarning() << "VDD: CreateDXGIFactory1 failed";
-        return result;
-    }
+        VDD_LOG("VDD: CreateDXGIFactory1 failed");
+    } else {
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT adapterIdx = 0;
+             factory->EnumAdapters1(adapterIdx, &adapter) != DXGI_ERROR_NOT_FOUND;
+             adapterIdx++) {
 
-    IDXGIAdapter1* adapter = nullptr;
-    for (UINT adapterIdx = 0;
-         factory->EnumAdapters1(adapterIdx, &adapter) != DXGI_ERROR_NOT_FOUND;
-         adapterIdx++) {
+            DXGI_ADAPTER_DESC1 adapterDesc;
+            adapter->GetDesc1(&adapterDesc);
+            QString adapterName = QString::fromWCharArray(adapterDesc.Description);
 
-        DXGI_ADAPTER_DESC1 adapterDesc;
-        adapter->GetDesc1(&adapterDesc);
-        QString adapterName = QString::fromWCharArray(adapterDesc.Description);
+            IDXGIOutput* output = nullptr;
+            for (UINT outputIdx = 0;
+                 adapter->EnumOutputs(outputIdx, &output) != DXGI_ERROR_NOT_FOUND;
+                 outputIdx++) {
 
-        IDXGIOutput* output = nullptr;
-        for (UINT outputIdx = 0;
-             adapter->EnumOutputs(outputIdx, &output) != DXGI_ERROR_NOT_FOUND;
-             outputIdx++) {
+                DXGI_OUTPUT_DESC outputDesc;
+                output->GetDesc(&outputDesc);
 
-            DXGI_OUTPUT_DESC outputDesc;
-            output->GetDesc(&outputDesc);
+                MonitorInfo info;
+                info.adapterIndex = static_cast<int>(adapterIdx);
+                info.outputIndex = static_cast<int>(outputIdx);
+                info.name = QString::fromWCharArray(outputDesc.DeviceName);
+                info.adapterName = adapterName;
+                info.width = outputDesc.DesktopCoordinates.right - outputDesc.DesktopCoordinates.left;
+                info.height = outputDesc.DesktopCoordinates.bottom - outputDesc.DesktopCoordinates.top;
 
-            MonitorInfo info;
-            info.adapterIndex = static_cast<int>(adapterIdx);
-            info.outputIndex = static_cast<int>(outputIdx);
-            info.name = QString::fromWCharArray(outputDesc.DeviceName);
-            info.adapterName = adapterName;
-            info.width = outputDesc.DesktopCoordinates.right - outputDesc.DesktopCoordinates.left;
-            info.height = outputDesc.DesktopCoordinates.bottom - outputDesc.DesktopCoordinates.top;
+                // Detect virtual displays by adapter name patterns
+                QString lowerAdapter = adapterName.toLower();
+                info.isVirtual = lowerAdapter.contains("virtual") ||
+                                 lowerAdapter.contains("indirect") ||
+                                 lowerAdapter.contains("idd") ||
+                                 lowerAdapter.contains("vdd") ||
+                                 lowerAdapter.contains("mttvdd") ||
+                                 lowerAdapter.contains("mtt");
 
-            // Detect virtual displays by adapter name patterns
-            QString lowerAdapter = adapterName.toLower();
-            info.isVirtual = lowerAdapter.contains("virtual") ||
-                             lowerAdapter.contains("indirect") ||
-                             lowerAdapter.contains("idd") ||
-                             lowerAdapter.contains("vdd");
-
-            result.append(info);
-            output->Release();
+                result.append(info);
+                output->Release();
+            }
+            adapter->Release();
         }
-        adapter->Release();
+        factory->Release();
     }
-    factory->Release();
+
+    // Method 2: EnumDisplayDevices — finds ALL displays including disconnected virtual ones
+    // that DXGI misses. This is needed because virtual displays may not be "attached"
+    // to the desktop yet.
+    DISPLAY_DEVICEW dd = {};
+    dd.cb = sizeof(dd);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dd, 0); i++) {
+        // Skip inactive devices unless they look virtual
+        QString devName = QString::fromWCharArray(dd.DeviceName);
+        QString devString = QString::fromWCharArray(dd.DeviceString);
+        QString lowerString = devString.toLower();
+
+        bool isVirtual = lowerString.contains("virtual") ||
+                         lowerString.contains("indirect") ||
+                         lowerString.contains("idd") ||
+                         lowerString.contains("vdd") ||
+                         lowerString.contains("mtt");
+
+        // Check if this device is already in our DXGI results
+        bool alreadyFound = false;
+        for (const auto& existing : result) {
+            if (existing.name == devName) {
+                alreadyFound = true;
+                break;
+            }
+        }
+
+        if (!alreadyFound && isVirtual) {
+            MonitorInfo info;
+            info.adapterIndex = static_cast<int>(i);
+            info.outputIndex = 0;
+            info.name = devName;
+            info.adapterName = devString;
+            info.isVirtual = true;
+
+            // Get resolution from display settings
+            DEVMODEW dm = {};
+            dm.dmSize = sizeof(dm);
+            if (EnumDisplaySettingsW(dd.DeviceName, ENUM_CURRENT_SETTINGS, &dm)) {
+                info.width = static_cast<int>(dm.dmPelsWidth);
+                info.height = static_cast<int>(dm.dmPelsHeight);
+            } else if (EnumDisplaySettingsW(dd.DeviceName, ENUM_REGISTRY_SETTINGS, &dm)) {
+                info.width = static_cast<int>(dm.dmPelsWidth);
+                info.height = static_cast<int>(dm.dmPelsHeight);
+            } else {
+                // Use requested resolution from settings
+                info.width = 1920;
+                info.height = 1080;
+            }
+
+            VDD_LOG(QString("VDD: Found virtual display via EnumDisplayDevices: %1 (%2) %3x%4 flags=0x%5")
+                        .arg(devName, devString).arg(info.width).arg(info.height)
+                        .arg(dd.StateFlags, 0, 16));
+            result.append(info);
+        }
+        dd = {};
+        dd.cb = sizeof(dd);
+    }
 #endif
 
     return result;
