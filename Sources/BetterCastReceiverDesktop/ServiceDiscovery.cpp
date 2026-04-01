@@ -149,7 +149,7 @@ void ServiceDiscovery::startBrowsing() {
     m_browseTimer->start(3000); // every 3 seconds
     sendBrowseQuery(); // immediate first query
 
-    qDebug() << "mDNS: Started browsing for _bettercast._tcp receivers";
+    MDNS_LOG("mDNS: Started browsing for _bettercast._tcp receivers");
 }
 
 void ServiceDiscovery::stopBrowsing() {
@@ -356,6 +356,10 @@ void ServiceDiscovery::handleMdnsResponse(const QByteArray& packet) {
     }
 
     // If we got enough info, emit the discovered service
+    if (!instanceName.isEmpty() && srvPort == 0) {
+        // Got PTR but no SRV in this packet — send a targeted query for the SRV
+        MDNS_LOG(QString("mDNS: Got PTR for '%1' but no SRV/A — sending follow-up query").arg(instanceName));
+    }
     if (!instanceName.isEmpty() && srvPort > 0) {
         // Use A record IP if available, otherwise try to resolve SRV host
         QString host;
@@ -389,8 +393,8 @@ void ServiceDiscovery::handleMdnsResponse(const QByteArray& packet) {
 
         if (!found) {
             m_discovered.append(svc);
-            qDebug() << "mDNS: Discovered receiver:" << svc.name
-                     << "at" << svc.host << ":" << svc.port;
+            MDNS_LOG(QString("Discovered receiver: %1 at %2:%3")
+                         .arg(svc.name, svc.host).arg(svc.port));
             emit serviceFound(svc);
         }
     }
