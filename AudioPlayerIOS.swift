@@ -18,6 +18,12 @@ class AudioPlayerIOS {
     private var started = false
     private var decodeCount = 0
 
+    // Low-latency buffer management
+    // At 48kHz with 1024-frame AAC packets, each buffer is ~21ms.
+    // Cap at 3 buffers (~63ms) to keep latency tight.
+    private var pendingBuffers: Int = 0
+    private let maxPendingBuffers: Int = 3
+
     // Shared state for the converter input callback
     fileprivate var currentPacketData: Data?
     fileprivate var currentPacketConsumed: Bool = false
@@ -51,6 +57,10 @@ class AudioPlayerIOS {
 
         outputFormat = format
         engine.connect(player, to: engine.mainMixerNode, format: format)
+
+        // Minimize output buffer for lower latency
+        let session = AVAudioSession.sharedInstance()
+        try? session.setPreferredIOBufferDuration(0.005) // 5ms buffer
 
         self.audioEngine = engine
         self.playerNode = player
@@ -93,7 +103,7 @@ class AudioPlayerIOS {
         }
 
         audioConverter = converter
-        LogManager.shared.log("AudioPlayer: AAC decoder ready (48kHz stereo)")
+        LogManager.shared.log("AudioPlayer: AAC decoder ready (48kHz stereo, max \(maxPendingBuffers) buffers)")
     }
 
     private func startIfNeeded() {
@@ -120,6 +130,11 @@ class AudioPlayerIOS {
         guard let converter = audioConverter,
               let format = outputFormat else { return }
 
+        // Drop frames if too many buffers are queued (prevents latency buildup)
+        if pendingBuffers >= maxPendingBuffers {
+            return
+        }
+
         // Store packet for converter callback
         currentPacketData = aacData
         currentPacketConsumed = false
@@ -145,11 +160,14 @@ class AudioPlayerIOS {
 
         if status == noErr && outputDataPacketSize > 0 {
             pcmBuffer.frameLength = outputDataPacketSize
-            playerNode?.scheduleBuffer(pcmBuffer)
+            pendingBuffers += 1
+            playerNode?.scheduleBuffer(pcmBuffer) { [weak self] in
+                self?.pendingBuffers -= 1
+            }
 
             decodeCount += 1
             if decodeCount % 100 == 1 {
-                LogManager.shared.log("AudioPlayer: Decoded packet \(decodeCount), \(outputDataPacketSize) frames")
+                LogManager.shared.log("AudioPlayer: Decoded packet \(decodeCount), \(outputDataPacketSize) frames, pending: \(pendingBuffers)")
             }
         } else if status != noErr {
             decodeCount += 1
@@ -163,6 +181,7 @@ class AudioPlayerIOS {
         playerNode?.stop()
         audioEngine?.stop()
         started = false
+        pendingBuffers = 0
     }
 }
 

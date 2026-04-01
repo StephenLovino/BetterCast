@@ -14,6 +14,7 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
     private var onboardingView: UIView!
     private var statusLabel: UILabel!
     private var pulseView: UIView!
+    private var deviceNameField: UITextField!
     private var isConnected = false
 
     override func viewDidLoad() {
@@ -126,6 +127,51 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         subtitleLabel.textAlignment = .center
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        // Device name field
+        let nameContainer = UIView()
+        nameContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        let nameLabel = UILabel()
+        nameLabel.text = "Device Name"
+        nameLabel.textColor = UIColor.white.withAlphaComponent(0.55)
+        nameLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        deviceNameField = UITextField()
+        let savedName = UserDefaults.standard.string(forKey: "customDeviceName")
+        deviceNameField.text = savedName ?? UIDevice.current.name
+        deviceNameField.textColor = .white
+        deviceNameField.font = .systemFont(ofSize: 16, weight: .medium)
+        deviceNameField.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        deviceNameField.layer.cornerRadius = 10
+        deviceNameField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
+        deviceNameField.leftViewMode = .always
+        deviceNameField.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 0))
+        deviceNameField.rightViewMode = .always
+        deviceNameField.returnKeyType = .done
+        deviceNameField.attributedPlaceholder = NSAttributedString(
+            string: "e.g. Stephen's iPhone",
+            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.25)]
+        )
+        deviceNameField.addTarget(self, action: #selector(deviceNameChanged), for: .editingDidEnd)
+        deviceNameField.addTarget(self, action: #selector(deviceNameReturnPressed), for: .editingDidEndOnExit)
+        deviceNameField.translatesAutoresizingMaskIntoConstraints = false
+
+        nameContainer.addSubview(nameLabel)
+        nameContainer.addSubview(deviceNameField)
+
+        NSLayoutConstraint.activate([
+            nameLabel.topAnchor.constraint(equalTo: nameContainer.topAnchor),
+            nameLabel.leadingAnchor.constraint(equalTo: nameContainer.leadingAnchor),
+            nameLabel.trailingAnchor.constraint(equalTo: nameContainer.trailingAnchor),
+
+            deviceNameField.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+            deviceNameField.leadingAnchor.constraint(equalTo: nameContainer.leadingAnchor),
+            deviceNameField.trailingAnchor.constraint(equalTo: nameContainer.trailingAnchor),
+            deviceNameField.heightAnchor.constraint(equalToConstant: 40),
+            deviceNameField.bottomAnchor.constraint(equalTo: nameContainer.bottomAnchor),
+        ])
+
         // Divider
         let divider = UIView()
         divider.backgroundColor = UIColor.white.withAlphaComponent(0.1)
@@ -217,6 +263,7 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         contentView.addSubview(iconView)
         contentView.addSubview(titleLabel)
         contentView.addSubview(subtitleLabel)
+        contentView.addSubview(nameContainer)
         contentView.addSubview(divider)
         contentView.addSubview(instructionsLabel)
         contentView.addSubview(downloadButton)
@@ -256,7 +303,11 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
             subtitleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
 
-            divider.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 24),
+            nameContainer.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 20),
+            nameContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            nameContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+
+            divider.topAnchor.constraint(equalTo: nameContainer.bottomAnchor, constant: 20),
             divider.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             divider.heightAnchor.constraint(equalToConstant: 1),
@@ -301,6 +352,17 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         if let url = URL(string: "https://bettercast.online/#install") {
             UIApplication.shared.open(url)
         }
+    }
+
+    @objc private func deviceNameChanged() {
+        let name = deviceNameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return }
+        UserDefaults.standard.set(name, forKey: "customDeviceName")
+        LogManager.shared.log("ViewController: Device name changed to '\(name)' — restart app to apply")
+    }
+
+    @objc private func deviceNameReturnPressed() {
+        deviceNameField.resignFirstResponder()
     }
 
     // MARK: - Settings Button & Overlay

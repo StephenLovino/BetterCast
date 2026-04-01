@@ -80,6 +80,12 @@ VirtualDisplayVDD::VirtualDisplayVDD(QObject* parent)
     m_vddInstalled = detectVddInstall();
     if (m_vddInstalled) {
         VDD_LOG("VDD: Found installation at " + m_vddPath);
+        // Clean up any orphaned virtual displays from previous sessions
+        auto existing = readVddSettings();
+        if (!existing.isEmpty()) {
+            VDD_LOG(QString("VDD: Cleaning up %1 orphaned display(s) from previous session").arg(existing.size()));
+            removeAllVirtualDisplays();
+        }
     } else {
         VDD_LOG("VDD: Not installed — checked registry, known paths, services, and devices");
     }

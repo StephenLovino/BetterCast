@@ -3004,6 +3004,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             return
         }
 
+        // Mark as connecting to prevent auto-connect races during retry
+        connectingServiceNames.insert(service.name)
+
         let deviceCount = pipelines.count + 1
         self.status = "Connecting to \(service.name) (Device #\(deviceCount))..."
 
@@ -3014,6 +3017,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             DispatchQueue.main.async {
                 switch state {
                 case .ready:
+                    self?.connectingServiceNames.remove(service.name)
                     // Detect link type
                     var isP2P = false
                     var isLoopback = false
@@ -3070,6 +3074,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     self?.receive(on: connection, connectionId: connectionId)
                 case .failed(let error):
                     LogManager.shared.log("Sender: Connection to \(service.name) failed: \(error)")
+                    self?.connectingServiceNames.remove(service.name)
                     self?.removeConnection(connectionId)
 
                     let remaining = self?.pipelines.count ?? 0

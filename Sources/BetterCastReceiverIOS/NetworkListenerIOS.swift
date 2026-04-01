@@ -53,7 +53,9 @@ class NetworkListenerIOS {
     }
     
     private func startTCP() {
-        let deviceName = UIDevice.current.name
+        // Use custom name from settings, fall back to system device name
+        let deviceName = UserDefaults.standard.string(forKey: "customDeviceName")
+            ?? UIDevice.current.name
 
         // 1. Wi-Fi listener — reachable by ALL devices (Windows, Linux, Android, Mac)
         do {
@@ -63,7 +65,14 @@ class NetworkListenerIOS {
             let parameters = NWParameters(tls: nil, tcp: tcpOptions)
             parameters.serviceClass = .interactiveVideo
 
-            let listener = try NWListener(using: parameters)
+            // Try preferred port first for consistency with Mac/Windows receivers
+            var listener: NWListener
+            do {
+                listener = try NWListener(using: parameters, on: 51820)
+            } catch {
+                LogManager.shared.log("ReceiverIOS (TCP): Port 51820 unavailable, using system-assigned port")
+                listener = try NWListener(using: parameters)
+            }
             listener.service = NWListener.Service(name: deviceName, type: "_bettercast._tcp")
 
             listener.stateUpdateHandler = { [weak self] state in
