@@ -90,6 +90,7 @@ class NetworkListenerIOS {
         }
 
         // 2. AWDL/P2P listener — low-latency direct link for Apple devices (Mac sender)
+        //    Uses dynamic port (Apple devices resolve via Bonjour, don't need fixed port)
         do {
             let tcpOptions = NWProtocolTCP.Options()
             tcpOptions.enableKeepalive = true
@@ -98,7 +99,7 @@ class NetworkListenerIOS {
             p2pParams.includePeerToPeer = true
             p2pParams.serviceClass = .interactiveVideo
 
-            let p2pListener = try NWListener(using: p2pParams)
+            let p2pListener = try NWListener(using: p2pParams) // dynamic port — OK for Apple
             p2pListener.service = NWListener.Service(name: "\(deviceName) P2P", type: "_bettercast._tcp")
 
             p2pListener.stateUpdateHandler = { [weak self] state in

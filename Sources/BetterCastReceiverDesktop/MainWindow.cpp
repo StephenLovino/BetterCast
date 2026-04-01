@@ -275,11 +275,12 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Start services
     m_network->start();
-    m_discovery->startAdvertising(51820);
+    uint16_t actualPort = m_network->actualTcpPort();
+    m_discovery->startAdvertising(actualPort);
 #ifdef ENABLE_SENDER
     m_discovery->startBrowsing();
 #endif
-    LogManager::instance().log("BetterCast started — listening on port 51820");
+    LogManager::instance().log(QString("BetterCast started — listening on port %1").arg(actualPort));
 #ifdef _WIN32
     QByteArray fwStatus = qgetenv("BETTERCAST_FW_STATUS");
     if (fwStatus == "ok") {
@@ -1329,15 +1330,20 @@ void MainWindow::onReceiverDiscovered(const DiscoveredService& service) {
         m_receiverCombo->addItem("Select a receiver...");
     }
 
+    // All BetterCast receivers listen on port 51820. mDNS may report a different port
+    // (e.g., from the P2P/AWDL listener) which is unreachable from Windows/Linux.
+    // Always use the standard port for reliability.
+    uint16_t port = 51820;
+
     // Check if already in the list
-    QString entry = QString("%1  (%2:%3)").arg(service.name, service.host).arg(service.port);
+    QString entry = QString("%1  (%2:%3)").arg(service.name, service.host).arg(port);
     for (int i = 0; i < m_receiverCombo->count(); i++) {
         QVariantMap existing = m_receiverCombo->itemData(i).toMap();
         if (existing.value("host").toString() == service.host) {
             m_receiverCombo->setItemText(i, entry);
             QVariantMap updated;
             updated["host"] = service.host;
-            updated["port"] = service.port;
+            updated["port"] = port;
             m_receiverCombo->setItemData(i, updated);
             return;
         }
@@ -1345,10 +1351,15 @@ void MainWindow::onReceiverDiscovered(const DiscoveredService& service) {
 
     QVariantMap data;
     data["host"] = service.host;
-    data["port"] = service.port;
+    data["port"] = port;
     m_receiverCombo->addItem(entry, data);
-    LogManager::instance().log(QString("Discovered receiver: %1 at %2:%3")
-                                   .arg(service.name, service.host).arg(service.port));
+    if (service.port != port) {
+        LogManager::instance().log(QString("Discovered receiver: %1 at %2 (mDNS reported port %3, using standard port %4)")
+                                       .arg(service.name, service.host).arg(service.port).arg(port));
+    } else {
+        LogManager::instance().log(QString("Discovered receiver: %1 at %2:%3")
+                                       .arg(service.name, service.host).arg(port));
+    }
 }
 
 void MainWindow::onReceiverSelected(int index) {
