@@ -44,6 +44,7 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
 #ifdef _WIN32
     auto* cap = new ScreenCaptureWin(fps, this);
     cap->setMonitorIndex(m_adapterIndex, m_outputIndex);
+    cap->setDisplayName(m_displayName);
     m_capture = cap;
 #else
     emit error("Screen capture not yet supported on this platform");

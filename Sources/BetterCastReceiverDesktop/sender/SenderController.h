@@ -26,6 +26,7 @@ public:
 
     // Monitor selection (adapter + output index from DXGI enumeration)
     void setMonitorIndex(int adapterIndex, int outputIndex);
+    void setDisplayName(const QString& name) { m_displayName = name; }
 
     // VDD virtual display management
     VirtualDisplayVDD* vdd() const { return m_vdd; }
@@ -57,4 +58,5 @@ private:
     int m_bitrateMbps = 8;
     int m_adapterIndex = 0;
     int m_outputIndex = 0;
+    QString m_displayName;
 };

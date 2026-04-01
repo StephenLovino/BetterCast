@@ -1,12 +1,14 @@
 #include "ScreenCaptureWin.h"
+#include "../MainWindow.h"  // LogManager
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
-// dxgi1_2.h provides IDXGIFactory1 and CreateDXGIFactory1
+#include <Windows.h>
 #include <QDebug>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "gdi32.lib")
 
 ScreenCaptureWin::ScreenCaptureWin(int targetFPS, QObject* parent)
     : ScreenCapture(parent)
@@ -128,19 +130,31 @@ bool ScreenCaptureWin::initDuplication() {
 bool ScreenCaptureWin::start() {
     if (m_running) return true;
 
+    m_useGdiFallback = false;
+
     if (!initD3D()) {
-        emit error("Failed to initialize Direct3D 11");
-        return false;
-    }
-    if (!initDuplication()) {
-        emit error("Failed to initialize DXGI Desktop Duplication");
-        cleanup();
-        return false;
+        LogManager::instance().log("Sender: D3D11 init failed, trying GDI fallback");
+        if (!initGdiFallback()) {
+            emit error("Failed to initialize screen capture (both DXGI and GDI failed)");
+            return false;
+        }
+    } else if (!initDuplication()) {
+        LogManager::instance().log("Sender: DXGI Desktop Duplication unavailable (virtual display?), using GDI fallback");
+        cleanup();  // Release D3D resources
+        if (!initGdiFallback()) {
+            emit error("Failed to initialize screen capture (DXGI unsupported, GDI failed)");
+            return false;
+        }
     }
 
     m_running = true;
     m_timer.start(1000 / m_targetFPS);
-    qDebug() << "Sender: Screen capture started at" << m_targetFPS << "FPS";
+    if (m_useGdiFallback) {
+        LogManager::instance().log(QString("Sender: Screen capture started (GDI mode) at %1 FPS, %2x%3")
+                                       .arg(m_targetFPS).arg(m_resolution.width()).arg(m_resolution.height()));
+    } else {
+        LogManager::instance().log(QString("Sender: Screen capture started (DXGI) at %1 FPS").arg(m_targetFPS));
+    }
     return true;
 }
 
@@ -150,8 +164,117 @@ void ScreenCaptureWin::stop() {
     cleanup();
 }
 
+bool ScreenCaptureWin::initGdiFallback() {
+    // Use GDI to capture a specific display by name (works with virtual displays)
+    if (m_displayName.isEmpty()) {
+        // Fall back to primary display
+        m_gdiDC = CreateDCA("DISPLAY", nullptr, nullptr, nullptr);
+    } else {
+        m_gdiDC = CreateDCA(nullptr, m_displayName.toLocal8Bit().constData(), nullptr, nullptr);
+    }
+
+    if (!m_gdiDC) {
+        // Try with device name directly
+        m_gdiDC = GetDC(nullptr);  // Full virtual desktop
+    }
+
+    if (!m_gdiDC) {
+        LogManager::instance().log("Sender: GDI CreateDC failed");
+        return false;
+    }
+
+    int w = GetDeviceCaps(m_gdiDC, HORZRES);
+    int h = GetDeviceCaps(m_gdiDC, VERTRES);
+
+    if (w <= 0 || h <= 0) {
+        LogManager::instance().log(QString("Sender: GDI invalid resolution: %1x%2").arg(w).arg(h));
+        DeleteDC(m_gdiDC);
+        m_gdiDC = nullptr;
+        return false;
+    }
+
+    m_memDC = CreateCompatibleDC(m_gdiDC);
+    m_bitmap = CreateCompatibleBitmap(m_gdiDC, w, h);
+    SelectObject(m_memDC, m_bitmap);
+
+    m_resolution = QSize(w, h);
+    m_useGdiFallback = true;
+
+    LogManager::instance().log(QString("Sender: GDI capture initialized for %1 (%2x%3)")
+                                   .arg(m_displayName.isEmpty() ? "primary" : m_displayName)
+                                   .arg(w).arg(h));
+    return true;
+}
+
+void ScreenCaptureWin::captureFrameGdi() {
+    if (!m_running || !m_gdiDC || !m_memDC) return;
+
+    int w = m_resolution.width();
+    int h = m_resolution.height();
+
+    // Capture screen to memory DC
+    BitBlt(m_memDC, 0, 0, w, h, m_gdiDC, 0, 0, SRCCOPY);
+
+    // Read pixel data from bitmap
+    BITMAPINFOHEADER bi = {};
+    bi.biSize = sizeof(bi);
+    bi.biWidth = w;
+    bi.biHeight = -h;  // Top-down
+    bi.biPlanes = 1;
+    bi.biBitCount = 32;
+    bi.biCompression = BI_RGB;
+
+    QByteArray bgraData(w * h * 4, Qt::Uninitialized);
+    GetDIBits(m_memDC, m_bitmap, 0, h, bgraData.data(),
+              reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+
+    // Convert BGRA → NV12 (same as DXGI path)
+    const uint8_t* bgra = reinterpret_cast<const uint8_t*>(bgraData.constData());
+    int pitch = w * 4;
+    int ySize = w * h;
+    int uvSize = w * (h / 2);
+    QByteArray nv12(ySize + uvSize, Qt::Uninitialized);
+    uint8_t* yPlane = reinterpret_cast<uint8_t*>(nv12.data());
+    uint8_t* uvPlane = yPlane + ySize;
+
+    for (int y = 0; y < h; y += 2) {
+        const uint8_t* row0 = bgra + y * pitch;
+        const uint8_t* row1 = bgra + (y + 1) * pitch;
+        uint8_t* yRow0 = yPlane + y * w;
+        uint8_t* yRow1 = yPlane + (y + 1) * w;
+        uint8_t* uvRow = uvPlane + (y / 2) * w;
+
+        for (int x = 0; x < w; x += 2) {
+            int b00 = row0[x*4+0], g00 = row0[x*4+1], r00 = row0[x*4+2];
+            int b01 = row0[(x+1)*4+0], g01 = row0[(x+1)*4+1], r01 = row0[(x+1)*4+2];
+            int b10 = row1[x*4+0], g10 = row1[x*4+1], r10 = row1[x*4+2];
+            int b11 = row1[(x+1)*4+0], g11 = row1[(x+1)*4+1], r11 = row1[(x+1)*4+2];
+
+            yRow0[x]   = static_cast<uint8_t>(((66*r00 + 129*g00 + 25*b00 + 128) >> 8) + 16);
+            yRow0[x+1] = static_cast<uint8_t>(((66*r01 + 129*g01 + 25*b01 + 128) >> 8) + 16);
+            yRow1[x]   = static_cast<uint8_t>(((66*r10 + 129*g10 + 25*b10 + 128) >> 8) + 16);
+            yRow1[x+1] = static_cast<uint8_t>(((66*r11 + 129*g11 + 25*b11 + 128) >> 8) + 16);
+
+            int rAvg = (r00 + r01 + r10 + r11) >> 2;
+            int gAvg = (g00 + g01 + g10 + g11) >> 2;
+            int bAvg = (b00 + b01 + b10 + b11) >> 2;
+            uvRow[x]   = static_cast<uint8_t>(((-38*rAvg - 74*gAvg + 112*bAvg + 128) >> 8) + 128);
+            uvRow[x+1] = static_cast<uint8_t>(((112*rAvg - 94*gAvg - 18*bAvg + 128) >> 8) + 128);
+        }
+    }
+
+    emit frameCaptured(nv12, w, h);
+}
+
 void ScreenCaptureWin::captureFrame() {
-    if (!m_running || !m_duplication) return;
+    if (!m_running) return;
+
+    if (m_useGdiFallback) {
+        captureFrameGdi();
+        return;
+    }
+
+    if (!m_duplication) return;
 
     IDXGIResource* desktopResource = nullptr;
     DXGI_OUTDUPL_FRAME_INFO frameInfo;
@@ -248,5 +371,9 @@ void ScreenCaptureWin::cleanup() {
     if (m_stagingTex)  { m_stagingTex->Release();  m_stagingTex = nullptr; }
     if (m_context)     { m_context->Release();     m_context = nullptr; }
     if (m_device)      { m_device->Release();      m_device = nullptr; }
+    if (m_bitmap)      { DeleteObject(m_bitmap);   m_bitmap = nullptr; }
+    if (m_memDC)       { DeleteDC(m_memDC);        m_memDC = nullptr; }
+    if (m_gdiDC)       { DeleteDC(m_gdiDC);        m_gdiDC = nullptr; }
+    m_useGdiFallback = false;
     m_resolution = QSize();
 }

@@ -1180,7 +1180,9 @@ void MainWindow::onSendScreenClicked() {
         QVariantMap monData = m_monitorCombo->currentData().toMap();
         int adapterIdx = monData.value("adapter", 0).toInt();
         int outputIdx = monData.value("output", 0).toInt();
+        QString displayName = monData.value("displayName").toString();
         m_sender->setMonitorIndex(adapterIdx, outputIdx);
+        m_sender->setDisplayName(displayName);
         LogManager::instance().log(QString("Capturing monitor: %1 (adapter %2, output %3)")
                                        .arg(m_monitorCombo->currentText())
                                        .arg(adapterIdx).arg(outputIdx));
@@ -1292,6 +1294,7 @@ void MainWindow::onRefreshMonitors() {
         data["adapter"] = mon.adapterIndex;
         data["output"] = mon.outputIndex;
         data["virtual"] = mon.isVirtual;
+        data["displayName"] = mon.name;
         m_monitorCombo->addItem(label, data);
     }
 
