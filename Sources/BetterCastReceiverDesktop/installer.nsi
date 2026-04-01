@@ -108,20 +108,38 @@ Section "Virtual Display Driver (VDD)" SecVDD
     File /nonfatal /r "vdd\*.*"
 
     ; Check if any VDD driver files were actually copied
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\*.inf" 0 try_exe
+    IfFileExists "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" 0 try_generic_inf
 
-    ; Install via .inf file using pnputil (find whichever .inf exists)
+    ; Install MttVDD driver using devcon (creates device node for IDD drivers)
+    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 try_pnputil
+    DetailPrint "Installing VDD driver via devcon..."
+    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" install "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" Root\MttVDD'
+    Pop $0
+    DetailPrint "devcon exit code: $0"
+    StrCmp $0 "0" vdd_done
+
+    try_pnputil:
+    ; Fallback: add driver to store via pnputil
     DetailPrint "Installing VDD driver via pnputil..."
-    FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.inf"
-    StrCmp $2 "" try_exe
-    DetailPrint "Found driver: $2"
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
-    FindClose $1
+    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /install'
     Pop $0
     DetailPrint "pnputil exit code: $0"
     StrCmp $0 "0" vdd_done
-    ; pnputil failed — try alternate inf names
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\*.inf" /install /subdirs'
+    Goto vdd_manual
+
+    try_generic_inf:
+    ; Check for any other .inf files
+    IfFileExists "$INSTDIR\VirtualDisplayDriver\*.inf" 0 try_exe
+    FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.inf"
+    StrCmp $2 "" try_exe
+    DetailPrint "Found driver: $2"
+    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 generic_pnputil
+    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" install "$INSTDIR\VirtualDisplayDriver\$2" Root\MttVDD'
+    FindClose $1
+    Pop $0
+    StrCmp $0 "0" vdd_done
+    generic_pnputil:
+    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
     Pop $0
     StrCmp $0 "0" vdd_done
     Goto vdd_manual

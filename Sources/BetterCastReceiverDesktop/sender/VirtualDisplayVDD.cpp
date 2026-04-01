@@ -291,48 +291,79 @@ bool VirtualDisplayVDD::installDriver() {
 #ifdef _WIN32
     if (m_vddPath.isEmpty()) return false;
 
-    // Try installing each .inf file found in the VDD directory
-    QDir vddDir(m_vddPath);
-    QStringList infFiles = vddDir.entryList({"*.inf"}, QDir::Files);
+    // Find devcon.exe (bundled in VDD directory or Dependencies subfolder)
+    QString devconExe = m_vddPath + "/devcon.exe";
+    if (!QFileInfo::exists(devconExe)) {
+        devconExe = m_vddPath + "/Dependencies/devcon.exe";
+    }
 
-    if (infFiles.isEmpty()) {
+    // Find the MttVDD .inf file
+    QString infPath;
+    if (QFileInfo::exists(m_vddPath + "/MttVDD.inf")) {
+        infPath = m_vddPath + "/MttVDD.inf";
+    } else {
+        // Fall back to first .inf found
+        QDir vddDir(m_vddPath);
+        QStringList infFiles = vddDir.entryList({"*.inf"}, QDir::Files);
+        if (!infFiles.isEmpty()) {
+            infPath = m_vddPath + "/" + infFiles.first();
+        }
+    }
+
+    if (infPath.isEmpty()) {
         VDD_LOG("VDD: No .inf files found in " + m_vddPath);
         return false;
     }
 
-    for (const auto& inf : infFiles) {
-        QString infPath = m_vddPath + "/" + inf;
-        VDD_LOG("VDD: Attempting pnputil /add-driver \"" + infPath + "\" /install");
-
+    // Method 1: devcon install — creates device node + installs driver (preferred for IDD)
+    if (QFileInfo::exists(devconExe)) {
+        VDD_LOG("VDD: Installing via devcon: " + devconExe + " install " + infPath + " Root\\MttVDD");
         QProcess proc;
-        proc.setProgram("pnputil");
-        proc.setArguments({"/add-driver", infPath, "/install"});
+        proc.setProgram(devconExe);
+        proc.setArguments({"install", infPath, "Root\\MttVDD"});
         proc.start();
         if (proc.waitForFinished(30000)) {
             QString output = proc.readAllStandardOutput() + proc.readAllStandardError();
-            VDD_LOG("VDD: pnputil output: " + output.trimmed());
+            VDD_LOG("VDD: devcon output: " + output.trimmed());
             if (proc.exitCode() == 0) {
-                VDD_LOG("VDD: Driver installed via " + inf);
-                // Give Windows time to register the device
+                VDD_LOG("VDD: Driver device created via devcon");
                 QThread::msleep(2000);
                 return true;
             }
         }
+    } else {
+        VDD_LOG("VDD: devcon.exe not found, trying pnputil...");
     }
 
-    // Try launching VDD Control to install
-    QString controlExe = m_vddPath + "/VDD Control.exe";
-    if (!QFileInfo::exists(controlExe)) {
-        controlExe = m_vddPath + "/VDD.Control.exe";
-    }
-    if (QFileInfo::exists(controlExe)) {
-        VDD_LOG("VDD: Launching VDD Control for driver installation: " + controlExe);
-        QProcess::startDetached(controlExe, {});
-        emit error("VDD Control launched — use it to install the driver, then try again");
-        return false;
+    // Method 2: pnputil — adds driver to store (may not create device node for IDD)
+    VDD_LOG("VDD: Attempting pnputil /add-driver \"" + infPath + "\" /install");
+    QProcess proc;
+    proc.setProgram("pnputil");
+    proc.setArguments({"/add-driver", infPath, "/install"});
+    proc.start();
+    if (proc.waitForFinished(30000)) {
+        QString output = proc.readAllStandardOutput() + proc.readAllStandardError();
+        VDD_LOG("VDD: pnputil output: " + output.trimmed());
+        if (proc.exitCode() == 0) {
+            VDD_LOG("VDD: Driver added to store via pnputil");
+        }
     }
 
-    VDD_LOG("VDD: All driver install methods failed");
+    // After pnputil, try creating the device node explicitly
+    if (QFileInfo::exists(devconExe)) {
+        VDD_LOG("VDD: Creating device node via devcon...");
+        QProcess devProc;
+        devProc.setProgram(devconExe);
+        devProc.setArguments({"install", infPath, "Root\\MttVDD"});
+        devProc.start();
+        if (devProc.waitForFinished(30000) && devProc.exitCode() == 0) {
+            VDD_LOG("VDD: Device node created");
+            QThread::msleep(2000);
+            return true;
+        }
+    }
+
+    VDD_LOG("VDD: All driver install methods failed — devcon.exe may be required");
 #endif
     return false;
 }
