@@ -50,6 +50,9 @@ void AudioDecoder::destroyDecoder() {
 }
 
 void AudioDecoder::decode(const QByteArray& aacData) {
+    // Skip tiny silence frames — they can confuse the decoder
+    if (aacData.size() < 10) return;
+
     if (!m_initialized && !initDecoder()) return;
 
     m_packet->data = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(aacData.constData()));

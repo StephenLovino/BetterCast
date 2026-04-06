@@ -23,6 +23,9 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QMessageBox>
+#include <QStandardPaths>
+#include <QDir>
 #include <QDebug>
 #include <QNetworkInterface>
 #include <QUrl>
@@ -194,6 +197,28 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("BetterCast");
     setMinimumSize(800, 500);
 
+    // Crash detection: check if previous session exited cleanly
+    QString crashMarker = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/running.lock";
+    if (QFile::exists(crashMarker)) {
+        // Previous session crashed — offer to report
+        QTimer::singleShot(500, this, [this]() {
+            auto* dialog = new QMessageBox(this);
+            dialog->setIcon(QMessageBox::Warning);
+            dialog->setWindowTitle("BetterCast crashed last time");
+            dialog->setText("BetterCast didn't exit cleanly last time. Would you like to report this issue on GitHub?");
+            dialog->setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+            dialog->setDefaultButton(QMessageBox::Yes);
+            if (dialog->exec() == QMessageBox::Yes) {
+                onReportIssue();
+            }
+        });
+    }
+    // Write crash marker (removed on clean exit)
+    QDir().mkpath(QFileInfo(crashMarker).absolutePath());
+    QFile marker(crashMarker);
+    marker.open(QIODevice::WriteOnly);
+    marker.close();
+
     // Create core components
     m_decoder = new VideoDecoder(this);
     m_renderer = new VideoRenderer();
@@ -317,6 +342,9 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow() {
     m_discovery->stopAdvertising();
+    // Clean exit — remove crash marker
+    QString crashMarker = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/running.lock";
+    QFile::remove(crashMarker);
 }
 
 // ─── UI Setup ───────────────────────────────────────────────────────────────────
