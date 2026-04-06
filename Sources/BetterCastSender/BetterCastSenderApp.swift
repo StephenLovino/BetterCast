@@ -748,7 +748,10 @@ struct SidebarView: View {
                         // Hide " P2P" entry when base device exists (merged into one entry)
                         let isP2PDuplicate = service.name.hasSuffix(" P2P")
                             && client.foundServices.contains(where: { $0.name == String(service.name.dropLast(4)) })
-                        return !(isADBSynthetic && hasMDNSAndroid) && !isP2PDuplicate
+                        // Hide our own receiver (same Mac)
+                        let ownName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+                        let isSelf = service.name == ownName
+                        return !(isADBSynthetic && hasMDNSAndroid) && !isP2PDuplicate && !isSelf
                     }, id: \.name) { service in
                         SidebarDeviceRow(service: service, client: client, selection: $selection)
                     }
@@ -2369,6 +2372,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
                 // Auto-connect to newly discovered services
                 if self.autoConnect {
+                    // Skip our own receiver (same Mac) to avoid self-connection loop
+                    let ownName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
                     for service in services {
                         if !self.connectedServices.contains(where: { $0.name == service.name })
                             && !self.connectingServiceNames.contains(service.name) {
@@ -2376,6 +2381,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                             if service.name.contains("Android (USB)") || service.name.contains("Android (WiFi ADB)") { continue }
                             // Skip " P2P" duplicate — sender uses P2P automatically for Apple devices
                             if service.name.hasSuffix(" P2P") && services.contains(where: { $0.name == String(service.name.dropLast(4)) }) { continue }
+                            // Skip our own receiver to avoid self-connection
+                            if service.name == ownName { continue }
                             LogManager.shared.log("Sender: Auto-connecting to \(service.name)")
                             self.connect(to: service)
                         }

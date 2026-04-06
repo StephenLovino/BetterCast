@@ -68,8 +68,13 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
 #ifdef HAS_MDNS
     // Use system Bonjour/Avahi if available
     DNSServiceRef ref = nullptr;
-    QByteArray svcName = QSysInfo::machineHostName().toUtf8();
-    if (svcName.isEmpty() || svcName == "localhost") svcName = "BetterCast Receiver";
+    QString hostname = QSysInfo::machineHostName();
+#ifdef _WIN32
+    QString svcStr = (hostname.isEmpty() || hostname == "localhost") ? "Windows PC" : hostname + " (Windows)";
+#else
+    QString svcStr = (hostname.isEmpty() || hostname == "localhost") ? "Linux PC" : hostname + " (Linux)";
+#endif
+    QByteArray svcName = svcStr.toUtf8();
     DNSServiceErrorType err = DNSServiceRegister(
         &ref, 0, 0, svcName.constData(), "_bettercast._tcp",
         nullptr, nullptr, htons(tcpPort), 0, nullptr, nullptr, nullptr);
@@ -80,17 +85,19 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     }
 #endif
 
-    // Embedded mDNS responder — use system hostname for friendly device name
+    // Embedded mDNS responder — use system hostname + platform for device identification
+    // Platform keyword is needed so the Mac sender can detect non-Apple receivers
     m_advertisedPort = tcpPort;
     QString hostname = QSysInfo::machineHostName();
-    if (hostname.isEmpty() || hostname == "localhost") {
 #ifdef _WIN32
-        m_serviceName = "Windows PC";
+    QString platform = "Windows";
 #else
-        m_serviceName = "Linux PC";
+    QString platform = "Linux";
 #endif
+    if (hostname.isEmpty() || hostname == "localhost") {
+        m_serviceName = platform + " PC";
     } else {
-        m_serviceName = hostname;
+        m_serviceName = hostname + " (" + platform + ")";
     }
     m_advertising = true;
     m_announceCount = 0;
