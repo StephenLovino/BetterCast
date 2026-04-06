@@ -217,6 +217,7 @@ void VideoDecoder::decodeNalus(const uint8_t* data, int size) {
         }
         if (ret == AVERROR_INVALIDDATA) {
             avcodec_flush_buffers(m_codecCtx);
+            emit keyframeNeeded();
         }
         return;
     }

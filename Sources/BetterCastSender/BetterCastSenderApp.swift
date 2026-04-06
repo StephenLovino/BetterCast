@@ -3590,12 +3590,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 LogManager.shared.log("Sender: USB ADB mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 10s for \(serviceName)")
             }
         } else {
-            // Infrastructure (WiFi router, future Linux/Windows)
-            // Cap to reduce TCP congestion and jitter
-            fps = 30
-            bitrate = min(selectedQuality.rawValue, 10_000_000) // Cap at 10 Mbps
-            keyframeInterval = 5.0  // More frequent than P2P since infrastructure has more jitter
-            LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 5s for \(serviceName)")
+            // Infrastructure (WiFi router, Windows/Linux receivers)
+            fps = 60
+            bitrate = selectedQuality.rawValue  // Use full user-selected bitrate
+            keyframeInterval = 2.0  // Short interval for fast error recovery over WiFi
+            LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 2s for \(serviceName)")
         }
 
         let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil

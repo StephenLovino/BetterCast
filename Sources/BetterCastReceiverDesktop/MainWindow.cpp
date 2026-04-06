@@ -4,6 +4,7 @@
 #include "VideoWindow.h"
 #include "NetworkListener.h"
 #include "InputHandler.h"
+#include "InputEvent.h"
 #include "ServiceDiscovery.h"
 #include "AudioDecoder.h"
 #include "AudioPlayer.h"
@@ -242,6 +243,16 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_decoder, &VideoDecoder::dimensionsChanged,
             m_renderer, [this](int w, int h) {
                 m_inputHandler->setContentSize(QSize(w, h));
+            });
+    connect(m_decoder, &VideoDecoder::keyframeNeeded,
+            this, [this]() {
+                // Request IDR from sender on decode errors (throttled to every 2s)
+                static QDateTime lastRequest;
+                if (lastRequest.msecsTo(QDateTime::currentDateTime()) > 2000) {
+                    LogManager::instance().log("Decoder: Requesting keyframe from sender (decode error recovery)");
+                    m_network->sendInputEvent(InputEvent(InputEventType::Command, 0, 0, kIDRRequestKeyCode));
+                    lastRequest = QDateTime::currentDateTime();
+                }
             });
 
     m_inputHandler->attach(m_renderer);

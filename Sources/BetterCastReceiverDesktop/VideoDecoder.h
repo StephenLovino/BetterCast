@@ -23,6 +23,7 @@ signals:
     // Emitted when a frame is decoded. Receiver must copy data before returning.
     void frameDecoded(AVFrame* frame);
     void dimensionsChanged(int width, int height);
+    void keyframeNeeded();  // Emitted on decode errors — receiver should request IDR from sender
 
 private:
     bool initDecoder(const uint8_t* sps, int spsLen, const uint8_t* pps, int ppsLen);
