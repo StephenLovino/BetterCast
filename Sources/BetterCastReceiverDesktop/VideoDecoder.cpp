@@ -17,13 +17,15 @@ VideoDecoder::~VideoDecoder() {
     destroyDecoder();
 }
 
-void VideoDecoder::decode(const QByteArray& data) {
+void VideoDecoder::decode(const QByteArray& data, bool hasPtsPrefix) {
     static int decodeCallCount = 0;
     decodeCallCount++;
 
-    // Expected format: [PTS: 8 bytes][NALUs...]
-    // PTS is uint64 native endian (matching Swift sender)
-    if (data.size() <= 8) {
+    // Type-byte framing (Mac sender): raw AVCC NALUs, no PTS prefix
+    // Legacy framing (Swift/Android): [PTS: 8 bytes][NALUs...]
+    int headerSize = hasPtsPrefix ? 8 : 0;
+
+    if (data.size() <= headerSize) {
         if (decodeCallCount <= 5) {
             LogManager::instance().log(QString("Decoder: frame %1 too small (%2 bytes), skipping")
                 .arg(decodeCallCount).arg(data.size()));
@@ -33,9 +35,8 @@ void VideoDecoder::decode(const QByteArray& data) {
 
     const uint8_t* raw = reinterpret_cast<const uint8_t*>(data.constData());
 
-    // Skip PTS (8 bytes) — we use arrival time + jitter buffer like the Swift receiver
-    const uint8_t* videoData = raw + 8;
-    int videoLen = data.size() - 8;
+    const uint8_t* videoData = raw + headerSize;
+    int videoLen = data.size() - headerSize;
 
     // Scan for SPS/PPS in AVCC-framed NALUs: [4-byte big-endian length][NALU data]
     int offset = 0;

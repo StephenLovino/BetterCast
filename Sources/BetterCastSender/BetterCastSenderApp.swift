@@ -3591,7 +3591,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             }
         } else {
             // Infrastructure (WiFi router, Windows/Linux receivers)
-            fps = 60
+            // 30 FPS matches actual WiFi throughput — avoids frame drops that cause glitching.
+            // Each frame gets 2x bit budget vs 60 FPS = sharper motion.
+            fps = 30
             bitrate = selectedQuality.rawValue  // Use full user-selected bitrate
             keyframeInterval = 2.0  // Short interval for fast error recovery over WiFi
             LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 2s for \(serviceName)")
@@ -3648,16 +3650,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Determine if this connection uses TCP framing (ADB/localhost always TCP, else follow global)
         let useTCP = pipeline.forceTCP || connectionType != "UDP"
 
-        // TCP backpressure: skip P-frame if previous send still in flight
-        // NEVER drop keyframes — the decoder needs them to display anything
-        // ADB (USB or WiFi): NEVER drop P-frames — dropping breaks the decoder's
-        // reference chain causing pixelation. Instead, we control bandwidth via
-        // lower bitrate/FPS settings. TCP flow control handles the rest.
-        // P2P: no backpressure — dropping P-frames causes decoder glitches.
+        // TCP backpressure: skip P-frame if previous send still in flight.
+        // NEVER drop keyframes — the decoder needs them to recover.
+        // P2P / Loopback: no backpressure (reliable links).
         // Infrastructure only: completion-based backpressure.
         if !pipeline.isP2P && !pipeline.isLoopback && useTCP && !isKeyframe {
             if pipeline.sendInProgress {
-                return // Infrastructure only: completion-based backpressure
+                return
             }
         }
 
@@ -3741,7 +3740,6 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             bytesSentWindow += packet.count
 
             // Mark send in progress for backpressure (infrastructure only)
-            // Track send time for ADB loopback time-based pacing
             if !pipeline.isP2P {
                 pipelines[connectionId]?.sendInProgress = true
                 pipelines[connectionId]?.lastSendTimeNs = DispatchTime.now().uptimeNanoseconds
@@ -3749,12 +3747,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
             pipeline.connection.send(content: packet, completion: .contentProcessed { [weak self] error in
                 DispatchQueue.main.async { [weak self] in
-                    // Always clear backpressure — if pipeline was removed, this is a no-op
                     self?.pipelines[connectionId]?.sendInProgress = false
                 }
                 if let error = error {
                     LogManager.shared.log("Sender: TCP Send Error to \(pipeline.service.name): \(error)")
-                    // Clear backpressure on error too, so future frames aren't permanently blocked
                     DispatchQueue.main.async { [weak self] in
                         self?.pipelines[connectionId]?.sendInProgress = false
                     }

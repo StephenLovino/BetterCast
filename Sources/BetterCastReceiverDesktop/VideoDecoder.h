@@ -16,7 +16,7 @@ public:
     explicit VideoDecoder(QObject* parent = nullptr);
     ~VideoDecoder();
 
-    void decode(const QByteArray& data);
+    void decode(const QByteArray& data, bool hasPtsPrefix = true);
     void reset();
 
 signals:

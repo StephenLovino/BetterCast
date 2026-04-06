@@ -47,7 +47,7 @@ private slots:
 
 private:
     void processTcpBuffer(QTcpSocket* socket);
-    void handleVideoData(const QByteArray& data);
+    void handleVideoData(const QByteArray& data, bool hasPtsPrefix = true);
     void handleAudioData(const QByteArray& data);
     void handleUdpPacket(const QByteArray& data);
 

@@ -189,14 +189,14 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
         if (format == 1 && body.size() > 1) {
             uint8_t typeByte = static_cast<uint8_t>(body[0]);
             if (typeByte == 0x01) {
-                handleVideoData(body.mid(1));
+                handleVideoData(body.mid(1), false);  // type-byte framing: no PTS prefix
             } else if (typeByte == 0x02) {
                 handleAudioData(body.mid(1));
             }
             // else: unknown type, skip
         } else {
-            // Legacy: no type byte, treat as video
-            handleVideoData(body);
+            // Legacy: has 8-byte PTS prefix
+            handleVideoData(body, true);
         }
     }
 
@@ -206,7 +206,7 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
     }
 }
 
-void NetworkListener::handleVideoData(const QByteArray& data) {
+void NetworkListener::handleVideoData(const QByteArray& data, bool hasPtsPrefix) {
     static int frameCount = 0;
     frameCount++;
     if (frameCount <= 5 || frameCount % 300 == 0) {
@@ -216,11 +216,11 @@ void NetworkListener::handleVideoData(const QByteArray& data) {
         for (int i = 0; i < previewLen; i++) {
             hexPreview += QString("%1 ").arg(static_cast<uint8_t>(data[i]), 2, 16, QChar('0'));
         }
-        LogManager::instance().log(QString("Video: frame %1, %2 bytes [%3]")
-                                   .arg(frameCount).arg(data.size()).arg(hexPreview.trimmed()));
+        LogManager::instance().log(QString("Video: frame %1, %2 bytes, pts=%3 [%4]")
+                                   .arg(frameCount).arg(data.size()).arg(hasPtsPrefix).arg(hexPreview.trimmed()));
     }
     if (m_decoder) {
-        m_decoder->decode(data);
+        m_decoder->decode(data, hasPtsPrefix);
     }
 }
 
