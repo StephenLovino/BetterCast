@@ -4,6 +4,8 @@ import CoreMedia
 
 protocol ReceiverVideoDecoderDelegate: AnyObject {
     func didDecode(sampleBuffer: CMSampleBuffer)
+    func decoderDidChangeFormat()
+    func decoderNeedsKeyframe()
 }
 
 class ReceiverVideoDecoder: ObservableObject {
@@ -27,6 +29,7 @@ class ReceiverVideoDecoder: ObservableObject {
 
     private var timeOffset: Double = 0
     private var consecutiveErrors: Int = 0
+    private var lastKeyframeRequestTime: Date = .distantPast
 
     func decode(data: Data) {
         guard data.count > 8 else { return }
@@ -40,6 +43,8 @@ class ReceiverVideoDecoder: ObservableObject {
 
         let videoData = Data(data.dropFirst(8))
 
+        // Parse NALUs: extract SPS/PPS and build frame-only data (strip parameter sets)
+        var frameOnlyData = Data()
         var offset = 0
         let totalLen = videoData.count
 
@@ -56,6 +61,9 @@ class ReceiverVideoDecoder: ObservableObject {
                 sps = videoData.subdata(in: offset+4 ..< offset+4+naluLen)
             } else if naluType == 8 {
                 pps = videoData.subdata(in: offset+4 ..< offset+4+naluLen)
+            } else {
+                // Keep non-parameter-set NALUs for decoding
+                frameOnlyData.append(videoData.subdata(in: offset ..< offset+4+naluLen))
             }
 
             offset += 4 + naluLen
@@ -63,8 +71,8 @@ class ReceiverVideoDecoder: ObservableObject {
 
         createDecompressionSessionIfReady()
 
-        if decompressionSession != nil {
-            decodeFrame(data: videoData, ptsNanos: ptsNanos)
+        if decompressionSession != nil && !frameOnlyData.isEmpty {
+            decodeFrame(data: frameOnlyData, ptsNanos: ptsNanos)
         }
     }
 
@@ -81,6 +89,14 @@ class ReceiverVideoDecoder: ObservableObject {
             self.decoderState = "Waiting for Data..."
             self.decodedFrameCount = 0
         }
+    }
+
+    /// Request a keyframe from the sender, throttled to avoid flooding.
+    private func requestKeyframe() {
+        let now = Date()
+        guard now.timeIntervalSince(lastKeyframeRequestTime) > 1.0 else { return }
+        lastKeyframeRequestTime = now
+        delegate?.decoderNeedsKeyframe()
     }
 
     private func createDecompressionSessionIfReady() {
@@ -115,6 +131,10 @@ class ReceiverVideoDecoder: ObservableObject {
                 decompressionSession = nil
                 timeOffset = 0
                 needsNewSession = true
+                // Flush the display layer before enqueuing frames with new format
+                delegate?.decoderDidChangeFormat()
+                // Request a keyframe to ensure clean recovery
+                requestKeyframe()
             }
         }
 
@@ -225,8 +245,9 @@ class ReceiverVideoDecoder: ObservableObject {
                 formatDescription = nil
                 consecutiveErrors += 1
                 if consecutiveErrors <= 3 {
-                    LogManager.shared.log("ReceiverVideoDecoder: Session invalidated — waiting for next keyframe")
+                    LogManager.shared.log("ReceiverVideoDecoder: Session invalidated — requesting keyframe")
                 }
+                requestKeyframe()
             } else if decodeStatus != noErr {
                 consecutiveErrors += 1
                 if consecutiveErrors <= 3 {

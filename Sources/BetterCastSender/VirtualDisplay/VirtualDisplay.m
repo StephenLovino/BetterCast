@@ -22,7 +22,7 @@
 
 #import "VirtualDisplay.h"
 
-id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name) {
+id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum) {
 
     CGVirtualDisplaySettings *settings = [[CGVirtualDisplaySettings alloc] init];
     settings.hiDPI = hiDPI;
@@ -39,8 +39,8 @@ id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *na
     descriptor.maxPixelsHigh = height;
     descriptor.maxPixelsWide = width;
     descriptor.sizeInMillimeters = CGSizeMake(25.4 * width / ppi, 25.4 * height / ppi);
-    descriptor.serialNum = 1;
-    descriptor.productID = 1;
+    descriptor.serialNum = serialNum;
+    descriptor.productID = serialNum;
     descriptor.vendorID = 1;
 
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];

@@ -7,7 +7,7 @@ let package = Package(
     name: "BetterCast",
     platforms: [
         .macOS(.v14), // Target modern macOS for ScreenCaptureKit
-        .iOS(.v12)    // Target iOS 12+ for Receiver
+        .iOS(.v13)    // Target iOS 13+ for Receiver
     ],
     products: [
         .executable(name: "BetterCastSender", targets: ["BetterCastSender"]),
@@ -33,7 +33,8 @@ let package = Package(
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("Network"),
-                .linkedFramework("CoreGraphics")
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("AVFoundation")
             ]
         ),
         .executableTarget(

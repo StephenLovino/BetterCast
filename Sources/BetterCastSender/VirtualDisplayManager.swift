@@ -15,18 +15,25 @@ class VirtualDisplayManager {
     }
     
     static let defaultResolutions: [Resolution] = [
-        Resolution(width: 1920, height: 1080, ppi: 102, hiDPI: false, name: "1080p (FHD)"),
-        Resolution(width: 1920, height: 1200, ppi: 113, hiDPI: false, name: "1200p (16:10)"),
-        Resolution(width: 2560, height: 1440, ppi: 109, hiDPI: false, name: "1440p (2K) - Balanced"),
-        Resolution(width: 2560, height: 1600, ppi: 227, hiDPI: true, name: "1600p Retina (16:10)"),
-        Resolution(width: 3840, height: 2160, ppi: 163, hiDPI: false, name: "4K (UHD)"),
-        Resolution(width: 1440, height: 900, ppi: 127, hiDPI: false, name: "WXGA+ (16:10)"),
+        Resolution(width: 1280, height: 720, ppi: 92, hiDPI: false, name: "1280 x 720 (HD)"),
+        Resolution(width: 1920, height: 1080, ppi: 102, hiDPI: false, name: "1920 x 1080 (FHD)"),
+        Resolution(width: 1920, height: 1200, ppi: 113, hiDPI: false, name: "1920 x 1200 (16:10)"),
+        Resolution(width: 2560, height: 1440, ppi: 109, hiDPI: false, name: "2560 x 1440 (2K)"),
+        Resolution(width: 2560, height: 1600, ppi: 227, hiDPI: true, name: "2560 x 1600 (16:10)"),
+        Resolution(width: 3840, height: 2160, ppi: 163, hiDPI: false, name: "3840 x 2160 (4K)"),
+        Resolution(width: 1440, height: 900, ppi: 127, hiDPI: false, name: "1440 x 900 (16:10)"),
     ]
     
+    private static var nextSerialNum: UInt32 = 1
+
     private var activeDisplay: Any?
     private(set) var displayID: CGDirectDisplayID?
-    
-    init() {}
+    private let serialNum: UInt32
+
+    init() {
+        self.serialNum = VirtualDisplayManager.nextSerialNum
+        VirtualDisplayManager.nextSerialNum += 1
+    }
     
     /// Creates a virtual display with the specified resolution
     /// - Returns: The CGDirectDisplayID of the created virtual display, or nil if creation failed
@@ -48,7 +55,8 @@ class VirtualDisplayManager {
             Int32(height),
             Int32(ppi),
             hiDPI,
-            name
+            name,
+            serialNum
         ) else {
             LogManager.shared.log("VirtualDisplayManager: Failed to create virtual display")
             return nil

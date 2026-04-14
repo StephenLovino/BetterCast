@@ -91,21 +91,35 @@ class VideoDecoder {
             return
         }
         
+        // Detect dimension changes (orientation switch) — recreate session
+        var needsNewSession = (decompressionSession == nil)
+        if let oldFormat = self.formatDescription, decompressionSession != nil {
+            let oldDim = CMVideoFormatDescriptionGetDimensions(oldFormat)
+            let newDim = CMVideoFormatDescriptionGetDimensions(formatDesc)
+            if oldDim.width != newDim.width || oldDim.height != newDim.height {
+                LogManager.shared.log("VideoDecoder: Dimensions changed \(oldDim.width)x\(oldDim.height) -> \(newDim.width)x\(newDim.height), recreating session")
+                VTDecompressionSessionInvalidate(decompressionSession!)
+                decompressionSession = nil
+                timeOffset = 0
+                needsNewSession = true
+            }
+        }
+
         self.formatDescription = formatDesc
-        
-        if decompressionSession == nil {
+
+        if needsNewSession {
             let decoderSpecification: [String: Any] = [:]
-            
+
             let destinationImageBufferAttributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                 kCVPixelBufferOpenGLCompatibilityKey as String: true
             ]
-            
+
             var outputCallback = VTDecompressionOutputCallbackRecord(
                 decompressionOutputCallback: decompressionCallback,
                 decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque()
             )
-            
+
             var _session: VTDecompressionSession?
             let sessionStatus = VTDecompressionSessionCreate(
                 allocator: kCFAllocatorDefault,
@@ -115,7 +129,7 @@ class VideoDecoder {
                 outputCallback: &outputCallback,
                 decompressionSessionOut: &_session
             )
-            
+
             if sessionStatus == noErr, let session = _session {
                 self.decompressionSession = session
                 VTSessionSetProperty(session, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)

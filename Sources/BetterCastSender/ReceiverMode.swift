@@ -9,6 +9,7 @@ import AppKit
 class ReceiverWindowController {
     private var window: NSWindow?
     private var lastVideoSize: CGSize = .zero
+    private var resizeDebounceWork: DispatchWorkItem?
 
     var isOpen: Bool { window != nil }
 
@@ -76,10 +77,26 @@ class ReceiverWindowController {
     }
 
     /// Resize window to match the video's aspect ratio, keeping the same area on screen.
+    /// Uses debouncing to avoid rapid flip-flopping during Android rotation transitions.
     func resizeToFitVideo(_ size: CGSize) {
-        guard let w = window, size.width > 0, size.height > 0 else { return }
+        guard window != nil, size.width > 0, size.height > 0 else { return }
         guard size != lastVideoSize else { return }
         lastVideoSize = size
+
+        // Cancel any pending resize — only the last size wins
+        resizeDebounceWork?.cancel()
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.performResize(to: size)
+        }
+        resizeDebounceWork = work
+
+        // Wait 300ms for dimensions to stabilize (Android sends transitional frames during rotation)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    private func performResize(to size: CGSize) {
+        guard let w = window, size.width > 0, size.height > 0 else { return }
 
         let screenFrame = w.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
         let aspect = size.width / size.height
@@ -115,10 +132,13 @@ class ReceiverWindowController {
         newOriginY = max(screenFrame.minY, min(newOriginY, screenFrame.maxY - newHeight))
 
         let newFrame = NSRect(x: newOriginX, y: newOriginY, width: newWidth, height: newHeight)
-        w.setFrame(newFrame, display: true, animate: true)
+        // Use animate: false to avoid stuck mid-animation when rapid resizes overlap
+        w.setFrame(newFrame, display: true, animate: false)
     }
 
     func close() {
+        resizeDebounceWork?.cancel()
+        resizeDebounceWork = nil
         window?.close()
         window = nil
     }
@@ -384,6 +404,7 @@ struct ReceiverModeView: View {
     }
 
     private func refreshLocalIPs() {
+        let port = manager.networkListener.tcpListener?.port?.rawValue ?? 51820
         DispatchQueue.global(qos: .userInitiated).async {
             var ips: [String] = []
             for iface in Host.current().addresses {
@@ -391,7 +412,7 @@ struct ReceiverModeView: View {
                     ips.append(iface)
                 }
             }
-            let result = ips.isEmpty ? "No network detected" : "This device: " + ips.joined(separator: " / ") + " : 51820"
+            let result = ips.isEmpty ? "No network detected" : "This device: " + ips.joined(separator: " / ") + " : \(port)"
             DispatchQueue.main.async {
                 cachedLocalIPs = result
             }
