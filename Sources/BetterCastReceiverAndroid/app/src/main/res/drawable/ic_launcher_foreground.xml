@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple screen/cast icon -->
+    <path
+        android:fillColor="#FF6200EE"
+        android:pathData="M27,30 L81,30 C83.2,30 85,31.8 85,34 L85,66 C85,68.2 83.2,70 81,70 L27,70 C24.8,70 23,68.2 23,66 L23,34 C23,31.8 24.8,30 27,30 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M29,34 L79,34 L79,66 L29,66 Z" />
+    <path
+        android:fillColor="#FF6200EE"
+        android:pathData="M44,72 L64,72 L64,78 L44,78 Z" />
+    <!-- Play arrow in center -->
+    <path
+        android:fillColor="#FF6200EE"
+        android:pathData="M48,42 L66,50 L48,58 Z" />
+</vector>
