@@ -4,10 +4,9 @@ BetterCast is an open-source screen extension app that turns almost any device i
 
 ## How It Works
 
-- **BetterCast Sender** runs on your primary Mac and creates a virtual display that streams over your network.
-- **BetterCast Receiver** runs on the device you want to use as the extra screen.
+**BetterCast** is a single unified Mac app that does both jobs: it can **send** your screen to other devices (creating a virtual display per receiver) and **receive** screens from other Macs in a separate window. Receivers on iOS, Windows, Linux, and Android are dedicated apps.
 
-Each receiver gets its own virtual display with independent resolution, input handling, and optional audio streaming.
+Each connected receiver gets its own virtual display with independent resolution, input handling, and optional audio streaming.
 
 ## Supported Platforms
 
@@ -35,10 +34,12 @@ Each receiver gets its own virtual display with independent resolution, input ha
 ### macOS (Sender + Receiver)
 
 1. Download the latest DMG from [bettercast.online](https://bettercast.online/#install)
-2. Open the DMG and drag both apps to your Applications folder
-3. Launch **BetterCastSender** and grant the required permissions:
+2. Open the DMG and drag **BetterCast** to your Applications folder
+3. Launch **BetterCast** and grant the required permissions:
    - **Screen Recording** — to capture your display
    - **Accessibility** — to relay mouse and keyboard input from receivers
+
+The receiver auto-starts in the background — no need to "switch modes". To send your screen, pick a discovered device from the sidebar. To receive, just leave the app open and another Mac/iOS device will see you in their list.
 
 ### iOS / iPadOS
 
