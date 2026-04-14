@@ -7,7 +7,7 @@ echo "=================================="
 # Paths
 BINARY_PATH="/Users/stephenlovino_1/Library/Developer/Xcode/DerivedData/BetterCast-chgoikkxftogrmalkdmbbppsbxnc/Build/Products/Release-iphoneos/BetterCastReceiverIOS"
 SWIFT_LIB_PATH="/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/iphoneos"
-ICON_PATH="AppIcon.png"
+ICON_PATH="assets/branding/AppIcon.png"
 PLIST_PATH="Sources/BetterCastReceiverIOS/Info.plist"
 
 # Check if binary exists

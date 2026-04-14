@@ -76,6 +76,10 @@ Frames are sent as length-prefixed TCP messages with a 1-byte type tag:
 
 Legacy receivers (pre-1.3 iOS / Mac Swift) use a different framing without the type byte; the desktop receiver auto-detects the format on the first frame of each connection.
 
+## Release Notes
+
+See [docs/release-notes/](docs/release-notes/) for per-version notes (v5–v8).
+
 ## Support the Project
 
 BetterCast is free and open source. If you find it useful and want to support development, you can donate here:

@@ -18,6 +18,8 @@ xcuserdata/
 *.app/
 *.dmg
 *.apk
+*.ipa
+ios_packaging/
 
 # iOS build output
 build_ios/
