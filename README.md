@@ -14,8 +14,8 @@ Each connected receiver gets its own virtual display with independent resolution
 |----------|------|------------|----------|
 | **macOS** | Sender + Receiver | P2P Direct / WiFi | [bettercast.online](https://bettercast.online/#install) |
 | **iOS / iPadOS** | Receiver | P2P Direct (AWDL) / WiFi | [bettercast.online](https://bettercast.online/#install) |
-| **Windows** | Receiver | WiFi | [GitHub Actions artifact](../../actions/workflows/build-windows-receiver.yml) |
-| **Linux** | Receiver | WiFi | [GitHub Actions artifact](../../actions/workflows/build-linux-receiver.yml) |
+| **Windows** | Receiver | WiFi | [bettercast.online](https://bettercast.online/#install) |
+| **Linux** | Receiver | WiFi | [bettercast.online](https://bettercast.online/#install) |
 | **Android** | Receiver | WiFi / ADB USB | [bettercast.online](https://bettercast.online/#install) |
 
 > The macOS DMG is notarized and signed with an Apple Developer certificate.
@@ -47,11 +47,11 @@ The iOS receiver is available via TestFlight. Visit [bettercast.online](https://
 
 ### Windows
 
-Download the latest build artifact from [GitHub Actions](../../actions/workflows/build-windows-receiver.yml). Extract and run `BetterCastReceiver.exe`. Both devices must be on the same WiFi network.
+Download the installer from [bettercast.online](https://bettercast.online/#install) and run `BetterCastReceiver.exe`. Both devices must be on the same WiFi network.
 
 ### Linux
 
-Download the latest AppImage from [GitHub Actions](../../actions/workflows/build-linux-receiver.yml). Make it executable (`chmod +x`) and run. Both devices must be on the same WiFi network.
+Download the AppImage from [bettercast.online](https://bettercast.online/#install). Make it executable (`chmod +x`) and run. Both devices must be on the same WiFi network.
 
 ### Android
 
