@@ -55,7 +55,7 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
     
     private func setupLayer() {
         videoLayer.videoGravity = .resizeAspectFill // Fill screen by default (like Duet Display)
-        // v47 Smoothness: Use Timebase (Standard Remote Desktop Trick)
+        // Use timebase for smooth playback (standard remote desktop technique)
         var controlTimebase: CMTimebase?
         CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &controlTimebase)
         if let tb = controlTimebase {

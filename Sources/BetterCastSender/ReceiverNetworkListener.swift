@@ -4,7 +4,7 @@ import CoreMedia
 
 /// Network listener for receiver mode — accepts incoming TCP/UDP connections from senders.
 class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
-    private var tcpListener: NWListener?
+    private(set) var tcpListener: NWListener?
     private var udpListener: NWListener?
 
     @Published var status: String? = "Initializing..."
@@ -28,6 +28,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     private var lastADBSerial: String?
     private var reconnectTimer: Timer?
     private var heartbeatTimer: Timer?
+    private var staleFrameTimer: Timer?
+    private var lastDecodedFrameTime: Date = .distantPast
     private(set) var isReconnecting = false
     private var isConnectingADB = false
     private var wirelessADBEnabled = false
@@ -51,9 +53,10 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             self?.startTCP()
             self?.startUDP()
         }
-        // Heartbeat timer must be on main thread (needs a run loop)
+        // Heartbeat + stale frame timers must be on main thread (need a run loop)
         DispatchQueue.main.async { [weak self] in
             self?.startHeartbeat()
+            self?.startStaleFrameWatchdog()
         }
     }
 
@@ -63,6 +66,8 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         reconnectAttempts = 0
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
+        staleFrameTimer?.invalidate()
+        staleFrameTimer = nil
         tcpListener?.cancel()
         tcpListener = nil
         udpListener?.cancel()
@@ -139,8 +144,6 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                     let injector = ADBInputInjector(adbPath: adb, deviceSerial: deviceSerial)
                     DispatchQueue.main.async {
                         self?.adbInputInjector = injector
-                        self?.isReconnecting = false
-                        self?.stopReconnectTimer()
                     }
                     self?.connectTo(host: "localhost", port: localPort)
                     self?.isConnectingADB = false
@@ -291,33 +294,44 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     }
 
     private func startTCP() {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.enableKeepalive = true
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+        parameters.includePeerToPeer = true
+        parameters.allowLocalEndpointReuse = true
+        parameters.serviceClass = .interactiveVideo
+
+        // Try preferred port first, fall back to OS-assigned port
+        let preferredPort: NWEndpoint.Port = NWEndpoint.Port(integerLiteral: BCConstants.tcpPort)
+        var listener: NWListener
         do {
-            let tcpOptions = NWProtocolTCP.Options()
-            tcpOptions.enableKeepalive = true
-            tcpOptions.noDelay = true
-            let parameters = NWParameters(tls: nil, tcp: tcpOptions)
-            parameters.includePeerToPeer = true
-            parameters.allowLocalEndpointReuse = true
-            parameters.serviceClass = .interactiveVideo
-
-            let listener = try NWListener(using: parameters, on: 51820)
-            let macName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-            listener.service = NWListener.Service(name: macName, type: "_bettercast._tcp")
-
-            listener.stateUpdateHandler = { [weak self] state in
-                self?.handleListenerState(state, type: "TCP")
-            }
-
-            listener.newConnectionHandler = { [weak self] connection in
-                LogManager.shared.log("Receiver (TCP): New connection from \(connection.endpoint)")
-                self?.handleNewConnection(connection, type: .tcp)
-            }
-
-            listener.start(queue: networkQueue)
-            self.tcpListener = listener
+            listener = try NWListener(using: parameters, on: preferredPort)
+            LogManager.shared.log("Receiver (TCP): Binding to port \(preferredPort)")
         } catch {
-            LogManager.shared.log("Receiver (TCP): Error \(error)")
+            LogManager.shared.log("Receiver (TCP): Port \(preferredPort) unavailable (\(error.localizedDescription)), using system-assigned port")
+            do {
+                listener = try NWListener(using: parameters)
+            } catch {
+                LogManager.shared.log("Receiver (TCP): Failed to create listener: \(error)")
+                return
+            }
         }
+
+        let macName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        listener.service = NWListener.Service(name: macName, type: "_bettercast._tcp")
+
+        listener.stateUpdateHandler = { [weak self] state in
+            self?.handleListenerState(state, type: "TCP", listener: listener)
+        }
+
+        listener.newConnectionHandler = { [weak self] connection in
+            LogManager.shared.log("Receiver (TCP): New connection from \(connection.endpoint)")
+            self?.handleNewConnection(connection, type: .tcp)
+        }
+
+        listener.start(queue: networkQueue)
+        self.tcpListener = listener
     }
 
     private func startUDP() {
@@ -333,7 +347,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             listener.service = NWListener.Service(name: udpName, type: "_bettercast._udp")
 
             listener.stateUpdateHandler = { [weak self] state in
-                self?.handleListenerState(state, type: "UDP")
+                self?.handleListenerState(state, type: "UDP", listener: listener)
             }
 
             listener.newConnectionHandler = { [weak self] connection in
@@ -348,17 +362,27 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         }
     }
 
-    private func handleListenerState(_ state: NWListener.State, type: String) {
+    private func handleListenerState(_ state: NWListener.State, type: String, listener: NWListener? = nil) {
         DispatchQueue.main.async {
             switch state {
             case .ready:
-                if type == "TCP" {
-                    self.status = "Ready. Advertising as _bettercast. \(type)"
+                let portStr: String
+                if let port = listener?.port {
+                    portStr = " on port \(port)"
+                } else {
+                    portStr = ""
                 }
-                LogManager.shared.log("Receiver (\(type)): Ready")
+                if type == "TCP" {
+                    self.status = "Ready\(portStr). Advertising as _bettercast._tcp"
+                }
+                LogManager.shared.log("Receiver (\(type)): Ready\(portStr)")
             case .failed(let error):
-                if type == "TCP" { self.status = "Failed: \(error.localizedDescription)" }
-                LogManager.shared.log("Receiver (\(type)): Failed \(error)")
+                if type == "TCP" {
+                    self.status = "Failed: \(error.localizedDescription)"
+                    LogManager.shared.log("Receiver (TCP): Failed — \(error). Check if port 51820 is in use or if macOS firewall is blocking incoming connections.")
+                } else {
+                    LogManager.shared.log("Receiver (\(type)): Failed \(error)")
+                }
             default:
                 break
             }
@@ -383,6 +407,10 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                                 self.enableWirelessADB(adb: adb, serial: self.lastADBSerial)
                             }
                         }
+                        // Request a keyframe immediately so the sender sends a fresh IDR.
+                        // Without this, the receiver may only get P-frames (undeccodable)
+                        // until the next natural keyframe interval.
+                        self.sendInputEvent(InputEvent(type: .command, keyCode: 999))
                     }
                 }
                 if type == .udp {
@@ -406,6 +434,13 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] content, contentContext, isComplete, error in
             if let error = error {
                 LogManager.shared.log("Receiver (TCP): Error \(error)")
+                connection.cancel()
+                return
+            }
+
+            if isComplete && (content == nil || content!.isEmpty) {
+                LogManager.shared.log("Receiver (TCP): Stream closed by peer")
+                connection.cancel()
                 return
             }
 
@@ -413,9 +448,18 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                 let length = content.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
                 let bodyLength = Int(length)
 
-                connection.receive(minimumIncompleteLength: bodyLength, maximumLength: bodyLength) { body, bodyContext, isComplete, error in
+                connection.receive(minimumIncompleteLength: bodyLength, maximumLength: bodyLength) { body, bodyContext, bodyComplete, bodyError in
+                    if let bodyError = bodyError {
+                        LogManager.shared.log("Receiver (TCP): Body read error \(bodyError)")
+                        connection.cancel()
+                        return
+                    }
                     if let body = body, !body.isEmpty {
                         self?.handleReceivedBody(body, connection: connection)
+                    }
+                    if bodyComplete && (body == nil || body!.isEmpty) {
+                        connection.cancel()
+                        return
                     }
                     self?.receiveTCP(on: connection)
                 }
@@ -638,9 +682,9 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                     let injector = ADBInputInjector(adbPath: adb, deviceSerial: deviceSerial)
                     DispatchQueue.main.async {
                         self.adbInputInjector = injector
-                        self.isReconnecting = false
-                        self.reconnectAttempts = 0
-                        self.stopReconnectTimer()
+                        // Don't reset isReconnecting/reconnectAttempts or stop timer here.
+                        // The ADB forward succeeds but the TCP connection may still fail.
+                        // Reset happens in didDecode() when frames actually arrive.
                     }
                     self.connectTo(host: "localhost", port: localPort)
                 }
@@ -650,12 +694,53 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         }
     }
 
+    // MARK: - Stale Frame Watchdog
+
+    /// Detects when video frames stop arriving while clients are connected,
+    /// and requests a keyframe to recover (e.g. after Android encoder restart).
+    private func startStaleFrameWatchdog() {
+        staleFrameTimer?.invalidate()
+        staleFrameTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            guard let self = self, !self.connectedClients.isEmpty else { return }
+            let neverGotFrames = (self.lastDecodedFrameTime == .distantPast)
+            let staleDuration = Date().timeIntervalSince(self.lastDecodedFrameTime)
+
+            if neverGotFrames || staleDuration > 3.0 {
+                if !neverGotFrames {
+                    LogManager.shared.log("Receiver: No frames for \(Int(staleDuration))s — requesting keyframe")
+                    self.videoRenderer?.flushForFormatChange()
+                    self.videoDecoder?.reset()
+                }
+                self.sendInputEvent(InputEvent(type: .command, keyCode: 999))
+            }
+        }
+    }
+
     // MARK: - VideoDecoderDelegate
 
     func didDecode(sampleBuffer: CMSampleBuffer) {
+        lastDecodedFrameTime = Date()
+        if isReconnecting {
+            isReconnecting = false
+            reconnectAttempts = 0
+            stopReconnectTimer()
+            LogManager.shared.log("Receiver: Connection recovered — stream active")
+        }
         DispatchQueue.main.async {
             self.videoRenderer?.enqueue(sampleBuffer)
         }
+    }
+
+    func decoderDidChangeFormat() {
+        LogManager.shared.log("Receiver: Format changed — flushing display layer")
+        DispatchQueue.main.async {
+            self.videoRenderer?.flushForFormatChange()
+        }
+    }
+
+    func decoderNeedsKeyframe() {
+        LogManager.shared.log("Receiver: Requesting keyframe from sender")
+        sendInputEvent(InputEvent(type: .command, keyCode: 999))
     }
 
     func sendInputEvent(_ event: InputEvent) {

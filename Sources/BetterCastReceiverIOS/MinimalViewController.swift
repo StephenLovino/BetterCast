@@ -25,8 +25,7 @@ class MinimalViewController: UIViewController {
             label.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -20)
         ])
         
-        print("[BetterCast] MinimalViewController loaded successfully!")
-        print("[BetterCast] If you see this, basic UI works!")
+        LogManager.shared.log("MinimalViewController loaded — basic UI works")
     }
 }
 #endif

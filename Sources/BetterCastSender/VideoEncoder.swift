@@ -3,24 +3,31 @@ import VideoToolbox
 import CoreMedia
 
 protocol VideoEncoderDelegate: AnyObject {
-    func videoEncoder(_ encoder: VideoEncoder, didEncode data: Data)
+    func videoEncoder(_ encoder: VideoEncoder, didEncode data: Data, for connectionId: UUID, isKeyframe: Bool)
 }
 
 class VideoEncoder {
     weak var delegate: VideoEncoderDelegate?
+    let connectionId: UUID
     private var compressionSession: VTCompressionSession?
     private var frameCount = 0
     private let bitrate: Int
-    
+
     // Cache for headers so we can re-send them if needed
     private var cachedSPS: Data?
     private var cachedPPS: Data?
-    
+
     private var pendingKeyFrameRequest = false
     private var lastKeyFrameTime: Date = Date.distantPast
-    
-    init(width: Int, height: Int, bitrate: Int = 20_000_000) {
+    private let keyframeThrottleInterval: TimeInterval
+
+    private var expectedFPS: Int
+
+    init(connectionId: UUID, width: Int, height: Int, bitrate: Int = 20_000_000, expectedFPS: Int = 120, keyframeIntervalSeconds: Double = 10.0, rateLimitWindow: Double = 1.0) {
+        self.connectionId = connectionId
         self.bitrate = bitrate
+        self.expectedFPS = expectedFPS
+        self.keyframeThrottleInterval = max(0.3, keyframeIntervalSeconds / 3.0) // Allow forced keyframes at 1/3 the interval
         
         let status = VTCompressionSessionCreate(
             allocator: nil,
@@ -51,20 +58,23 @@ class VideoEncoder {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_AutoLevel)
         
         let bitrateCF = bitrate as CFNumber
-        // Allow bursts up to 2x average (or untethered for Ultra)
-        let limitCF = [bitrate * 2, 1] as CFArray
-        
+        // DataRateLimits uses BYTES per period. Shorter windows = tighter per-frame control.
+        // P2P uses 0.1s (prevents AWDL buffer bloat), infrastructure uses 1.0s (more flexible).
+        let bytesPerWindow = Int(Double(bitrate / 8) * 1.5 * rateLimitWindow)
+        let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
+
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateCF)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
         
-        // Strict Keyframe Control
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: 600 as CFNumber) // 10 seconds
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 10.0 as CFNumber)
+        // Keyframe Control — shorter interval = faster error recovery at cost of bandwidth
+        let maxKeyFrameInterval = Int(keyframeIntervalSeconds * Double(expectedFPS))
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: maxKeyFrameInterval as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: keyframeIntervalSeconds as CFNumber)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse) // Crucial for Real-Time
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: 120 as CFNumber) // Expect high FPS
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: expectedFPS as CFNumber)
 
         VTCompressionSessionPrepareToEncodeFrames(session)
-        LogManager.shared.log("VideoEncoder: Initialized (v52 - Dynamic Bitrate: \(bitrate/1_000_000)Mbps)")
+        LogManager.shared.log("VideoEncoder: Initialized (\(bitrate/1_000_000)Mbps, KF every \(keyframeIntervalSeconds)s)")
     }
     
     func forceKeyframe() {
@@ -75,7 +85,7 @@ class VideoEncoder {
     func encode(sampleBuffer: CMSampleBuffer) {
         guard let session = compressionSession,
               let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        
+
         let presentationTimestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let duration = CMSampleBufferGetDuration(sampleBuffer)
         
@@ -83,10 +93,10 @@ class VideoEncoder {
         var frameProperties: [String: Any] = [:]
         
         // Force keyframe if requested or first frame
-        // v62: Strict Throttling (Max 1 forced keyframe every 2.0s)
+        // Throttle forced keyframes — see keyframeThrottleInterval init
         let timeSinceLastKeyFrame = Date().timeIntervalSince(lastKeyFrameTime)
         
-        if frameCount == 1 || (pendingKeyFrameRequest && timeSinceLastKeyFrame > 2.0) {
+        if frameCount == 1 || (pendingKeyFrameRequest && timeSinceLastKeyFrame > keyframeThrottleInterval) {
              LogManager.shared.log("VideoEncoder: Forcing Keyframe (Frame \(frameCount))")
              frameProperties[kVTEncodeFrameOptionKey_ForceKeyFrame as String] = kCFBooleanTrue
              pendingKeyFrameRequest = false
@@ -134,7 +144,6 @@ class VideoEncoder {
         
         // 2. Handle Header Bundling for Keyframes
         if isKeyframe {
-            LogManager.shared.log("VideoEncoder: Keyframe Encoded! Bundling Headers.")
             
             if let description = CMSampleBufferGetFormatDescription(sampleBuffer) {
                 var pCount: size_t = 0
@@ -205,7 +214,7 @@ class VideoEncoder {
              packetWithPTS.append(Data(bytes: &ptsNanos, count: 8))
              packetWithPTS.append(coalescedData)
             
-             delegate?.videoEncoder(self, didEncode: packetWithPTS)
+             delegate?.videoEncoder(self, didEncode: packetWithPTS, for: connectionId, isKeyframe: isKeyframe)
         }
     }
     

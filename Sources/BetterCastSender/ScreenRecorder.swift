@@ -78,11 +78,9 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             
             try await stream.startCapture()
             self.stream = stream
-            print("ScreenRecorder: Started capturing display \(display.displayID)")
             LogManager.shared.log("ScreenRecorder: Started capture for display \(display.displayID)")
-            
+
         } catch {
-            print("ScreenRecorder: Failed to start capture: \(error)")
             LogManager.shared.log("ScreenRecorder: Failed to start capture: \(error.localizedDescription)")
             
             if let scError = error as? SCStreamError, scError.code == .userDeclined {
@@ -124,6 +122,6 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     
     // SCStreamDelegate
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        print("ScreenRecorder: Stream stopped with error: \(error)")
+        LogManager.shared.log("ScreenRecorder: Stream stopped with error: \(error.localizedDescription)")
     }
 }

@@ -25,8 +25,8 @@ Each receiver gets its own virtual display with independent resolution, input ha
 
 - **Multi-device** — Connect multiple receivers simultaneously, each with its own virtual display
 - **Cross-platform input** — Mouse and keyboard pass-through from any receiver back to the Mac
-- **Audio streaming** — Optional per-device AAC audio forwarding
-- **Adaptive quality** — P2P links get 120 FPS / full bitrate; WiFi connections auto-throttle to 30 FPS / 10 Mbps
+- **Audio streaming** — Optional per-device AAC-LC audio forwarding (128 kbps stereo)
+- **Adaptive quality** — Per-link tuning: AWDL P2P runs 60 FPS at full bitrate; WiFi infrastructure runs 30 FPS at the user-selected bitrate (default 20 Mbps) with shorter keyframe intervals for faster recovery on lossy links; ADB tunnels match P2P quality
 - **Zero-config for Apple devices** — iOS/Mac receivers are discovered automatically via AWDL (no WiFi network needed)
 - **mDNS discovery** — Windows/Linux/Android receivers are discovered automatically when on the same network
 
@@ -63,6 +63,18 @@ BetterCast uses **TCP (port 51820)** for the primary video/audio stream and **UD
 - **Apple-to-Apple**: Uses AWDL (Apple Wireless Direct Link) for a direct P2P connection — no WiFi router needed
 - **All other platforms**: Requires both devices to be on the same WiFi/LAN network
 - **Hotspot**: If no shared network is available, create a hotspot on any device and connect the Mac to it
+
+### Wire Protocol
+
+Frames are sent as length-prefixed TCP messages with a 1-byte type tag:
+
+```
+[4-byte big-endian length] [1-byte type] [payload]
+  type 0x01 = H.264 video (AVCC NALUs, no Annex B start codes)
+  type 0x02 = AAC-LC audio (raw frames, no ADTS header)
+```
+
+Legacy receivers (pre-1.3 iOS / Mac Swift) use a different framing without the type byte; the desktop receiver auto-detects the format on the first frame of each connection.
 
 ## Support the Project
 

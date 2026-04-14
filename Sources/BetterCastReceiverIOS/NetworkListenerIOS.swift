@@ -325,7 +325,7 @@ class NetworkListenerIOS {
             // Gap Detection
             let diff = Int(frameID) - Int(lastDecodedFrameId)
             if diff > 1 && diff < 1000 {
-                 // v62: Relaxed throttle to 2.0s
+                 // Throttle to 2.0s
                  if Date().timeIntervalSince(lastKeyframeRequest) > 2.0 {
                      LogManager.shared.log("ReceiverIOS: Gap Detected. Requesting IDR.")
                      sendInputEvent(InputEvent(type: .command, keyCode: 999))
@@ -376,7 +376,7 @@ class NetworkListenerIOS {
     }
     
     func sendInputEvent(_ event: InputEvent) {
-        // v61 Reliability: 3x for critical events
+        // Reliability: send 3x for critical events
         let isCritical = (event.type == .leftMouseDown || event.type == .leftMouseUp || event.type == .rightMouseDown || event.type == .rightMouseUp || event.type == .keyDown || event.type == .keyUp || event.type == .command)
         let repeatCount = isCritical ? 3 : 1
         

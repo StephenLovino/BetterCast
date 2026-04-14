@@ -1676,15 +1676,15 @@ struct DisplayOverviewView: View {
 
             ZStack {
                 ForEach(allDisplays) { display in
-                    let info = layout.positions[display.id]!
-
-                    displayThumbnail(display: display, width: info.thumbW, height: info.thumbH)
-                        .position(x: info.centerX, y: info.centerY)
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedDisplayId = display.id
+                    if let info = layout.positions[display.id] {
+                        displayThumbnail(display: display, width: info.thumbW, height: info.thumbH)
+                            .position(x: info.centerX, y: info.centerY)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    selectedDisplayId = display.id
+                                }
                             }
-                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2293,7 +2293,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     
     @Published var selectedQuality: StreamQuality = .high
     
-    // v67: Manual Interface Toggle — default Auto so Windows/Linux/Android receivers work out of the box
+    // Manual Interface Toggle — default Auto so Windows/Linux/Android receivers work out of the box
     @Published var interfacePreference: NetworkInterfacePreference = .auto
 
     // Auto-connect: automatically connect to discovered receivers
@@ -2387,18 +2387,18 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         browser.start(queue: .main)
     }
     
-    // v69: Heartbeat
+    // Heartbeat
     private var lastHeartbeatTime: Date = Date()
     private var heartbeatTimer: Timer?
     private var connectionRefusedCount: Int = 0
     
-    // v70: Hard-Lock AWDL Logic
+    // Hard-Lock AWDL Logic
     private let interfaceMonitor = NWPathMonitor()
     private var cachedAWDLInterface: NWInterface?
     private var cachedInfraInterface: NWInterface?
     
     init() {
-        LogManager.shared.log("Sender: App Starting - Version v1 (Sync)")
+        LogManager.shared.log("Sender: App Starting")
         
         // We can't monitor recursively in init easily, but we can start it.
         interfaceMonitor.pathUpdateHandler = { [weak self] path in
@@ -2410,7 +2410,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     
                     if isNew {
                          LogManager.shared.log("Network: Found P2P Interface: \(interface.name) (\(interface.type))")
-                         // v76 Critical Fix: Restart Browsing ON this interface to ensure we get the Link-Local Address!
+                         // Restart browsing on this interface so we get the Link-Local Address
                          // If we don't, we might try to connect to the Router IP via AWDL, which fails.
                          if self?.interfacePreference == .p2pOnly {
                              LogManager.shared.log("Network: Restarting Browser to force discovery via \(interface.name)...")
@@ -2434,7 +2434,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     private func configureParameters(_ parameters: NWParameters) {
         parameters.includePeerToPeer = true // Always allow discovery at least
         
-        // v76 Update: Use cached AWDL if available (especially for Browser)
+        // Use cached AWDL if available (especially for Browser)
         if interfacePreference == .p2pOnly, let awdl = cachedAWDLInterface {
              LogManager.shared.log("Parameters: Binding to P2P Interface \(awdl.name) ✅")
              parameters.requiredInterface = awdl
@@ -2450,7 +2450,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             parameters.prohibitedInterfaceTypes = []
             
         case .p2pOnly:
-             // v70: Direct Binding to AWDL Interface
+             // Direct binding to AWDL interface
              if let awdl = cachedAWDLInterface {
                  LogManager.shared.log("Sender: Hard-Locking to Interface: \(awdl.name) ✅")
                  parameters.requiredInterface = awdl
@@ -2458,7 +2458,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
              } else {
                  LogManager.shared.log("Sender: AWDL Interface not found yet. Falling back to Prohibition Strategy (Banning Infra). ⚠️")
                  
-                 // v73: "Ban the Interface Object" directly, NOT the type.
+                 // Ban the interface object directly, NOT the type
                  if let infra = cachedInfraInterface {
                       LogManager.shared.log("Sender: Banning Infra Interface: \(infra.name) 🚫")
                       parameters.prohibitedInterfaces = [infra]
@@ -2545,10 +2545,20 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     parameters.serviceClass = .interactiveVideo
                 }
             } else {
-                // No P2P endpoint discovered — connect via Wi-Fi infrastructure
-                parameters.includePeerToPeer = false
+                // No separate P2P endpoint — force AWDL by banning infrastructure.
+                // The 5-second timeout will fall back to infra if AWDL can't be established.
+                parameters.includePeerToPeer = true
                 parameters.serviceClass = .interactiveVideo
-                LogManager.shared.log("Sender: Apple receiver — no P2P endpoint, using Wi-Fi for \(service.name)")
+                if let awdl = cachedAWDLInterface {
+                    parameters.requiredInterface = awdl
+                    LogManager.shared.log("Sender: Apple receiver — requiring AWDL (\(awdl.name)) for \(service.name)")
+                } else if let infra = cachedInfraInterface {
+                    parameters.prohibitedInterfaces = [infra]
+                    parameters.prohibitedInterfaceTypes = [.loopback, .wiredEthernet]
+                    LogManager.shared.log("Sender: Apple receiver — banning infra, forcing P2P for \(service.name)")
+                } else {
+                    LogManager.shared.log("Sender: Apple receiver — enabling P2P discovery for \(service.name)")
+                }
             }
         } else {
             // Non-Apple devices: skip P2P, go straight to infrastructure
@@ -2671,14 +2681,15 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     func connectManual() {
         let host = manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty else { return }
-        guard let portNum = UInt16(manualPort), portNum > 0 else {
+        guard let portNum = UInt16(manualPort), portNum > 0,
+              let port = NWEndpoint.Port(rawValue: portNum) else {
             LogManager.shared.log("Sender: Invalid port '\(manualPort)'")
             return
         }
 
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: portNum)!
+            port: port
         )
         let service = DiscoveredService(name: "\(host):\(portNum)", endpoint: endpoint)
 
@@ -2977,9 +2988,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     /// Connect to ADB-forwarded port with a proper device name that shows in the device list
     private func connectADBTunnel(displayName: String) {
+        guard let port = NWEndpoint.Port(rawValue: BCConstants.tcpPort) else { return }
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host("localhost"),
-            port: NWEndpoint.Port(rawValue: 51820)!
+            port: port
         )
         let service = DiscoveredService(name: displayName, endpoint: endpoint)
 
@@ -3134,7 +3146,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
         // Reset Screen Recording
         let screenCapture = Process()
-        screenCapture.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        screenCapture.executableURL = URL(fileURLWithPath: BCConstants.tccutilPath)
         screenCapture.arguments = ["reset", "ScreenCapture", "com.bettercast.sender"]
         do {
             try screenCapture.run()
@@ -3152,7 +3164,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
         // Reset Accessibility (for mouse/keyboard control)
         let accessibility = Process()
-        accessibility.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        accessibility.executableURL = URL(fileURLWithPath: BCConstants.tccutilPath)
         accessibility.arguments = ["reset", "Accessibility", "com.bettercast.sender"]
         do {
             try accessibility.run()

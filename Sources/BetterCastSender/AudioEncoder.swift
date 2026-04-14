@@ -106,8 +106,8 @@ class AudioEncoder {
             }
         }
 
-        // Produce AAC packets while we have enough frames (1024 per AAC frame)
-        let framesNeeded = 1024
+        // Produce AAC packets while we have enough PCM frames buffered
+        let framesNeeded = Int(BCConstants.aacFrameSize)
         let bytesNeeded = framesNeeded * bytesPerInterleavedFrame
 
         while pcmAccumulator.count >= bytesNeeded {
@@ -222,7 +222,7 @@ class AudioEncoder {
             mFormatID: kAudioFormatMPEG4AAC,
             mFormatFlags: 0,
             mBytesPerPacket: 0,
-            mFramesPerPacket: 1024,
+            mFramesPerPacket: BCConstants.aacFrameSize,
             mBytesPerFrame: 0,
             mChannelsPerFrame: channels,
             mBitsPerChannel: 0,
@@ -235,7 +235,7 @@ class AudioEncoder {
             return
         }
 
-        var bitrate: UInt32 = 128000
+        var bitrate: UInt32 = BCConstants.aacBitrate
         AudioConverterSetProperty(converter!, kAudioConverterEncodeBitRate,
                                   UInt32(MemoryLayout<UInt32>.size), &bitrate)
 

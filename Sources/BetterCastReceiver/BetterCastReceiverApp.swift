@@ -14,9 +14,9 @@ struct BetterCastReceiverApp: App {
     @StateObject private var networkListener = NetworkListener()
     @StateObject private var videoRenderer = VideoRenderer()
     
-    // v67: Logging
+    // Logging
     init() {
-        LogManager.shared.log("Receiver App Started - Version v80 (Full Screen Layout Fix)")
+        LogManager.shared.log("Receiver App Started")
     }
 
     var body: some Scene {
@@ -595,7 +595,7 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
     }
     
     private func startHeartbeat() {
-        // v69 Heartbeat - send as length-prefixed JSON to match TCP framing protocol
+        // Heartbeat — send as length-prefixed JSON to match TCP framing protocol
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let heartbeatEvent = InputEvent(type: .command, keyCode: 888)
@@ -818,7 +818,7 @@ class NetworkListener: ObservableObject, VideoDecoderDelegate {
             // Gap Detection
             let diff = Int(frameID) - Int(lastDecodedFrameId)
             if diff > 1 && diff < 1000 { 
-                 // v62: Relaxed throttle to 2.0s to match Sender's limit
+                 // Throttle to 2.0s to match Sender's keyframe limit
                  if Date().timeIntervalSince(lastKeyframeRequest) > 2.0 {
                      LogManager.shared.log("Receiver: Frame Gap Detected (\(lastDecodedFrameId) -> \(frameID)). Requesting IDR.")
                      sendInputEvent(InputEvent(type: .command, keyCode: 999))
