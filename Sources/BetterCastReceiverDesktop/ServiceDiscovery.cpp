@@ -88,16 +88,16 @@ void ServiceDiscovery::startAdvertising(uint16_t tcpPort) {
     // Embedded mDNS responder — use system hostname + platform for device identification
     // Platform keyword is needed so the Mac sender can detect non-Apple receivers
     m_advertisedPort = tcpPort;
-    QString hostname = QSysInfo::machineHostName();
+    const QString hostName = QSysInfo::machineHostName();
 #ifdef _WIN32
-    QString platform = "Windows";
+    const QString platform = "Windows";
 #else
-    QString platform = "Linux";
+    const QString platform = "Linux";
 #endif
-    if (hostname.isEmpty() || hostname == "localhost") {
+    if (hostName.isEmpty() || hostName == "localhost") {
         m_serviceName = platform + " PC";
     } else {
-        m_serviceName = hostname + " (" + platform + ")";
+        m_serviceName = hostName + " (" + platform + ")";
     }
     m_advertising = true;
     m_announceCount = 0;
