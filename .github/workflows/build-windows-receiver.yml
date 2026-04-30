@@ -5,20 +5,49 @@ on:
     paths:
       - 'Sources/BetterCastReceiverDesktop/**'
       - '.github/workflows/build-windows-receiver.yml'
-  workflow_dispatch:  # Manual trigger from GitHub UI
+  workflow_dispatch:
+
+concurrency:
+  group: windows-receiver-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   QT_VERSION: '6.7.0'
-  VDD_VERSION: '25.7.23'  # Virtual Display Driver release tag
+  VDD_VERSION: '25.7.23'  # Pinned VDD release tag
+  VDD_REPO: 'VirtualDrivers/Virtual-Display-Driver'
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022   # Pinned for reproducibility — don't track windows-latest
+
+    env:
+      # Surface to step `if:` conditions. Secrets cannot be referenced directly
+      # in step `if:`, so we promote presence to a boolean env at job level.
+      HAS_SIGNING_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read version (single source of truth)
+        id: version
+        shell: pwsh
+        run: |
+          $versionFile = "Sources/BetterCastReceiverDesktop/VERSION"
+          if (-not (Test-Path $versionFile)) {
+            Write-Error "VERSION file not found at $versionFile"
+            exit 1
+          }
+          $version = (Get-Content $versionFile -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Error "VERSION file must contain semver (X.Y.Z), got: '$version'"
+            exit 1
+          }
+          $numeric = "$version.0"
+          Write-Host "Building BetterCast $version (numeric: $numeric)"
+          "version=$version"  >> $env:GITHUB_OUTPUT
+          "numeric=$numeric"  >> $env:GITHUB_OUTPUT
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -32,8 +61,8 @@ jobs:
           python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2019_64 `
             --modules qtmultimedia `
             --outputdir C:/Qt
-          echo "Qt6_DIR=C:/Qt/${{ env.QT_VERSION }}/msvc2019_64" >> $env:GITHUB_ENV
-          echo "C:/Qt/${{ env.QT_VERSION }}/msvc2019_64/bin" >> $env:GITHUB_PATH
+          "Qt6_DIR=C:/Qt/${{ env.QT_VERSION }}/msvc2019_64" >> $env:GITHUB_ENV
+          "C:/Qt/${{ env.QT_VERSION }}/msvc2019_64/bin"     >> $env:GITHUB_PATH
 
       - name: Cache vcpkg packages
         uses: actions/cache@v4
@@ -48,10 +77,10 @@ jobs:
 
       - name: Install FFmpeg via vcpkg (with x264 encoder)
         shell: pwsh
-        run: |
-          vcpkg install "ffmpeg[x264]:x64-windows" --recurse
         env:
           VCPKG_ROOT: C:/vcpkg
+        run: |
+          vcpkg install "ffmpeg[x264]:x64-windows" --recurse
 
       - name: Generate Windows icon (.ico)
         shell: pwsh
@@ -68,7 +97,7 @@ jobs:
         shell: pwsh
         run: |
           cd Sources/BetterCastReceiverDesktop
-          mkdir build
+          mkdir build | Out-Null
           cd build
           cmake .. -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
@@ -81,73 +110,101 @@ jobs:
           cd Sources/BetterCastReceiverDesktop/build
           cmake --build . --config Release
 
+      - name: Verify EXE version metadata
+        shell: pwsh
+        run: |
+          $exe = "Sources/BetterCastReceiverDesktop/build/Release/BetterCastReceiver.exe"
+          $info = (Get-Item $exe).VersionInfo
+          $expected = "${{ steps.version.outputs.version }}"
+          Write-Host "EXE FileVersion:    $($info.FileVersion)"
+          Write-Host "EXE ProductVersion: $($info.ProductVersion)"
+          if ($info.ProductVersion -notlike "$expected*") {
+            Write-Error "EXE version metadata mismatch: expected $expected, got $($info.ProductVersion)"
+            exit 1
+          }
+
       - name: Download ADB platform-tools
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" `
             -OutFile "platform-tools.zip"
           Expand-Archive -Path "platform-tools.zip" -DestinationPath "."
-          if (Test-Path "platform-tools/adb.exe") {
-            Write-Host "ADB downloaded successfully"
-          } else {
-            Write-Host "WARNING: adb.exe not found in download"
+          if (-not (Test-Path "platform-tools/adb.exe")) {
+            Write-Error "ADB download failed — adb.exe missing from extracted archive"
+            exit 1
           }
 
       - name: Download Virtual Display Driver (VDD)
         shell: pwsh
         run: |
-          $vddTag = "${{ env.VDD_VERSION }}"
-          $baseUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/${vddTag}"
+          $tag  = "${{ env.VDD_VERSION }}"
+          $repo = "${{ env.VDD_REPO }}"
+          $api  = "https://api.github.com/repos/$repo/releases/tags/$tag"
 
-          mkdir "vdd" -Force
-          try {
-            # Download the actual driver package (contains .inf + .dll for pnputil)
-            $driverUrl = "${baseUrl}/VirtualDisplayDriver-x86.Driver.Only.zip"
-            Write-Host "Downloading VDD driver from: $driverUrl"
-            Invoke-WebRequest -Uri $driverUrl -OutFile "vdd-driver.zip" -MaximumRedirection 5
-            Expand-Archive -Path "vdd-driver.zip" -DestinationPath "vdd-driver-extract"
-            Get-ChildItem "vdd-driver-extract" -Recurse -File | ForEach-Object {
-              Copy-Item $_.FullName "vdd/" -Force
-            }
+          mkdir "vdd" -Force | Out-Null
 
-            # Also download VDD Control app (UI for managing virtual displays)
-            $controlUrl = "${baseUrl}/VDD.Control.${vddTag}.zip"
-            Write-Host "Downloading VDD Control from: $controlUrl"
-            Invoke-WebRequest -Uri $controlUrl -OutFile "vdd-control.zip" -MaximumRedirection 5
+          # Discover the actual asset names from the GitHub release — survives
+          # asset renames between VDD versions and removes guessing.
+          $headers = @{ 'User-Agent' = 'BetterCast-CI' }
+          if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
+
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          Write-Host "VDD release: $($release.name) ($($release.tag_name))"
+          Write-Host "Available assets:"
+          $release.assets | ForEach-Object { Write-Host "  - $($_.name)" }
+
+          # Match the x64 driver-only ZIP. Patterns we accept (in priority order):
+          $driverAsset = $release.assets | Where-Object {
+            $_.name -match '(?i)x64.*driver.*only.*\.zip$' -or
+            $_.name -match '(?i)signed.*driver.*x64.*\.zip$' -or
+            $_.name -match '(?i)driver.*only.*x64.*\.zip$'
+          } | Select-Object -First 1
+
+          if (-not $driverAsset) {
+            Write-Error "No matching x64 VDD driver asset in release $tag — assets above"
+            exit 1
+          }
+          Write-Host "Selected driver asset: $($driverAsset.name)"
+
+          Invoke-WebRequest -Uri $driverAsset.browser_download_url -OutFile "vdd-driver.zip" -MaximumRedirection 5 -Headers $headers
+          Expand-Archive -Path "vdd-driver.zip" -DestinationPath "vdd-driver-extract"
+          Get-ChildItem "vdd-driver-extract" -Recurse -File | ForEach-Object {
+            Copy-Item $_.FullName "vdd/" -Force
+          }
+
+          # Optional: VDD Control GUI (used by users post-install for diagnostics)
+          $controlAsset = $release.assets | Where-Object { $_.name -match '(?i)vdd.*control.*\.zip$' } | Select-Object -First 1
+          if ($controlAsset) {
+            Write-Host "Selected control asset: $($controlAsset.name)"
+            Invoke-WebRequest -Uri $controlAsset.browser_download_url -OutFile "vdd-control.zip" -MaximumRedirection 5 -Headers $headers
             Expand-Archive -Path "vdd-control.zip" -DestinationPath "vdd-control-extract"
             Get-ChildItem "vdd-control-extract" -Recurse -File | ForEach-Object {
               Copy-Item $_.FullName "vdd/" -Force
             }
-
-            $fileCount = (Get-ChildItem "vdd" -File).Count
-            Write-Host "VDD: $fileCount files extracted"
-            Get-ChildItem "vdd" | ForEach-Object { Write-Host "  $_" }
-
-            # Verify we have the .inf file needed for driver installation
-            $infFiles = Get-ChildItem "vdd" -Filter "*.inf"
-            if ($infFiles.Count -eq 0) {
-              Write-Host "WARNING: No .inf file found in VDD package"
-            } else {
-              Write-Host "VDD driver .inf found: $($infFiles.Name)"
-            }
-          } catch {
-            Write-Host "WARNING: Failed to download VDD: $_"
-            Write-Host "Installer will be built without VDD bundled"
           }
+
+          # Hard contract: MttVDD.inf MUST be present, otherwise the installer
+          # can't function and we refuse to ship a broken artifact.
+          if (-not (Test-Path "vdd/MttVDD.inf")) {
+            Write-Host "Files in vdd/:"
+            Get-ChildItem "vdd" | ForEach-Object { Write-Host "  $($_.Name)" }
+            Write-Error "VDD packaging failed — MttVDD.inf not found in extracted assets"
+            exit 1
+          }
+          Write-Host "VDD packaged successfully ($((Get-ChildItem 'vdd' -File).Count) files, MttVDD.inf present)"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Package artifact
         shell: pwsh
         run: |
-          mkdir artifact
+          mkdir artifact | Out-Null
 
-          # Copy the exe
           Copy-Item "Sources/BetterCastReceiverDesktop/build/Release/BetterCastReceiver.exe" "artifact/"
 
-          # Run windeployqt to bundle Qt DLLs
           windeployqt --release --no-translations --no-system-d3d-compiler `
             --no-opengl-sw "artifact/BetterCastReceiver.exe"
 
-          # Copy FFmpeg DLLs
           $vcpkgBin = "C:/vcpkg/installed/x64-windows/bin"
           if (Test-Path $vcpkgBin) {
             Get-ChildItem "$vcpkgBin/*.dll" | ForEach-Object {
@@ -155,78 +212,105 @@ jobs:
             }
           }
 
-          # Bundle ADB (adb.exe + required DLLs)
           if (Test-Path "platform-tools/adb.exe") {
-            Copy-Item "platform-tools/adb.exe" "artifact/"
-            Copy-Item "platform-tools/AdbWinApi.dll" "artifact/" -ErrorAction SilentlyContinue
+            Copy-Item "platform-tools/adb.exe"          "artifact/"
+            Copy-Item "platform-tools/AdbWinApi.dll"    "artifact/" -ErrorAction SilentlyContinue
             Copy-Item "platform-tools/AdbWinUsbApi.dll" "artifact/" -ErrorAction SilentlyContinue
-            Write-Host "ADB bundled into artifact"
           }
 
-          # Copy app icon for runtime (embedded via Qt resource, but also keep as fallback)
           Copy-Item "Sources/BetterCastReceiverDesktop/appicon.ico" "artifact/" -ErrorAction SilentlyContinue
 
-          # Bundle VDD files into portable artifact too
-          if ((Test-Path "vdd") -and (Get-ChildItem "vdd" -File).Count -gt 0) {
-            mkdir "artifact/VirtualDisplayDriver" -Force
-            Copy-Item "vdd/*" "artifact/VirtualDisplayDriver/" -Force
-            Write-Host "VDD files bundled into portable artifact"
+          # Bundle VDD into portable artifact too (for users who skip the installer)
+          mkdir "artifact/VirtualDisplayDriver" -Force | Out-Null
+          Copy-Item "vdd/*" "artifact/VirtualDisplayDriver/" -Force
+
+      - name: Sign EXE (optional)
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          [System.IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
+            [Convert]::FromBase64String($env:PFX_BASE64))
+          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signtool) {
+            $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
+              Where-Object { $_.Directory.FullName -like '*\x64' } | Select-Object -First 1).FullName
           }
+          & $signtool sign `
+            /f "$env:RUNNER_TEMP\cert.pfx" /p $env:PFX_PASSWORD `
+            /tr http://timestamp.digicert.com /td sha256 /fd sha256 `
+            "artifact/BetterCastReceiver.exe"
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
       - name: Install NSIS
         shell: pwsh
         run: |
-          # Use portable NSIS ZIP from nsis.sourceforge.io (no installer needed)
           $nsisVersion = "3.10"
           $nsisUrl = "https://github.com/nicehash/NSIS/releases/download/v${nsisVersion}/nsis-${nsisVersion}.zip"
           try {
             Invoke-WebRequest -Uri $nsisUrl -OutFile "nsis.zip"
-          } catch {
-            # Fallback: try winget
-            Write-Host "GitHub download failed, trying winget..."
-            winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements --silent
-          }
-
-          if (Test-Path "nsis.zip") {
             Expand-Archive -Path "nsis.zip" -DestinationPath "C:/nsis"
-            # Find the extracted folder (may be nsis-3.10/)
             $nsisDir = Get-ChildItem "C:/nsis" -Directory | Select-Object -First 1
             if ($nsisDir) {
-              echo "$($nsisDir.FullName)" >> $env:GITHUB_PATH
-              Write-Host "NSIS portable extracted to $($nsisDir.FullName)"
+              "$($nsisDir.FullName)" >> $env:GITHUB_PATH
             } else {
-              echo "C:/nsis" >> $env:GITHUB_PATH
+              "C:/nsis" >> $env:GITHUB_PATH
             }
-          } else {
-            echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+          } catch {
+            Write-Host "GitHub mirror failed, falling back to winget..."
+            winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements --silent
+            "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
           }
 
       - name: Build installer
         shell: pwsh
         run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $numeric = "${{ steps.version.outputs.numeric }}"
+
           cd Sources/BetterCastReceiverDesktop
-
-          # Copy artifact and vdd directories next to installer.nsi
-          # (NSIS references files relative to the .nsi script)
           Copy-Item -Recurse "${{ github.workspace }}/artifact" "artifact"
-          Copy-Item -Recurse "${{ github.workspace }}/vdd" "vdd"
+          Copy-Item -Recurse "${{ github.workspace }}/vdd"      "vdd"
 
-          # Build the installer
-          makensis /DPRODUCT_VERSION="1.0.0" installer.nsi
+          makensis "/DPRODUCT_VERSION=$version" "/DPRODUCT_NUMERIC_VERSION=$numeric" installer.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          # Move installer to workspace root
           Move-Item "BetterCast-Setup-*.exe" "${{ github.workspace }}/"
+
+      - name: Sign installer (optional)
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          [System.IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx",
+            [Convert]::FromBase64String($env:PFX_BASE64))
+          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signtool) {
+            $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
+              Where-Object { $_.Directory.FullName -like '*\x64' } | Select-Object -First 1).FullName
+          }
+          Get-ChildItem "BetterCast-Setup-*.exe" | ForEach-Object {
+            & $signtool sign `
+              /f "$env:RUNNER_TEMP\cert.pfx" /p $env:PFX_PASSWORD `
+              /tr http://timestamp.digicert.com /td sha256 /fd sha256 `
+              $_.FullName
+          }
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BetterCastReceiver-Windows-x64
+          name: BetterCastReceiver-Windows-x64-${{ steps.version.outputs.version }}
           path: artifact/
           retention-days: 30
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: BetterCast-Setup-Windows-x64
+          name: BetterCast-Setup-Windows-x64-${{ steps.version.outputs.version }}
           path: BetterCast-Setup-*.exe
           retention-days: 30

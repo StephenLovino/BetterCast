@@ -1,0 +1,8 @@
+// Auto-generated from Version.h.in by CMake. Do not edit by hand.
+// Source of truth: Sources/BetterCastReceiverDesktop/VERSION
+#pragma once
+
+#define BC_VERSION_MAJOR  @BC_VERSION_MAJOR@
+#define BC_VERSION_MINOR  @BC_VERSION_MINOR@
+#define BC_VERSION_PATCH  @BC_VERSION_PATCH@
+#define BC_VERSION_STRING "@BC_VERSION@"

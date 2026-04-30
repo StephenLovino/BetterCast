@@ -1,5 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
-project(BetterCastReceiver VERSION 1.0.0 LANGUAGES CXX)
+
+# ── Version: single source of truth ─────────────────────────────────────────────
+# Read the VERSION file so CMake, the EXE resource, the NSIS installer, and CI
+# all agree. Bump the VERSION file and everything downstream follows.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" BC_VERSION_RAW LIMIT_COUNT 1)
+string(STRIP "${BC_VERSION_RAW}" BC_VERSION)
+if(NOT BC_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION file must contain a semver string (X.Y.Z), got: '${BC_VERSION}'")
+endif()
+string(REPLACE "." ";" BC_VERSION_PARTS "${BC_VERSION}")
+list(GET BC_VERSION_PARTS 0 BC_VERSION_MAJOR)
+list(GET BC_VERSION_PARTS 1 BC_VERSION_MINOR)
+list(GET BC_VERSION_PARTS 2 BC_VERSION_PATCH)
+
+project(BetterCastReceiver VERSION ${BC_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -149,12 +163,28 @@ endif()
 # Qt resource file (embeds app icon PNG)
 qt_add_resources(RESOURCES resources.qrc)
 
-# Windows .exe icon via resource file
-if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/appicon.ico")
-    list(APPEND SOURCES app.rc)
+# ── Generated headers / resources from VERSION ─────────────────────────────────
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/Version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/Version.h"
+    @ONLY
+)
+
+# Windows .exe version info + icon via resource file
+if(WIN32)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/app.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc"
+        @ONLY
+    )
+    list(APPEND SOURCES "${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc")
 endif()
 
 add_executable(BetterCastReceiver ${SOURCES} ${HEADERS} ${RESOURCES})
+
+target_include_directories(BetterCastReceiver PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
 
 target_include_directories(BetterCastReceiver PRIVATE
     ${FFMPEG_ALL_INCLUDE_DIRS}
