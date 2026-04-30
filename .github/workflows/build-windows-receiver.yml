@@ -153,15 +153,28 @@ jobs:
           Write-Host "Available assets:"
           $release.assets | ForEach-Object { Write-Host "  - $($_.name)" }
 
-          # Match the x64 driver-only ZIP. Patterns we accept (in priority order):
+          # Pick the Intel/AMD64 VDD driver package.
+          # Heads-up on the naming: VDD ships its Intel package as
+          # "VirtualDisplayDriver-x86.Driver.Only.zip". The "-x86" suffix is a
+          # misnomer — it's the Intel-architecture package and the driver
+          # inside runs on x64 Windows (it's the only non-ARM package they
+          # publish). The ARM64 variant is separate. So for a 64-bit Windows
+          # build we explicitly want the x86-named zip; we're NOT downloading
+          # a 32-bit driver.
           $driverAsset = $release.assets | Where-Object {
-            $_.name -match '(?i)x64.*driver.*only.*\.zip$' -or
-            $_.name -match '(?i)signed.*driver.*x64.*\.zip$' -or
-            $_.name -match '(?i)driver.*only.*x64.*\.zip$'
+            $_.name -match '(?i)^VirtualDisplayDriver-x86\.Driver\.Only\.zip$'
           } | Select-Object -First 1
 
+          # Fallback to a looser match in case upstream renames the asset
           if (-not $driverAsset) {
-            Write-Error "No matching x64 VDD driver asset in release $tag — assets above"
+            $driverAsset = $release.assets | Where-Object {
+              $_.name -match '(?i)VirtualDisplayDriver.*Driver\.Only.*\.zip$' -and
+              $_.name -notmatch '(?i)ARM64'
+            } | Select-Object -First 1
+          }
+
+          if (-not $driverAsset) {
+            Write-Error "No matching VDD driver asset in release $tag — see assets list above"
             exit 1
           }
           Write-Host "Selected driver asset: $($driverAsset.name)"
