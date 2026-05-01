@@ -1,209 +1,312 @@
 ; BetterCast Windows Installer (NSIS)
-; Bundles BetterCast Receiver + Virtual Display Driver (VDD)
+; ==========================================================================
+; Bundles BetterCast Receiver + Virtual Display Driver (VDD).
+;
+; Inputs (passed by CI via /D flags):
+;   PRODUCT_VERSION         e.g. "1.0.0"   — display version
+;   PRODUCT_NUMERIC_VERSION e.g. "1.0.0.0" — VS_VERSION_INFO 4-part numeric
+;
+; Both flags are required. The installer fails to compile without them — there
+; is no fallback hardcoded version. Single source of truth lives in
+; Sources/BetterCastReceiverDesktop/VERSION (read by CI, by CMake, and passed
+; here).
+; ==========================================================================
 
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
+!include "LogicLib.nsh"
+!include "x64.nsh"
 
-; ─── Configuration ──────────────────────────────────────────────────────────────
+; ─── Required compile-time inputs ──────────────────────────────────────────────
 
-!define PRODUCT_NAME "BetterCast"
-!define PRODUCT_PUBLISHER "BetterCast"
-!define PRODUCT_WEB_SITE "https://github.com/StephenLovino/BetterCast"
-!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\BetterCastReceiver.exe"
-!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
-
-; Version is passed from CI via /DPRODUCT_VERSION=x.y.z
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "1.0.0"
+  !error "PRODUCT_VERSION not defined. CI must pass /DPRODUCT_VERSION=X.Y.Z (read from VERSION file)."
+!endif
+!ifndef PRODUCT_NUMERIC_VERSION
+  !error "PRODUCT_NUMERIC_VERSION not defined. CI must pass /DPRODUCT_NUMERIC_VERSION=X.Y.Z.0."
 !endif
 
-Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "BetterCast-Setup-${PRODUCT_VERSION}.exe"
-InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
-InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
-RequestExecutionLevel admin  ; Needed for driver installation
-ShowInstDetails show
+; ─── Product metadata ──────────────────────────────────────────────────────────
 
-; ─── Modern UI Settings ─────────────────────────────────────────────────────────
+!define PRODUCT_NAME       "BetterCast"
+!define PRODUCT_PUBLISHER  "BetterCast"
+!define PRODUCT_WEB_SITE   "https://bettercast.online"
+!define PRODUCT_HELP_LINK  "https://github.com/StephenLovino/BetterCast/issues"
+!define PRODUCT_EXE        "BetterCastReceiver.exe"
+
+!define PRODUCT_DIR_REGKEY    "Software\Microsoft\Windows\CurrentVersion\App Paths\${PRODUCT_EXE}"
+!define PRODUCT_UNINST_KEY    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
+!define PRODUCT_SETTINGS_KEY  "Software\${PRODUCT_NAME}"
+
+; Firewall rule names — kept in one place for matching install/uninstall
+!define FW_RULE_MDNS      "BetterCast mDNS"
+!define FW_RULE_STREAMING "BetterCast Streaming"
+!define FW_RULE_APP       "BetterCast App"
+
+; VDD bundling
+!define VDD_SUBDIR "VirtualDisplayDriver"
+!define VDD_INF    "MttVDD.inf"
+
+; ─── Installer attributes ──────────────────────────────────────────────────────
+
+Name              "${PRODUCT_NAME} ${PRODUCT_VERSION}"
+OutFile           "BetterCast-Setup-${PRODUCT_VERSION}.exe"
+InstallDir        "$PROGRAMFILES64\${PRODUCT_NAME}"
+InstallDirRegKey  HKLM "${PRODUCT_DIR_REGKEY}" ""
+RequestExecutionLevel admin
+ShowInstDetails   show
+ShowUninstDetails show
+SetCompressor     /SOLID lzma
+Unicode           true
+
+; Installer EXE properties (visible in File Properties → Details)
+VIProductVersion "${PRODUCT_NUMERIC_VERSION}"
+VIAddVersionKey  "ProductName"      "${PRODUCT_NAME}"
+VIAddVersionKey  "ProductVersion"   "${PRODUCT_VERSION}"
+VIAddVersionKey  "FileVersion"      "${PRODUCT_VERSION}"
+VIAddVersionKey  "CompanyName"      "${PRODUCT_PUBLISHER}"
+VIAddVersionKey  "FileDescription"  "${PRODUCT_NAME} Installer"
+VIAddVersionKey  "LegalCopyright"   "Copyright (C) ${PRODUCT_PUBLISHER}"
+VIAddVersionKey  "OriginalFilename" "BetterCast-Setup-${PRODUCT_VERSION}.exe"
+
+; ─── Modern UI ──────────────────────────────────────────────────────────────────
 
 !define MUI_ABORTWARNING
-!define MUI_ICON "appicon.ico"
+!define MUI_ICON   "appicon.ico"
 !define MUI_UNICON "appicon.ico"
 
-; Welcome page
 !insertmacro MUI_PAGE_WELCOME
-
-; Components page (lets user choose VDD)
-!insertmacro MUI_PAGE_COMPONENTS
-
-; Directory page
 !insertmacro MUI_PAGE_DIRECTORY
-
-; Install page
 !insertmacro MUI_PAGE_INSTFILES
 
-; Finish page — offer to launch
-!define MUI_FINISHPAGE_RUN "$INSTDIR\BetterCastReceiver.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Launch BetterCast"
+!define MUI_FINISHPAGE_RUN          "$INSTDIR\${PRODUCT_EXE}"
+!define MUI_FINISHPAGE_RUN_TEXT     "Launch ${PRODUCT_NAME}"
+!define MUI_FINISHPAGE_LINK         "Visit ${PRODUCT_WEB_SITE}"
+!define MUI_FINISHPAGE_LINK_LOCATION "${PRODUCT_WEB_SITE}"
 !insertmacro MUI_PAGE_FINISH
 
-; Uninstaller pages
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
-; Language
 !insertmacro MUI_LANGUAGE "English"
 
-; ─── Installer Sections ─────────────────────────────────────────────────────────
+; ─── Helpers ───────────────────────────────────────────────────────────────────
 
-Section "BetterCast (required)" SecCore
-    SectionIn RO  ; Required, cannot deselect
+; Stop a running instance of the app so files aren't locked during upgrade.
+; Tries a graceful close first, then force-kills. Best-effort — never aborts.
+!macro StopRunningApp
+    DetailPrint "Checking for running ${PRODUCT_NAME} instance..."
+    nsExec::ExecToLog 'taskkill /IM "${PRODUCT_EXE}" /T'
+    Pop $0
+    Sleep 500
+    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXE}" /T'
+    Pop $0
+!macroend
+
+; If a previous version is installed, run its uninstaller silently in-place
+; before laying down new files. This is the NSIS equivalent of WiX MajorUpgrade.
+!macro UninstallPrevious
+    ReadRegStr $0 HKLM "${PRODUCT_UNINST_KEY}" "UninstallString"
+    ${If} $0 != ""
+        ReadRegStr $1 HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation"
+        ${If} $1 == ""
+            ; Older installers didn't write InstallLocation — fall back to $INSTDIR
+            StrCpy $1 "$INSTDIR"
+        ${EndIf}
+        DetailPrint "Uninstalling previous version from $1..."
+        ; _?=<dir> tells the uninstaller to run synchronously (don't self-copy
+        ; to %TEMP% and exit early). /S = silent.
+        ExecWait '"$0" /S _?=$1' $2
+        DetailPrint "Previous uninstaller exit code: $2"
+    ${EndIf}
+!macroend
+
+; ─── Install ───────────────────────────────────────────────────────────────────
+
+Function .onInit
+    ${IfNot} ${RunningX64}
+        MessageBox MB_ICONSTOP|MB_OK "${PRODUCT_NAME} requires 64-bit Windows."
+        Abort
+    ${EndIf}
+    SetRegView 64
+FunctionEnd
+
+Section "BetterCast" SecCore
+    SectionIn RO
+
+    !insertmacro StopRunningApp
+    !insertmacro UninstallPrevious
 
     SetOutPath "$INSTDIR"
+    SetOverwrite on
 
-    ; Main application files (populated by CI into artifact/ directory)
+    ; Application files (CI populates artifact/ next to this .nsi)
     File /r "artifact\*.*"
 
-    ; Create Start Menu shortcuts
+    ; Shortcuts
     CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
-    CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\BetterCast.lnk" "$INSTDIR\BetterCastReceiver.exe"
-    CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk" "$INSTDIR\uninstall.exe"
+    CreateShortCut  "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\${PRODUCT_EXE}"
+    CreateShortCut  "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"      "$INSTDIR\uninstall.exe"
+    CreateShortCut  "$DESKTOP\${PRODUCT_NAME}.lnk"                   "$INSTDIR\${PRODUCT_EXE}"
 
-    ; Desktop shortcut
-    CreateShortCut "$DESKTOP\BetterCast.lnk" "$INSTDIR\BetterCastReceiver.exe"
+    ; App Paths (lets users launch via Run dialog)
+    WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" ""         "$INSTDIR\${PRODUCT_EXE}"
+    WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "Path"     "$INSTDIR"
 
-    ; Write registry keys
-    WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\BetterCastReceiver.exe"
-    WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
-    WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninstall.exe"
-    WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\BetterCastReceiver.exe"
-    WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
-    WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
-    WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
-    WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoModify" 1
-    WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoRepair" 1
+    ; Add/Remove Programs entry
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "DisplayName"     "${PRODUCT_NAME}"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion"  "${PRODUCT_VERSION}"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon"     "$INSTDIR\${PRODUCT_EXE},0"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "Publisher"       "${PRODUCT_PUBLISHER}"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout"    "${PRODUCT_WEB_SITE}"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "HelpLink"        "${PRODUCT_HELP_LINK}"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+    WriteRegStr   HKLM "${PRODUCT_UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
+    WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoModify"        1
+    WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "NoRepair"        1
 
-    ; Calculate install size
+    ; Install size (KB) for ARP
     ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
     IntFmt $0 "0x%08X" $0
     WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "EstimatedSize" $0
 
-    ; Create uninstaller
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
-    ; Add firewall rules
+    ; Firewall rules
     DetailPrint "Adding firewall rules..."
-    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="BetterCast mDNS" dir=in action=allow protocol=UDP localport=5353'
-    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="BetterCast Streaming" dir=in action=allow protocol=TCP localport=51820'
-    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="BetterCast App" dir=in action=allow program="$INSTDIR\BetterCastReceiver.exe"'
+    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE_MDNS}" dir=in action=allow protocol=UDP localport=5353'
+    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE_STREAMING}" dir=in action=allow protocol=TCP localport=51820'
+    nsExec::ExecToLog 'netsh advfirewall firewall add rule name="${FW_RULE_APP}" dir=in action=allow program="$INSTDIR\${PRODUCT_EXE}"'
 SectionEnd
 
-Section "Virtual Display Driver (VDD)" SecVDD
-    ; VDD enables extending your desktop with virtual monitors
-    ; Files are placed by CI into vdd/ directory
+Section "-VirtualDisplayDriver" SecVDD
+    ; Required, hidden from UI (leading "-" in name + no description).
+    ; Extending the desktop is the headline feature; making this optional was a
+    ; support liability — users opted out and then reported "extension broken."
+    SectionIn RO
 
-    SetOutPath "$INSTDIR\VirtualDisplayDriver"
+    SetOutPath "$INSTDIR\${VDD_SUBDIR}"
 
-    ; Copy VDD files (/nonfatal = don't fail if no files bundled)
-    File /nonfatal /r "vdd\*.*"
+    ; CI guarantees vdd/ contains MttVDD.inf — fail loud if not.
+    File /r "vdd\*.*"
 
-    ; Check if any VDD driver files were actually copied
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" 0 try_generic_inf
+    ${IfNot} ${FileExists} "$INSTDIR\${VDD_SUBDIR}\${VDD_INF}"
+        MessageBox MB_ICONSTOP|MB_OK "Installer is missing the Virtual Display Driver. This is a build packaging error — please report it at ${PRODUCT_HELP_LINK}."
+        Abort
+    ${EndIf}
 
-    ; Install MttVDD driver using devcon (creates device node for IDD drivers)
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 try_pnputil
-    DetailPrint "Installing VDD driver via devcon..."
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" install "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" Root\MttVDD'
-    Pop $0
-    DetailPrint "devcon exit code: $0"
-    StrCmp $0 "0" vdd_done
-
-    try_pnputil:
-    ; Fallback: add driver to store via pnputil
-    DetailPrint "Installing VDD driver via pnputil..."
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /install'
+    ; Install the driver via pnputil (Microsoft-supported on Win10+).
+    ; devcon is legacy and inconsistently available; we don't fall back to it.
+    DetailPrint "Installing Virtual Display Driver..."
+    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\${VDD_SUBDIR}\${VDD_INF}" /install'
     Pop $0
     DetailPrint "pnputil exit code: $0"
-    StrCmp $0 "0" vdd_done
-    Goto vdd_manual
 
-    try_generic_inf:
-    ; Check for any other .inf files
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\*.inf" 0 try_exe
-    FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.inf"
-    StrCmp $2 "" try_exe
-    DetailPrint "Found driver: $2"
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 generic_pnputil
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" install "$INSTDIR\VirtualDisplayDriver\$2" Root\MttVDD'
-    FindClose $1
-    Pop $0
-    StrCmp $0 "0" vdd_done
-    generic_pnputil:
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
-    Pop $0
-    StrCmp $0 "0" vdd_done
-    Goto vdd_manual
+    ; pnputil exit codes:
+    ;   0   = success
+    ;   259 = ERROR_NO_MORE_ITEMS (already installed, treat as success)
+    ;   3010 = success, reboot recommended
+    ${If} $0 != 0
+    ${AndIf} $0 != 259
+    ${AndIf} $0 != 3010
+        MessageBox MB_ICONEXCLAMATION|MB_OKCANCEL \
+            "Virtual Display Driver install failed (exit code $0).$\n$\nYou can continue without screen extension support, or cancel and report at ${PRODUCT_HELP_LINK}." \
+            IDOK vdd_install_continue
+        Abort
+        vdd_install_continue:
+    ${EndIf}
 
-    try_exe:
-    ; Try VDD Control exe to install driver
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\*.exe" 0 vdd_not_found
-    DetailPrint "Running VDD installer..."
-    FindFirst $1 $2 "$INSTDIR\VirtualDisplayDriver\*.exe"
-    StrCmp $2 "" vdd_manual
-    DetailPrint "Running: $2"
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\$2" /S'
-    FindClose $1
-    Goto vdd_done
+    ; Capture the published OEM*.inf name so the uninstaller can remove the
+    ; right driver later. pnputil republishes our INF under a new name like
+    ; oem42.inf — the original filename is no longer authoritative.
+    DetailPrint "Recording published driver name for clean uninstall..."
 
-    vdd_manual:
-    DetailPrint "VDD driver files copied. You may need to install manually from $INSTDIR\VirtualDisplayDriver"
-    Goto vdd_done
+    ; Write a PowerShell helper to disk to avoid NSIS-escaping a multi-quote
+    ; one-liner. The script finds the pnputil block whose Original Name is
+    ; mttvdd.inf and emits its Published Name.
+    StrCpy $R9 "$PLUGINSDIR\find-vdd-oem.ps1"
+    FileOpen  $9 "$R9" w
+    FileWrite $9 '$$blocks = (pnputil /enum-drivers | Out-String) -split "(?ms)^\s*$$"$\r$\n'
+    FileWrite $9 '$$ours = $$blocks | Where-Object { $$_ -match "Original Name:\s*mttvdd\.inf" } | Select-Object -First 1$\r$\n'
+    FileWrite $9 'if ($$ours -match "Published Name:\s*(\S+)") { $$matches[1] }$\r$\n'
+    FileClose $9
 
-    vdd_not_found:
-    DetailPrint "VDD files not bundled in this build"
-    DetailPrint "Install VDD manually from github.com/itsmikethetech/Virtual-Display-Driver"
-    Goto vdd_skip_registry
-
-    vdd_done:
-
-    ; Write VDD install path to registry for BetterCast to detect
-    WriteRegStr HKLM "Software\${PRODUCT_NAME}" "VDDPath" "$INSTDIR\VirtualDisplayDriver"
-
-    vdd_skip_registry:
+    nsExec::ExecToStack 'powershell -NoProfile -ExecutionPolicy Bypass -File "$R9"'
+    Pop $0   ; exit code
+    Pop $1   ; stdout (e.g. "oem42.inf")
+    ${If} $0 == 0
+    ${AndIf} $1 != ""
+        Push $1
+        Call TrimNewlines
+        Pop $1
+        DetailPrint "Published driver name: $1"
+        WriteRegStr HKLM "${PRODUCT_SETTINGS_KEY}" "VDDOemInf" "$1"
+    ${Else}
+        DetailPrint "Could not determine published VDD driver name (exit=$0). Uninstall may leave driver behind."
+    ${EndIf}
+    WriteRegStr HKLM "${PRODUCT_SETTINGS_KEY}" "VDDInstallPath" "$INSTDIR\${VDD_SUBDIR}"
+    WriteRegStr HKLM "${PRODUCT_SETTINGS_KEY}" "VDDVersion"     "${PRODUCT_VERSION}"
 SectionEnd
 
-; ─── Section Descriptions ────────────────────────────────────────────────────────
+; Trim CR/LF/spaces from $1 -> $1
+Function TrimNewlines
+    Exch $R0
+    Push $R1
+    Push $R2
+    StrCpy $R2 0
+    loop:
+        IntOp $R2 $R2 + 1
+        StrCpy $R1 $R0 1 -$R2
+        ${If} $R1 == "$\r"
+        ${OrIf} $R1 == "$\n"
+        ${OrIf} $R1 == "$\t"
+        ${OrIf} $R1 == " "
+            Goto loop
+        ${EndIf}
+        IntOp $R2 $R2 - 1
+        StrCpy $R0 $R0 -$R2
+    Pop $R2
+    Pop $R1
+    Exch $R0
+FunctionEnd
 
-!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} \
-    "BetterCast receiver and sender application. Stream your screen to any device."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecVDD} \
-    "Virtual Display Driver — creates virtual monitors to extend your desktop without a physical display. Required for sender mode screen extension."
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
+; ─── Uninstall ─────────────────────────────────────────────────────────────────
 
-; ─── Uninstaller ─────────────────────────────────────────────────────────────────
+Function un.onInit
+    SetRegView 64
+FunctionEnd
 
 Section "Uninstall"
-    ; Remove firewall rules
-    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast mDNS"'
-    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast Streaming"'
-    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast App"'
+    !insertmacro StopRunningApp
 
-    ; Remove VDD driver (best effort)
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\VirtualDisplayDriver.inf" 0 skip_vdd_remove
-    DetailPrint "Removing Virtual Display Driver..."
-    nsExec::ExecToLog 'pnputil /delete-driver "$INSTDIR\VirtualDisplayDriver\VirtualDisplayDriver.inf" /uninstall'
-    skip_vdd_remove:
+    ; Remove firewall rules
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${FW_RULE_MDNS}"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${FW_RULE_STREAMING}"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="${FW_RULE_APP}"'
+
+    ; Remove VDD driver using the published OEM name we stored at install time.
+    ; Falling back to the original INF filename does not work — pnputil only
+    ; accepts the published name (oemNN.inf).
+    ReadRegStr $0 HKLM "${PRODUCT_SETTINGS_KEY}" "VDDOemInf"
+    ${If} $0 != ""
+        DetailPrint "Removing Virtual Display Driver ($0)..."
+        nsExec::ExecToLog 'pnputil /delete-driver "$0" /uninstall /force'
+        Pop $1
+        DetailPrint "pnputil delete-driver exit code: $1"
+    ${Else}
+        DetailPrint "No published VDD driver name recorded — skipping driver removal"
+    ${EndIf}
 
     ; Remove files
     RMDir /r "$INSTDIR"
 
     ; Remove shortcuts
-    Delete "$DESKTOP\BetterCast.lnk"
+    Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
     RMDir /r "$SMPROGRAMS\${PRODUCT_NAME}"
 
-    ; Remove registry keys
+    ; Remove registry
     DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
     DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
-    DeleteRegKey HKLM "Software\${PRODUCT_NAME}"
+    DeleteRegKey HKLM "${PRODUCT_SETTINGS_KEY}"
 SectionEnd

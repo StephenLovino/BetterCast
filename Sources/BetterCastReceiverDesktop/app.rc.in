@@ -1,0 +1,39 @@
+// Auto-generated from app.rc.in by CMake. Do not edit by hand.
+// Source of truth: Sources/BetterCastReceiverDesktop/VERSION
+
+#include <winver.h>
+
+IDI_ICON1 ICON "@CMAKE_CURRENT_SOURCE_DIR@/appicon.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @BC_VERSION_MAJOR@,@BC_VERSION_MINOR@,@BC_VERSION_PATCH@,0
+ PRODUCTVERSION @BC_VERSION_MAJOR@,@BC_VERSION_MINOR@,@BC_VERSION_PATCH@,0
+ FILEFLAGSMASK  0x3fL
+#ifdef _DEBUG
+ FILEFLAGS      VS_FF_DEBUG
+#else
+ FILEFLAGS      0x0L
+#endif
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "BetterCast"
+            VALUE "FileDescription",  "BetterCast Receiver — wireless display for Windows"
+            VALUE "FileVersion",      "@BC_VERSION@"
+            VALUE "InternalName",     "BetterCastReceiver"
+            VALUE "LegalCopyright",   "Copyright (C) BetterCast"
+            VALUE "OriginalFilename", "BetterCastReceiver.exe"
+            VALUE "ProductName",      "BetterCast"
+            VALUE "ProductVersion",   "@BC_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

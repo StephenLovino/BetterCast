@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QDebug>
 #include "MainWindow.h"
+#include "Version.h"
 
 #ifdef _WIN32
 // Add Windows Firewall exceptions for mDNS and streaming
@@ -76,7 +77,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("BetterCast");
     app.setOrganizationName("BetterCast");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion(QStringLiteral(BC_VERSION_STRING));
     app.setWindowIcon(QIcon(":/appicon.png"));
 
 #ifdef _WIN32
