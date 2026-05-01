@@ -257,25 +257,26 @@ jobs:
             "artifact/BetterCastReceiver.exe"
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
-      - name: Install NSIS
+      - name: Verify NSIS (preinstalled on windows-2022)
         shell: pwsh
         run: |
-          $nsisVersion = "3.10"
-          $nsisUrl = "https://github.com/nicehash/NSIS/releases/download/v${nsisVersion}/nsis-${nsisVersion}.zip"
-          try {
-            Invoke-WebRequest -Uri $nsisUrl -OutFile "nsis.zip"
-            Expand-Archive -Path "nsis.zip" -DestinationPath "C:/nsis"
-            $nsisDir = Get-ChildItem "C:/nsis" -Directory | Select-Object -First 1
-            if ($nsisDir) {
-              "$($nsisDir.FullName)" >> $env:GITHUB_PATH
-            } else {
-              "C:/nsis" >> $env:GITHUB_PATH
+          # windows-2022 runners ship with NSIS at C:\Program Files (x86)\NSIS\
+          # already on PATH. We assert presence rather than reinstalling so we
+          # don't depend on third-party mirrors or winget at build time.
+          $makensis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) {
+            $candidate = "C:\Program Files (x86)\NSIS\makensis.exe"
+            if (Test-Path $candidate) {
+              "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+              $makensis = $candidate
             }
-          } catch {
-            Write-Host "GitHub mirror failed, falling back to winget..."
-            winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements --silent
-            "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
           }
+          if (-not $makensis) {
+            Write-Error "makensis.exe not found — windows-2022 runner image changed?"
+            exit 1
+          }
+          Write-Host "Using NSIS: $makensis"
+          & $makensis /VERSION
 
       - name: Build installer
         shell: pwsh
