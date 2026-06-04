@@ -96,6 +96,21 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v11", date: "2026-06-04", highlights: [
+            "Adaptive bitrate over WiFi — auto-matches quality to your network, less pixelation",
+            "Smoother WiFi at 60 FPS (was 30) for fluid cursor and motion",
+        ]),
+        Entry(version: "v10", date: "2026-06-03", highlights: [
+            "Android receiver now plays streamed audio",
+            "Lower input latency when typing on an extended display",
+        ]),
+        Entry(version: "v9", date: "2026-06-03", highlights: [
+            "Fixed Android USB (ADB) streaming — now mirrors to the device, not the Mac",
+            "Lower idle CPU & battery — stopped a runaway background screen capture",
+            "Smoother WiFi (TCP) streaming with near-instant recovery from pixelation",
+            "Now runs on macOS 13 Ventura (previously required macOS 14)",
+            "Clearer Android ADB connection errors",
+        ]),
         Entry(version: "v8", date: "2026-03-30", highlights: [
             "Unified sender + receiver in a single app",
             "Apple Music-style sidebar with tinted selection",
