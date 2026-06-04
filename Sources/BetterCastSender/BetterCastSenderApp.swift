@@ -2270,8 +2270,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let p2p = "\(base) P2P"
         return connectedServices.contains { $0.name == serviceName || $0.name == base || $0.name == p2p }
     }
-    @Published var useVirtualDisplay: Bool = true // Toggle between mirroring and extended display
-    @Published var audioStreamingEnabled: Bool = true // Master toggle for audio streaming
+    @Published var useVirtualDisplay: Bool = NetworkClient.loadBool(SettingsKey.useVirtualDisplay, default: true) { // mirroring vs extended display
+        didSet { UserDefaults.standard.set(useVirtualDisplay, forKey: SettingsKey.useVirtualDisplay) }
+    }
+    @Published var audioStreamingEnabled: Bool = NetworkClient.loadBool(SettingsKey.audio, default: true) { // Master toggle for audio streaming
+        didSet { UserDefaults.standard.set(audioStreamingEnabled, forKey: SettingsKey.audio) }
+    }
     @Published var displayBrightness: Float = Float(DisplayBrightnessControl.getBrightness()) {
         didSet { DisplayBrightnessControl.setBrightness(Double(displayBrightness)) }
     }
@@ -2303,28 +2307,83 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     private var bytesSentWindow: Int = 0
     private var lastStatsTime: Date = Date()
     
+    // MARK: - Persisted settings (remembered between launches — issue #32)
+    // Backed by UserDefaults: loaded as each property's default, saved in didSet.
+    private enum SettingsKey {
+        static let quality = "setting.quality"
+        static let resWidth = "setting.resWidth"
+        static let resHeight = "setting.resHeight"
+        static let retina = "setting.retina"
+        static let connectionType = "setting.connectionType"
+        static let audio = "setting.audioStreaming"
+        static let interfacePref = "setting.interfacePreference"
+        static let autoConnect = "setting.autoConnect"
+        static let useVirtualDisplay = "setting.useVirtualDisplay"
+        static let manualHost = "setting.manualHost"
+        static let manualPort = "setting.manualPort"
+    }
+    private static func loadQuality() -> StreamQuality {
+        (UserDefaults.standard.object(forKey: SettingsKey.quality) as? Int)
+            .flatMap(StreamQuality.init(rawValue:)) ?? .high
+    }
+    private static func loadResolution() -> VirtualDisplayManager.Resolution {
+        let d = UserDefaults.standard
+        if let w = d.object(forKey: SettingsKey.resWidth) as? Int,
+           let h = d.object(forKey: SettingsKey.resHeight) as? Int,
+           let match = VirtualDisplayManager.defaultResolutions.first(where: { $0.width == w && $0.height == h }) {
+            return match
+        }
+        return VirtualDisplayManager.defaultResolutions[1]
+    }
+    private static func loadInterfacePreference() -> NetworkInterfacePreference {
+        (UserDefaults.standard.string(forKey: SettingsKey.interfacePref))
+            .flatMap(NetworkInterfacePreference.init(rawValue:)) ?? .auto
+    }
+    /// Reads a persisted Bool, falling back to `default` when the key was never set.
+    private static func loadBool(_ key: String, default fallback: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) == nil ? fallback : UserDefaults.standard.bool(forKey: key)
+    }
+
     // Settings
-    @Published var selectedResolution: VirtualDisplayManager.Resolution = VirtualDisplayManager.defaultResolutions[1]
-    @Published var isRetina: Bool = false
-    @Published var connectionType: String = "TCP" {
+    @Published var selectedResolution: VirtualDisplayManager.Resolution = NetworkClient.loadResolution() {
         didSet {
+            UserDefaults.standard.set(selectedResolution.width, forKey: SettingsKey.resWidth)
+            UserDefaults.standard.set(selectedResolution.height, forKey: SettingsKey.resHeight)
+        }
+    }
+    @Published var isRetina: Bool = NetworkClient.loadBool(SettingsKey.retina, default: false) {
+        didSet { UserDefaults.standard.set(isRetina, forKey: SettingsKey.retina) }
+    }
+    @Published var connectionType: String = (UserDefaults.standard.string(forKey: SettingsKey.connectionType) ?? "TCP") {
+        didSet {
+            UserDefaults.standard.set(connectionType, forKey: SettingsKey.connectionType)
             // Restart browsing if type changes
             browser?.cancel()
             startBrowsing()
         }
     }
-    
-    @Published var selectedQuality: StreamQuality = .high
-    
+
+    @Published var selectedQuality: StreamQuality = NetworkClient.loadQuality() {
+        didSet { UserDefaults.standard.set(selectedQuality.rawValue, forKey: SettingsKey.quality) }
+    }
+
     // Manual Interface Toggle — default Auto so Windows/Linux/Android receivers work out of the box
-    @Published var interfacePreference: NetworkInterfacePreference = .auto
+    @Published var interfacePreference: NetworkInterfacePreference = NetworkClient.loadInterfacePreference() {
+        didSet { UserDefaults.standard.set(interfacePreference.rawValue, forKey: SettingsKey.interfacePref) }
+    }
 
     // Auto-connect: automatically connect to discovered receivers
-    @Published var autoConnect: Bool = false
+    @Published var autoConnect: Bool = NetworkClient.loadBool(SettingsKey.autoConnect, default: false) {
+        didSet { UserDefaults.standard.set(autoConnect, forKey: SettingsKey.autoConnect) }
+    }
 
     // Manual connection
-    @Published var manualHost: String = ""
-    @Published var manualPort: String = "51820"
+    @Published var manualHost: String = (UserDefaults.standard.string(forKey: SettingsKey.manualHost) ?? "") {
+        didSet { UserDefaults.standard.set(manualHost, forKey: SettingsKey.manualHost) }
+    }
+    @Published var manualPort: String = (UserDefaults.standard.string(forKey: SettingsKey.manualPort) ?? "51820") {
+        didSet { UserDefaults.standard.set(manualPort, forKey: SettingsKey.manualPort) }
+    }
 
     var isConnected: Bool { !pipelines.isEmpty }
 
