@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.bettercast.receiver.audio.AudioPlayer
 import com.bettercast.receiver.input.InputEvent
 import com.bettercast.receiver.network.ConnectionState
 import com.bettercast.receiver.network.ServiceAdvertiser
@@ -43,6 +44,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
 
     val tcpServer = TcpClient()
     val videoDecoder = VideoDecoder()
+    private val audioPlayer = AudioPlayer()
     private val serviceAdvertiser = ServiceAdvertiser(application)
     private var udpClient: UdpClient? = null
 
@@ -97,6 +99,11 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
             videoDecoder.onFrameData(data)
         }
 
+        // Wire TCP audio data to the audio player (starts lazily on first real packet)
+        tcpServer.onAudioReceived = { data ->
+            audioPlayer.onAudioData(data)
+        }
+
         // Start the server and advertise
         startReceiver()
     }
@@ -141,6 +148,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         tcpServer.disconnect()
         udpClient?.stop()
         videoDecoder.stop()
+        audioPlayer.stop()
         _connectedSenderName.value = null
         _state.value = ReceiverState.WAITING
         _statusMessage.value = "Waiting for sender to connect..."
@@ -186,6 +194,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         udpClient?.destroy()
         udpClient = null
         videoDecoder.stop()
+        audioPlayer.stop()
         _state.value = ReceiverState.WAITING
         _statusMessage.value = "Stopped"
     }
@@ -220,5 +229,6 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         tcpServer.destroy()
         udpClient?.destroy()
         videoDecoder.destroy()
+        audioPlayer.destroy()
     }
 }
