@@ -12,12 +12,15 @@ class VideoEncoder {
     private var compressionSession: VTCompressionSession?
     private var frameCount = 0
     private let bitrate: Int
+    private let rateLimitWindow: Double
+    private(set) var currentBitrate: Int
 
     // Cache for headers so we can re-send them if needed
     private var cachedSPS: Data?
     private var cachedPPS: Data?
 
     private var pendingKeyFrameRequest = false
+    private var pendingKeyFrameSilent = false
     private var lastKeyFrameTime: Date = Date.distantPast
     private let keyframeThrottleInterval: TimeInterval
 
@@ -26,6 +29,8 @@ class VideoEncoder {
     init(connectionId: UUID, width: Int, height: Int, bitrate: Int = 20_000_000, expectedFPS: Int = 120, keyframeIntervalSeconds: Double = 10.0, rateLimitWindow: Double = 1.0) {
         self.connectionId = connectionId
         self.bitrate = bitrate
+        self.currentBitrate = bitrate
+        self.rateLimitWindow = rateLimitWindow
         self.expectedFPS = expectedFPS
         self.keyframeThrottleInterval = max(0.3, keyframeIntervalSeconds / 3.0) // Allow forced keyframes at 1/3 the interval
         
@@ -72,16 +77,40 @@ class VideoEncoder {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: keyframeIntervalSeconds as CFNumber)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse) // Crucial for Real-Time
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: expectedFPS as CFNumber)
+        // Emit each frame as soon as it's encoded — no rate-control lookahead buffering.
+        // With no frame reordering this is safe and shaves a frame of latency off interactive
+        // use (e.g. typing on an extended display mirrored to the receiver).
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: 1 as CFNumber)
 
         VTCompressionSessionPrepareToEncodeFrames(session)
         LogManager.shared.log("VideoEncoder: Initialized (\(bitrate/1_000_000)Mbps, KF every \(keyframeIntervalSeconds)s)")
     }
     
-    func forceKeyframe() {
-        LogManager.shared.log("VideoEncoder: Keyframe Requested")
+    /// Request the next encodable frame be an IDR keyframe.
+    /// - Parameter silent: pass true for high-frequency recovery requests (e.g. after a
+    ///   dropped P-frame) so the log isn't spammed. A non-silent request always logs and
+    ///   "wins" over a pending silent one.
+    func forceKeyframe(silent: Bool = false) {
+        if !silent {
+            LogManager.shared.log("VideoEncoder: Keyframe Requested")
+            pendingKeyFrameSilent = false
+        } else if !pendingKeyFrameRequest {
+            pendingKeyFrameSilent = true
+        }
         pendingKeyFrameRequest = true
     }
     
+    /// Adjust the target bitrate on a running session (adaptive bitrate for WiFi/infrastructure).
+    /// Updates both AverageBitRate and DataRateLimits so frame sizes are constrained to match.
+    func setTargetBitrate(_ newBitrate: Int) {
+        guard let session = compressionSession, newBitrate != currentBitrate else { return }
+        currentBitrate = newBitrate
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: newBitrate as CFNumber)
+        let bytesPerWindow = Int(Double(newBitrate / 8) * 1.5 * rateLimitWindow)
+        let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
+    }
+
     func encode(sampleBuffer: CMSampleBuffer) {
         guard let session = compressionSession,
               let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -97,14 +126,20 @@ class VideoEncoder {
         let timeSinceLastKeyFrame = Date().timeIntervalSince(lastKeyFrameTime)
         
         if frameCount == 1 || (pendingKeyFrameRequest && timeSinceLastKeyFrame > keyframeThrottleInterval) {
-             LogManager.shared.log("VideoEncoder: Forcing Keyframe (Frame \(frameCount))")
+             if !pendingKeyFrameSilent {
+                 LogManager.shared.log("VideoEncoder: Forcing Keyframe (Frame \(frameCount))")
+             }
              frameProperties[kVTEncodeFrameOptionKey_ForceKeyFrame as String] = kCFBooleanTrue
              pendingKeyFrameRequest = false
+             pendingKeyFrameSilent = false
              lastKeyFrameTime = Date()
         } else if pendingKeyFrameRequest {
              // Request ignored due to throttling
-             LogManager.shared.log("VideoEncoder: Keyframe Request Throttled (Last: \(timeSinceLastKeyFrame)s ago)")
+             if !pendingKeyFrameSilent {
+                 LogManager.shared.log("VideoEncoder: Keyframe Request Throttled (Last: \(timeSinceLastKeyFrame)s ago)")
+             }
              pendingKeyFrameRequest = false // Clear it so we don't queue likely stale requests
+             pendingKeyFrameSilent = false
         }
         
         let status = VTCompressionSessionEncodeFrame(

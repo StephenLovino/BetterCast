@@ -4,6 +4,12 @@ import CoreMedia
 
 class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
+    // Set when stopCapture() is called. startCapture() runs async and spends up to ~2s
+    // retrying to find the virtual display before it assigns `stream`. If a stop lands
+    // during that window it would no-op on a nil stream and the about-to-start stream
+    // would leak — capturing forever with no way to stop it. This flag lets an in-flight
+    // start abort and tear itself down.
+    private var stopRequested = false
     private var videoEncoder: VideoEncoder?
     private var targetDisplayID: CGDirectDisplayID?
     var audioEncoder: AudioEncoder?
@@ -23,13 +29,15 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
     
     func startCapture() async {
+        stopRequested = false
         do {
             // Retry logic for Virtual Display availability (Race condition fix)
             var display: SCDisplay?
-            
+
             if let targetID = targetDisplayID {
                 LogManager.shared.log("ScreenRecorder: Searching for target display \(targetID)...")
                 for i in 0..<10 { // Retry 10 times (2 seconds max)
+                    if stopRequested { return } // Bail if torn down mid-search
                     let content = try await SCShareableContent.current
                     if let match = content.displays.first(where: { $0.displayID == targetID }) {
                         display = match
@@ -66,7 +74,9 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             config.width = width
             config.height = height
             config.minimumFrameInterval = CMTime(value: 1, timescale: captureFPS)
-            config.queueDepth = captureFPS > 60 ? 8 : 4
+            // Lower queue depth = less capture-side buffering = lower input-to-display latency.
+            // 3 keeps a small cushion against encoder hiccups without holding ~4 frames (~66ms @60fps).
+            config.queueDepth = captureFPS > 60 ? 8 : 3
             config.capturesAudio = captureAudio
 
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
@@ -76,13 +86,29 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 LogManager.shared.log("ScreenRecorder: Audio capture enabled")
             }
             
-            try await stream.startCapture()
+            // Publish the stream before starting so a concurrent stopCapture() can see it.
             self.stream = stream
+            if stopRequested {
+                self.stream = nil
+                LogManager.shared.log("ScreenRecorder: Start aborted — stop requested during setup")
+                return
+            }
+
+            try await stream.startCapture()
+
+            // A stop may have landed between the check above and startCapture completing.
+            if stopRequested {
+                try? await stream.stopCapture()
+                self.stream = nil
+                LogManager.shared.log("ScreenRecorder: Started then immediately stopped — stop requested mid-start")
+                return
+            }
             LogManager.shared.log("ScreenRecorder: Started capture for display \(display.displayID)")
 
         } catch {
             LogManager.shared.log("ScreenRecorder: Failed to start capture: \(error.localizedDescription)")
-            
+            self.stream = nil // Release a partially-created stream so it doesn't linger
+
             if let scError = error as? SCStreamError, scError.code == .userDeclined {
                  LogManager.shared.log("ScreenRecorder: PERMISSION DENIED. Go to System Settings > Privacy > Screen Recording")
             }
@@ -90,6 +116,7 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
     
     func stopCapture() {
+        stopRequested = true // Aborts an in-flight startCapture() that hasn't published its stream yet
         Task {
             try? await stream?.stopCapture()
             stream = nil

@@ -18,6 +18,18 @@ enum BCConstants {
     static let tcpServiceType = "_bettercast._tcp"
     static let udpServiceType = "_bettercast._udp"
 
+    /// TCP port the sender listens on for iOS-initiated "send to me" connections.
+    /// Distinct from the receiver-mode listener on tcpPort so they don't collide.
+    static let senderInvitePort: UInt16 = 51822
+    /// Bonjour service type the sender advertises so iOS receivers can discover and dial it.
+    static let senderInviteServiceType = "_bettercast-sender._tcp"
+
+    /// Host-side (Mac) port for the ADB USB/WiFi tunnel: `adb forward tcp:<this> tcp:51820`.
+    /// MUST differ from tcpPort — when BetterCast runs as both sender and receiver, the
+    /// receiver listener already owns 51820, so `adb forward` can't bind it and the sender's
+    /// localhost connection loops back into the Mac's own receiver instead of reaching Android.
+    static let adbForwardPort: UInt16 = 51823
+
     // MARK: - Audio
     /// AAC-LC frame size in samples. Required by the AAC encoder/decoder.
     static let aacFrameSize: UInt32 = 1024

@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "BetterCast",
     platforms: [
-        .macOS(.v14), // Target modern macOS for ScreenCaptureKit
+        .macOS(.v13), // ScreenCaptureKit needs 12.3+; NavigationSplitView needs 13.0
         .iOS(.v13)    // Target iOS 13+ for Receiver
     ],
     products: [
