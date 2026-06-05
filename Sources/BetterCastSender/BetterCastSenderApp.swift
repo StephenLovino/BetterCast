@@ -1879,6 +1879,14 @@ struct DeviceDetailView: View {
     @ObservedObject var client: NetworkClient
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
 
+    private var isAndroidDevice: Bool { display.name.lowercased().contains("android") }
+    private var isOnUSB: Bool { display.name.contains("Android (USB)") }
+    private var currentTransportLabel: String {
+        if display.name.contains("Android (USB)") { return "USB (ADB)" }
+        if display.name.contains("Android (WiFi ADB)") { return "Wireless (WiFi ADB)" }
+        return "WiFi"
+    }
+
     var body: some View {
         Form {
             Section("Resolution") {
@@ -1913,6 +1921,30 @@ struct DeviceDetailView: View {
                         set: { client.setAudioEnabled($0, for: display.id) }
                     ))
                     InfoTip(text: "Streams system audio to this receiver.")
+                }
+            }
+
+            // Connection transport — switch without disconnecting first (Android only)
+            if isAndroidDevice {
+                Section("Connection") {
+                    LabeledContent("Method") { Text(currentTransportLabel) }
+                    if isOnUSB {
+                        HStack {
+                            Button("Switch to Wireless") {
+                                client.switchAndroidToWireless(from: display.id)
+                                selection = .devices
+                            }
+                            InfoTip(text: "Switches to a wireless ADB tunnel so you can unplug the cable. Stays connected through the handoff.")
+                        }
+                    } else {
+                        HStack {
+                            Button("Switch to USB (smoother)") {
+                                client.switchAndroidToUSB(from: display.id)
+                                selection = .devices
+                            }
+                            InfoTip(text: "Plug in a USB cable first. USB gives lower latency and higher bandwidth than WiFi.")
+                        }
+                    }
                 }
             }
 
@@ -3579,6 +3611,25 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     func disconnectConnection(_ connectionId: UUID) {
         removeConnection(connectionId)
+    }
+
+    /// Switch an already-connected Android device to the ADB USB tunnel (lower latency, higher
+    /// bandwidth). Drops the current connection, then sets up USB. Requires the device plugged
+    /// in via USB — connectADBUSB() reports "No USB device" if it isn't.
+    func switchAndroidToUSB(from connectionId: UUID) {
+        LogManager.shared.log("Sender: Switching Android connection to USB…")
+        removeConnection(connectionId)
+        // Let teardown settle before adb forward + reconnect.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.connectADBUSB()
+        }
+    }
+
+    /// Switch an already-connected Android device (currently on USB) to a wireless ADB tunnel.
+    /// connectADBWireless() does the USB→tcpip→WiFi handoff and tears down the USB tunnel itself.
+    func switchAndroidToWireless(from connectionId: UUID) {
+        LogManager.shared.log("Sender: Switching Android connection to wireless…")
+        connectADBWireless()
     }
 
     func setAudioEnabled(_ enabled: Bool, for connectionId: UUID) {
