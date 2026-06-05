@@ -1501,6 +1501,7 @@ struct DisplayOverviewView: View {
 
     private var displays: [DisplayItem] {
         var items: [DisplayItem] = []
+        let bcCGIDs = Set(client.connectedDisplays.compactMap { $0.cgDisplayID })
 
         // Built-in display
         if let builtinScreen = NSScreen.builtin ?? NSScreen.main {
@@ -1513,6 +1514,26 @@ struct DisplayOverviewView: View {
                 originX: frame.origin.x,
                 originY: frame.origin.y,
                 isBuiltIn: true
+            ))
+        }
+
+        // Real external displays — physically connected monitors that are NOT the built-in
+        // and NOT one of our BetterCast virtual displays. Shown so the arrangement reflects
+        // the actual desk setup. They get a live preview via their CGDisplayID.
+        for screen in NSScreen.screens {
+            guard let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { continue }
+            if CGDisplayIsBuiltin(num) != 0 { continue }   // built-in already added
+            if bcCGIDs.contains(num) { continue }          // BetterCast virtual added below
+            let frame = screen.frame
+            items.append(DisplayItem(
+                id: "ext-\(num)",
+                name: screen.localizedName,
+                width: frame.width,
+                height: frame.height,
+                originX: frame.origin.x,
+                originY: frame.origin.y,
+                isBuiltIn: false,
+                cgDisplayID: num
             ))
         }
 
