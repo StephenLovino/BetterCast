@@ -2239,12 +2239,7 @@ struct ConnectionPipeline {
     var isWiFiADB: Bool = false
     // ADB/localhost connections always use TCP framing regardless of global protocol setting
     var forceTCP: Bool = false
-    // Adaptive bitrate (infrastructure / WiFi-TCP only): ceiling = user-selected quality,
-    // current = live value, plus per-second frame/drop counters used to steer it.
-    var maxBitrate: Int = 0
-    var currentBitrate: Int = 0
-    var adaptFrames: Int = 0
-    var adaptDrops: Int = 0
+    // Adaptive bitrate state lives on the VideoEncoder (a class), not here — see VideoEncoder.
     // iOS/Mac Swift receivers don't strip the type byte — send raw payloads for them
     var supportsTypeByte: Bool = true
     // Receiver-reported screen dimensions (pixels) — used to match aspect ratio
@@ -3631,27 +3626,34 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     /// hysteresis prevents oscillation. Floor keeps motion smooth over a weak link.
     private func adaptBitrates() {
         let floorBitrate = 2_000_000 // 2 Mbps — smooth-but-soft rather than blocky
-        for (id, p) in pipelines where !p.isP2P && !p.isLoopback && p.maxBitrate > 0 {
-            let frames = p.adaptFrames
-            let drops = p.adaptDrops
-            pipelines[id]?.adaptFrames = 0
-            pipelines[id]?.adaptDrops = 0
+        // Collect (name, encoder) up front so we never mutate `pipelines` while iterating it,
+        // and so all adaptive state reads/writes go through the encoder (a class), not the
+        // shared dictionary. Mutating the dict here while the encoder callback thread also
+        // touches it corrupts the heap (was the v11 crash).
+        let targets: [(name: String, encoder: VideoEncoder)] = pipelines.values.compactMap { p in
+            guard !p.isP2P, !p.isLoopback, let enc = p.videoEncoder, enc.maxBitrate > 0 else { return nil }
+            return (p.service.name, enc)
+        }
+        for (name, enc) in targets {
+            let frames = enc.adaptFrames
+            let drops = enc.adaptDrops
+            enc.adaptFrames = 0
+            enc.adaptDrops = 0
             guard frames >= 5 else { continue } // need a meaningful sample before steering
 
+            let current = enc.currentBitrate
             let dropRatio = Double(drops) / Double(frames)
-            var target = p.currentBitrate
+            var target = current
             if dropRatio > 0.15 {
-                target = max(floorBitrate, Int(Double(p.currentBitrate) * 0.7)) // back off 30%
-            } else if drops == 0 && p.currentBitrate < p.maxBitrate {
-                target = min(p.maxBitrate, p.currentBitrate + p.maxBitrate / 10) // recover ~10%/s
+                target = max(floorBitrate, Int(Double(current) * 0.7)) // back off 30%
+            } else if drops == 0 && current < enc.maxBitrate {
+                target = min(enc.maxBitrate, current + enc.maxBitrate / 10) // recover ~10%/s
             }
 
-            if target != p.currentBitrate {
-                let from = p.currentBitrate
-                pipelines[id]?.currentBitrate = target
-                pipelines[id]?.videoEncoder?.setTargetBitrate(target)
+            if target != current {
+                enc.setTargetBitrate(target)
                 LogManager.shared.log(String(format: "Sender: Adaptive bitrate %@: %.1f→%.1f Mbps (drops %d/%d)",
-                    p.service.name, Double(from) / 1_000_000, Double(target) / 1_000_000, drops, frames))
+                    name, Double(current) / 1_000_000, Double(target) / 1_000_000, drops, frames))
             }
         }
     }
@@ -3989,8 +3991,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         encoder.delegate = self
         pipelines[connectionId]?.videoEncoder = encoder
         // Seed adaptive bitrate: user-selected bitrate is the ceiling; start there.
-        pipelines[connectionId]?.maxBitrate = bitrate
-        pipelines[connectionId]?.currentBitrate = bitrate
+        encoder.maxBitrate = bitrate // ceiling; encoder.currentBitrate already starts here
 
         // Audio encoder (if audio streaming enabled for this connection)
         let audioEnabled = connectedDisplays.first(where: { $0.id == connectionId })?.audioEnabled ?? audioStreamingEnabled
@@ -4040,7 +4041,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let isInfra = !pipeline.isP2P && !pipeline.isLoopback && useTCP
         if isInfra {
             // Feed the adaptive-bitrate controller (evaluated once/sec in the stats timer).
-            pipelines[connectionId]?.adaptFrames += 1
+            // Counters live on the encoder (a class) — mutating them here, on the encoder
+            // callback thread, must NOT touch the shared `pipelines` dictionary.
+            encoder.adaptFrames += 1
             if !isKeyframe && pipeline.sendInProgress {
                 // Dropping this P-frame leaves the decoder unable to reconstruct
                 // subsequent frames → blocky pixelation until the next keyframe. On
@@ -4048,7 +4051,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 // Request a keyframe (throttled in the encoder) so the picture resyncs in
                 // a fraction of a second, and count the drop so adaptive bitrate backs off.
                 encoder.forceKeyframe(silent: true)
-                pipelines[connectionId]?.adaptDrops += 1
+                encoder.adaptDrops += 1
                 return
             }
         }

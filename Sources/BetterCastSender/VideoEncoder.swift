@@ -14,6 +14,12 @@ class VideoEncoder {
     private let bitrate: Int
     private let rateLimitWindow: Double
     private(set) var currentBitrate: Int
+    // Adaptive bitrate state lives on the encoder (a class) — NOT in the pipelines
+    // dictionary — so the video-encoder callback thread can update it without mutating
+    // a shared Swift dictionary concurrently with the main thread (which corrupts the heap).
+    var maxBitrate: Int = 0          // ceiling = user-selected quality
+    var adaptFrames: Int = 0         // frames seen this window (infrastructure path)
+    var adaptDrops: Int = 0          // frames dropped this window (backpressure)
 
     // Cache for headers so we can re-send them if needed
     private var cachedSPS: Data?
