@@ -96,6 +96,12 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v13", date: "2026-06-05", highlights: [
+            "Switch an Android device between WiFi and USB without disconnecting first",
+        ]),
+        Entry(version: "v12", date: "2026-06-05", highlights: [
+            "Fixed a crash introduced in v11 (adaptive bitrate)",
+        ]),
         Entry(version: "v11", date: "2026-06-04", highlights: [
             "Adaptive bitrate over WiFi — auto-matches quality to your network, less pixelation",
             "Smoother WiFi at 60 FPS (was 30) for fluid cursor and motion",
