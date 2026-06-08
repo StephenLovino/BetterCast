@@ -1,0 +1,54 @@
+{
+  "": {
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/master.swiftdeps"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/Constants.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/Constants.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/Constants.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/Constants~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/Constants.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/Constants.dia"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/InputEvent.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/InputEvent.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/InputEvent.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/InputEvent~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/InputEvent.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/InputEvent.dia"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/LogManager.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/LogManager.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/LogManager.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/LogManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/LogManager.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/LogManager.dia"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/ReceiverNetworkListener.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverNetworkListener.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverNetworkListener.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverNetworkListener~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverNetworkListener.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverNetworkListener.dia"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/ReceiverVideoDecoder.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoDecoder.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoDecoder.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoDecoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoDecoder.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoDecoder.dia"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/ReceiverVideoRenderer.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoRenderer.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoRenderer.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoRenderer~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoRenderer.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/ReceiverVideoRenderer.dia"
+  },
+  "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/Sources/LegacyMacReceiver/main.swift": {
+    "dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/main.d",
+    "object": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/main.swift.o",
+    "swiftmodule": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/main.swiftdeps",
+    "diagnostics": "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver/.build/arm64-apple-macosx/debug/LegacyMacReceiver.build/main.dia"
+  }
+}

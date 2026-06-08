@@ -1,0 +1,557 @@
+[
+  {
+    "contents" : {
+      "guid" : "Workspace:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver@11",
+      "name" : "LegacyMacReceiver",
+      "path" : "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver",
+      "projects" : [
+        "00a9dbacbf4ecd78636f2527a1cc162a0002ce63f76161d070c92569cc8322e7",
+        "e1191b0285025760905f28d2745040df40dc1ed5b16a631b4ded393f81fa4afa"
+      ]
+    },
+    "signature" : "197bac1b8e3efddeaff25e849f302fddace0d28ab83af90060eae6ab0f353591",
+    "type" : "workspace"
+  },
+  {
+    "contents" : {
+      "buildConfigurations" : [
+        {
+          "buildSettings" : {
+            "CLANG_ENABLE_OBJC_ARC" : "YES",
+            "CODE_SIGNING_REQUIRED" : "NO",
+            "CODE_SIGN_IDENTITY" : "",
+            "COPY_PHASE_STRIP" : "NO",
+            "DEBUG_INFORMATION_FORMAT" : "dwarf",
+            "DRIVERKIT_DEPLOYMENT_TARGET" : "19.0",
+            "DYLIB_INSTALL_NAME_BASE" : "@rpath",
+            "ENABLE_NS_ASSERTIONS" : "YES",
+            "ENABLE_TESTABILITY" : "YES",
+            "ENABLE_TESTING_SEARCH_PATHS" : "YES",
+            "ENTITLEMENTS_REQUIRED" : "NO",
+            "FRAMEWORK_SEARCH_PATHS[__platform_filter=ios;ios-simulator]" : [
+              "$(inherited)",
+              "$(PLATFORM_DIR)/Developer/Library/Frameworks"
+            ],
+            "FRAMEWORK_SEARCH_PATHS[__platform_filter=macos]" : [
+              "$(inherited)",
+              "$(PLATFORM_DIR)/Developer/Library/Frameworks"
+            ],
+            "FRAMEWORK_SEARCH_PATHS[__platform_filter=tvos;tvos-simulator]" : [
+              "$(inherited)",
+              "$(PLATFORM_DIR)/Developer/Library/Frameworks"
+            ],
+            "GCC_OPTIMIZATION_LEVEL" : "0",
+            "GCC_PREPROCESSOR_DEFINITIONS" : [
+              "$(inherited)",
+              "SWIFT_PACKAGE",
+              "DEBUG=1"
+            ],
+            "IPHONEOS_DEPLOYMENT_TARGET" : "12.0",
+            "IPHONEOS_DEPLOYMENT_TARGET[__platform_filter=ios-maccatalyst]" : "13.0",
+            "KEEP_PRIVATE_EXTERNS" : "NO",
+            "MACOSX_DEPLOYMENT_TARGET" : "10.15",
+            "ONLY_ACTIVE_ARCH" : "YES",
+            "OTHER_LDRFLAGS" : [
+
+            ],
+            "PRODUCT_NAME" : "$(TARGET_NAME)",
+            "SDKROOT" : "auto",
+            "SDK_VARIANT" : "auto",
+            "SKIP_INSTALL" : "YES",
+            "SUPPORTED_PLATFORMS" : [
+              "$(AVAILABLE_PLATFORMS)"
+            ],
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS" : [
+              "$(inherited)",
+              "SWIFT_PACKAGE",
+              "DEBUG"
+            ],
+            "SWIFT_INSTALL_OBJC_HEADER" : "NO",
+            "SWIFT_OBJC_INTERFACE_HEADER_NAME" : "",
+            "SWIFT_OPTIMIZATION_LEVEL" : "-Onone",
+            "TVOS_DEPLOYMENT_TARGET" : "12.0",
+            "USE_HEADERMAP" : "NO",
+            "WATCHOS_DEPLOYMENT_TARGET" : "4.0",
+            "XROS_DEPLOYMENT_TARGET" : "1.0"
+          },
+          "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::BUILDCONFIG_Debug",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Debug"
+        },
+        {
+          "buildSettings" : {
+            "CLANG_ENABLE_OBJC_ARC" : "YES",
+            "CODE_SIGNING_REQUIRED" : "NO",
+            "CODE_SIGN_IDENTITY" : "",
+            "COPY_PHASE_STRIP" : "YES",
+            "DEBUG_INFORMATION_FORMAT" : "dwarf-with-dsym",
+            "DRIVERKIT_DEPLOYMENT_TARGET" : "19.0",
+            "DYLIB_INSTALL_NAME_BASE" : "@rpath",
+            "ENABLE_TESTABILITY" : "YES",
+            "ENABLE_TESTING_SEARCH_PATHS" : "YES",
+            "ENTITLEMENTS_REQUIRED" : "NO",
+            "FRAMEWORK_SEARCH_PATHS[__platform_filter=ios;ios-simulator]" : [
+              "$(inherited)",
+              "$(PLATFORM_DIR)/Developer/Library/Frameworks"
+            ],
+            "FRAMEWORK_SEARCH_PATHS[__platform_filter=macos]" : [
+              "$(inherited)",
+              "$(PLATFORM_DIR)/Developer/Library/Frameworks"
+            ],
+            "FRAMEWORK_SEARCH_PATHS[__platform_filter=tvos;tvos-simulator]" : [
+              "$(inherited)",
+              "$(PLATFORM_DIR)/Developer/Library/Frameworks"
+            ],
+            "GCC_OPTIMIZATION_LEVEL" : "s",
+            "GCC_PREPROCESSOR_DEFINITIONS" : [
+              "$(inherited)",
+              "SWIFT_PACKAGE"
+            ],
+            "IPHONEOS_DEPLOYMENT_TARGET" : "12.0",
+            "IPHONEOS_DEPLOYMENT_TARGET[__platform_filter=ios-maccatalyst]" : "13.0",
+            "KEEP_PRIVATE_EXTERNS" : "NO",
+            "MACOSX_DEPLOYMENT_TARGET" : "10.15",
+            "OTHER_LDRFLAGS" : [
+
+            ],
+            "PRODUCT_NAME" : "$(TARGET_NAME)",
+            "SDKROOT" : "auto",
+            "SDK_VARIANT" : "auto",
+            "SKIP_INSTALL" : "YES",
+            "SUPPORTED_PLATFORMS" : [
+              "$(AVAILABLE_PLATFORMS)"
+            ],
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS" : [
+              "$(inherited)",
+              "SWIFT_PACKAGE"
+            ],
+            "SWIFT_INSTALL_OBJC_HEADER" : "NO",
+            "SWIFT_OBJC_INTERFACE_HEADER_NAME" : "",
+            "SWIFT_OPTIMIZATION_LEVEL" : "-Owholemodule",
+            "TVOS_DEPLOYMENT_TARGET" : "12.0",
+            "USE_HEADERMAP" : "NO",
+            "WATCHOS_DEPLOYMENT_TARGET" : "4.0",
+            "XROS_DEPLOYMENT_TARGET" : "1.0"
+          },
+          "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::BUILDCONFIG_Release",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Release"
+        }
+      ],
+      "defaultConfigurationName" : "Release",
+      "developmentRegion" : "en",
+      "groupTree" : {
+        "children" : [
+          {
+            "children" : [
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_0",
+                "name" : "Constants.swift",
+                "path" : "Constants.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              },
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_1",
+                "name" : "InputEvent.swift",
+                "path" : "InputEvent.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              },
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_2",
+                "name" : "LogManager.swift",
+                "path" : "LogManager.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              },
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_3",
+                "name" : "ReceiverNetworkListener.swift",
+                "path" : "ReceiverNetworkListener.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              },
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_4",
+                "name" : "ReceiverVideoDecoder.swift",
+                "path" : "ReceiverVideoDecoder.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              },
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_5",
+                "name" : "ReceiverVideoRenderer.swift",
+                "path" : "ReceiverVideoRenderer.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              },
+              {
+                "fileType" : "sourcecode.swift",
+                "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_6",
+                "name" : "main.swift",
+                "path" : "main.swift",
+                "sourceTree" : "<group>",
+                "type" : "file"
+              }
+            ],
+            "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0",
+            "name" : "Sources/LegacyMacReceiver",
+            "path" : "Sources/LegacyMacReceiver",
+            "sourceTree" : "<group>",
+            "type" : "group"
+          }
+        ],
+        "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP",
+        "name" : "",
+        "path" : "",
+        "sourceTree" : "<group>",
+        "type" : "group"
+      },
+      "guid" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver@11",
+      "path" : "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver",
+      "projectDirectory" : "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver",
+      "projectIsPackage" : "true",
+      "projectName" : "LegacyMacReceiver",
+      "targets" : [
+        "984ad26f74f01db552500ed12c0bd2a324643bcaead5684bff07dbeb1d1a9760"
+      ]
+    },
+    "signature" : "00a9dbacbf4ecd78636f2527a1cc162a0002ce63f76161d070c92569cc8322e7",
+    "type" : "project"
+  },
+  {
+    "contents" : {
+      "buildConfigurations" : [
+        {
+          "buildSettings" : {
+            "CLANG_ENABLE_MODULES" : "YES",
+            "DEFINES_MODULE" : "YES",
+            "INSTALL_PATH" : "/usr/local/bin",
+            "LD_RUNPATH_SEARCH_PATHS" : [
+              "$(inherited)",
+              "@executable_path/../lib"
+            ],
+            "LIBRARY_SEARCH_PATHS" : [
+              "$(inherited)",
+              "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx"
+            ],
+            "OTHER_SWIFT_FLAGS" : [
+              "-package-name",
+              "legacymacreceiver"
+            ],
+            "PACKAGE_RESOURCE_TARGET_KIND" : "regular",
+            "PRODUCT_BUNDLE_IDENTIFIER" : "LegacyMacReceiver",
+            "PRODUCT_MODULE_NAME" : "LegacyMacReceiver",
+            "PRODUCT_NAME" : "$(TARGET_NAME)",
+            "SKIP_INSTALL" : "NO",
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS" : [
+              "$(inherited)",
+              "SWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE"
+            ],
+            "SWIFT_VERSION" : "5",
+            "TARGET_NAME" : "LegacyMacReceiver"
+          },
+          "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDCONFIG_Debug",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Debug"
+        },
+        {
+          "buildSettings" : {
+            "CLANG_ENABLE_MODULES" : "YES",
+            "DEFINES_MODULE" : "YES",
+            "INSTALL_PATH" : "/usr/local/bin",
+            "LD_RUNPATH_SEARCH_PATHS" : [
+              "$(inherited)",
+              "@executable_path/../lib"
+            ],
+            "LIBRARY_SEARCH_PATHS" : [
+              "$(inherited)",
+              "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx"
+            ],
+            "OTHER_SWIFT_FLAGS" : [
+              "-package-name",
+              "legacymacreceiver"
+            ],
+            "PACKAGE_RESOURCE_TARGET_KIND" : "regular",
+            "PRODUCT_BUNDLE_IDENTIFIER" : "LegacyMacReceiver",
+            "PRODUCT_MODULE_NAME" : "LegacyMacReceiver",
+            "PRODUCT_NAME" : "$(TARGET_NAME)",
+            "SKIP_INSTALL" : "NO",
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS" : [
+              "$(inherited)",
+              "SWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE"
+            ],
+            "SWIFT_VERSION" : "5",
+            "TARGET_NAME" : "LegacyMacReceiver"
+          },
+          "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDCONFIG_Release",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Release"
+        }
+      ],
+      "buildPhases" : [
+        {
+          "buildFiles" : [
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_0",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::0",
+              "platformFilters" : [
+
+              ]
+            },
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_1",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::1",
+              "platformFilters" : [
+
+              ]
+            },
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_2",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::2",
+              "platformFilters" : [
+
+              ]
+            },
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_3",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::3",
+              "platformFilters" : [
+
+              ]
+            },
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_4",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::4",
+              "platformFilters" : [
+
+              ]
+            },
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_5",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::5",
+              "platformFilters" : [
+
+              ]
+            },
+            {
+              "fileReference" : "PACKAGE:/Users/local_repo_hdd/BetterCast/LegacyMacReceiver::MAINGROUP::REF_0::REF_6",
+              "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0::6",
+              "platformFilters" : [
+
+              ]
+            }
+          ],
+          "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver::BUILDPHASE_0",
+          "type" : "com.apple.buildphase.sources"
+        }
+      ],
+      "buildRules" : [
+
+      ],
+      "dependencies" : [
+
+      ],
+      "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver@11",
+      "impartedBuildProperties" : {
+        "buildSettings" : {
+
+        }
+      },
+      "name" : "LegacyMacReceiver_-6AEA4925D51B9954_PackageProduct",
+      "productReference" : {
+        "guid" : "PRODUCTREF-PACKAGE-PRODUCT:LegacyMacReceiver",
+        "name" : "LegacyMacReceiver",
+        "type" : "file"
+      },
+      "productTypeIdentifier" : "com.apple.product-type.tool",
+      "type" : "standard"
+    },
+    "signature" : "984ad26f74f01db552500ed12c0bd2a324643bcaead5684bff07dbeb1d1a9760",
+    "type" : "target"
+  },
+  {
+    "contents" : {
+      "buildConfigurations" : [
+        {
+          "buildSettings" : {
+            "PRODUCT_NAME" : "$(TARGET_NAME)",
+            "SDKROOT" : "auto",
+            "SDK_VARIANT" : "auto",
+            "SKIP_INSTALL" : "YES",
+            "SUPPORTED_PLATFORMS" : [
+              "$(AVAILABLE_PLATFORMS)"
+            ]
+          },
+          "guid" : "AGGREGATE::BUILDCONFIG_Debug",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Debug"
+        },
+        {
+          "buildSettings" : {
+            "PRODUCT_NAME" : "$(TARGET_NAME)",
+            "SDKROOT" : "auto",
+            "SDK_VARIANT" : "auto",
+            "SKIP_INSTALL" : "YES",
+            "SUPPORTED_PLATFORMS" : [
+              "$(AVAILABLE_PLATFORMS)"
+            ]
+          },
+          "guid" : "AGGREGATE::BUILDCONFIG_Release",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Release"
+        }
+      ],
+      "defaultConfigurationName" : "Release",
+      "developmentRegion" : "en",
+      "groupTree" : {
+        "children" : [
+
+        ],
+        "guid" : "AGGREGATE::MAINGROUP",
+        "name" : "",
+        "path" : "",
+        "sourceTree" : "<group>",
+        "type" : "group"
+      },
+      "guid" : "AGGREGATE@11",
+      "path" : "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver",
+      "projectDirectory" : "/Users/local_repo_hdd/BetterCast/LegacyMacReceiver",
+      "projectIsPackage" : "true",
+      "projectName" : "Aggregate",
+      "targets" : [
+        "b6c2ec7f028ce08745a0d34092c157defc3fe93ad265eeb5d096d9efdb31cdb8",
+        "9c6ab841a289faa9ae79d79f231c6bf5f7aa9d6261ef5825d6df87957b00fe72"
+      ]
+    },
+    "signature" : "e1191b0285025760905f28d2745040df40dc1ed5b16a631b4ded393f81fa4afa",
+    "type" : "project"
+  },
+  {
+    "contents" : {
+      "buildConfigurations" : [
+        {
+          "buildSettings" : {
+
+          },
+          "guid" : "ALL-EXCLUDING-TESTS::BUILDCONFIG_Debug",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Debug"
+        },
+        {
+          "buildSettings" : {
+
+          },
+          "guid" : "ALL-EXCLUDING-TESTS::BUILDCONFIG_Release",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Release"
+        }
+      ],
+      "buildPhases" : [
+
+      ],
+      "dependencies" : [
+        {
+          "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver@11"
+        }
+      ],
+      "guid" : "ALL-EXCLUDING-TESTS@11",
+      "impartedBuildProperties" : {
+        "buildSettings" : {
+
+        }
+      },
+      "name" : "AllExcludingTests",
+      "type" : "aggregate"
+    },
+    "signature" : "b6c2ec7f028ce08745a0d34092c157defc3fe93ad265eeb5d096d9efdb31cdb8",
+    "type" : "target"
+  },
+  {
+    "contents" : {
+      "buildConfigurations" : [
+        {
+          "buildSettings" : {
+
+          },
+          "guid" : "ALL-INCLUDING-TESTS::BUILDCONFIG_Debug",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Debug"
+        },
+        {
+          "buildSettings" : {
+
+          },
+          "guid" : "ALL-INCLUDING-TESTS::BUILDCONFIG_Release",
+          "impartedBuildProperties" : {
+            "buildSettings" : {
+
+            }
+          },
+          "name" : "Release"
+        }
+      ],
+      "buildPhases" : [
+
+      ],
+      "dependencies" : [
+        {
+          "guid" : "PACKAGE-PRODUCT:LegacyMacReceiver@11"
+        }
+      ],
+      "guid" : "ALL-INCLUDING-TESTS@11",
+      "impartedBuildProperties" : {
+        "buildSettings" : {
+
+        }
+      },
+      "name" : "AllIncludingTests",
+      "type" : "aggregate"
+    },
+    "signature" : "9c6ab841a289faa9ae79d79f231c6bf5f7aa9d6261ef5825d6df87957b00fe72",
+    "type" : "target"
+  }
+]
