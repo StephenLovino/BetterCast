@@ -144,6 +144,27 @@ class ReceiverInputOverlayView: NSView {
     }
 }
 
+/// Creates a host-clock timebase for the display layer. `CMTimebaseCreateWithSourceClock`
+/// is macOS 12+ (renamed from `MasterClock`); on Catalina/Big Sur that symbol is absent and
+/// the app crashes at launch ("Symbol not found: _CMTimebaseCreateWithSourceClock"), so fall
+/// back to the older API there. macOS 13+ behaviour is unchanged.
+private func makeHostTimebase() -> CMTimebase? {
+    // CMTimebaseCreateWithSourceClock is macOS 12+ (renamed from MasterClock). The SDK's
+    // CMTimebaseCreateWithMasterClock is just an inline that forwards to SourceClock, so
+    // referencing EITHER statically links the 12+ symbol and crashes at launch on Catalina
+    // ("Symbol not found: _CMTimebaseCreateWithSourceClock"). Resolve the right symbol at
+    // runtime via dlsym so the binary references neither — works on 10.15 and 12+.
+    typealias CreateFn = @convention(c) (CFAllocator?, CMClock, UnsafeMutablePointer<CMTimebase?>) -> OSStatus
+    let symbolName = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 12, minorVersion: 0, patchVersion: 0))
+        ? "CMTimebaseCreateWithSourceClock" : "CMTimebaseCreateWithMasterClock"
+    guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), symbolName) else { return nil } // -2 = RTLD_DEFAULT
+    let create = unsafeBitCast(sym, to: CreateFn.self)
+    var timebase: CMTimebase?
+    _ = create(kCFAllocatorDefault, CMClockGetHostTimeClock(), &timebase)
+    return timebase
+}
+
 class ReceiverVideoRenderer: ObservableObject {
     let view = ReceiverInputOverlayView()
     private var displayLayer = AVSampleBufferDisplayLayer()
@@ -162,8 +183,7 @@ class ReceiverVideoRenderer: ObservableObject {
 
         displayLayer.videoGravity = .resizeAspect
 
-        var timebase: CMTimebase?
-        CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase)
+        let timebase = makeHostTimebase()
         if let timebase = timebase {
             displayLayer.controlTimebase = timebase
             CMTimebaseSetRate(timebase, rate: 1.0)
@@ -221,8 +241,7 @@ class ReceiverVideoRenderer: ObservableObject {
         let newLayer = AVSampleBufferDisplayLayer()
         newLayer.videoGravity = .resizeAspect
 
-        var timebase: CMTimebase?
-        CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase)
+        let timebase = makeHostTimebase()
         if let timebase = timebase {
             newLayer.controlTimebase = timebase
             CMTimebaseSetRate(timebase, rate: 1.0)
