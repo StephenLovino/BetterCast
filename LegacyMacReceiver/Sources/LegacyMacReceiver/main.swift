@@ -46,14 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        // Show connection status, and hide the label once real video is flowing.
+        // Show the listener status while waiting, and hide the overlay once a sender connects
+        // (connectedClients is populated on accept — a reliable signal, unlike videoSize).
         listener.$status
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in self?.statusLabel.stringValue = status ?? "" }
             .store(in: &cancellables)
-        renderer.$videoSize
+        listener.$connectedClients
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] size in self?.statusLabel.isHidden = (size != .zero) }
+            .sink { [weak self] clients in self?.statusLabel.isHidden = !clients.isEmpty }
             .store(in: &cancellables)
 
         listener.setup(decoder: decoder, renderer: renderer)
