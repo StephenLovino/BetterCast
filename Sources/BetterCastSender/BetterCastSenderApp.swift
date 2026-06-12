@@ -3278,7 +3278,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             // Find USB device serial (filter out wireless connections which contain ":")
             let devices = self.runAdb(["devices"])
             let usbLines = devices.output.components(separatedBy: "\n").filter {
-                $0.contains("\tdevice") && !$0.contains(":")
+                $0.contains("\tdevice") && !$0.contains(":") && !$0.hasPrefix("emulator-")
             }
             // Detect a connected-but-unauthorized device so we can give a precise hint.
             let unauthorized = devices.output.components(separatedBy: "\n").contains {

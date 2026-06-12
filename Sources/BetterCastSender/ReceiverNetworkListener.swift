@@ -175,15 +175,22 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             process.waitUntilExit()
 
             let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let lines = output.components(separatedBy: "\n")
-                .filter { $0.contains("\tdevice") }
-                .map { $0.components(separatedBy: "\t").first ?? "" }
-                .filter { !$0.isEmpty }
-
-            if lines.count <= 1 { return nil }
-
-            let usbDevices = lines.filter { !$0.contains(":") }
-            return usbDevices.first ?? lines.first
+            // Parse every attached transport, in any state. adb demands -s whenever MORE
+            // THAN ONE transport is attached — including offline/unauthorized ones — so
+            // counting only state "device" used to skip -s and fail with
+            // "more than one device/emulator".
+            let rows = output.components(separatedBy: "\n").dropFirst()
+                .map { $0.components(separatedBy: "\t") }
+                .filter { $0.count >= 2 && !$0[0].isEmpty }
+            let ready = rows.filter { $0[1].trimmingCharacters(in: .whitespaces) == "device" }
+                .map { $0[0] }
+            // Prefer a physical USB device over emulators and wireless transports.
+            let physical = ready.filter { !$0.hasPrefix("emulator-") && !$0.contains(":") }
+            let chosen = physical.first ?? ready.first
+            if let chosen = chosen, ready.count > 1 || rows.count > 1 {
+                LogManager.shared.log("Receiver: Multiple ADB transports attached — using \(chosen)")
+            }
+            return chosen
         } catch {
             return nil
         }
@@ -252,6 +259,18 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
     // MARK: - TCP/UDP
 
     func connectTo(host: String, port: UInt16) {
+        // Guard: connecting to our own listening port on loopback is a self-connection —
+        // the receiver dials its own listener and shows a black screen forever. The Manual
+        // Connect field defaults to localhost:51820, which is exactly this trap.
+        let loopbackNames: Set<String> = ["localhost", "127.0.0.1", "::1"]
+        if loopbackNames.contains(host), let ownPort = tcpListener?.port?.rawValue, port == ownPort {
+            LogManager.shared.log("Receiver: Refusing to connect to our own listener (localhost:\(port))")
+            DispatchQueue.main.async {
+                self.status = "That is this Mac's own port. For Android USB use Connect via ADB; otherwise enter the sender's IP."
+            }
+            return
+        }
+
         let tcpOptions = NWProtocolTCP.Options()
         tcpOptions.enableKeepalive = true
         tcpOptions.noDelay = true
