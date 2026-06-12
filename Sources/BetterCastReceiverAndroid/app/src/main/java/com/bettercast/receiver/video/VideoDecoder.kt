@@ -192,9 +192,14 @@ class VideoDecoder {
             // Qualcomm's actual vendor key (the generic one above is a no-op on QTI parts).
             // Same set Moonlight uses for game-streaming latency.
             format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+            // Output frames in DECODE order, skipping the H.264 reorder buffer. Our encoder
+            // sends no B-frames, but the SPS doesn't advertise zero reordering, so the
+            // decoder reserves ~4 frames of DPB "just in case" — measured as ~130ms dwell.
+            // Decode order == display order for this stream. Same key Moonlight uses.
+            format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
             // Hint the codec to run unthrottled instead of pacing to the nominal frame rate.
             // Cloud-gaming/RTC apps use this to shave decoder dwell time on Qualcomm parts.
-            format.setInteger(MediaFormat.KEY_OPERATING_RATE, 240)
+            format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
 
             // Prefer a dedicated low-latency hardware decoder when the vendor ships one
             // (e.g. c2.qti.avc.decoder.low_latency on Qualcomm). createDecoderByType picks

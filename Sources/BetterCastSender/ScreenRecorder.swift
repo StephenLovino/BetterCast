@@ -141,11 +141,11 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func startFramePump() {
         let timer = DispatchSource.makeTimerSource(queue: pumpQueue)
-        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(33))
+        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(16))
         timer.setEventHandler { [weak self] in
             guard let self = self, !self.stopRequested else { return }
             // Only pump when SCK has gone quiet; live capture always wins.
-            guard CACurrentMediaTime() - self.lastFrameHostTime > 0.05,
+            guard CACurrentMediaTime() - self.lastFrameHostTime > 0.03,
                   let sb = self.lastSampleBuffer,
                   let pb = CMSampleBufferGetImageBuffer(sb) else { return }
             self.videoEncoder?.encodeRepeatFrame(pixelBuffer: pb)
