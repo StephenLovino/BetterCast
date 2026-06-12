@@ -1176,6 +1176,16 @@ struct DetailPanelView: View {
                     InfoTip(text: "Higher quality uses more bandwidth. Use Low/Medium on WiFi, High/Ultra on P2P or cable.")
                 }
 
+                HStack {
+                    Picker("Frame Rate", selection: $client.selectedFPS) {
+                        Text("Auto (60)").tag(0)
+                        Text("30 FPS").tag(30)
+                        Text("60 FPS").tag(60)
+                        Text("120 FPS").tag(120)
+                    }
+                    InfoTip(text: "Auto picks the best rate per connection (60). 30 saves bandwidth and battery. 120 is experimental for high-refresh receivers; needs a strong link and doubles bandwidth. Hit Apply Settings (or reconnect) to take effect.")
+                }
+
                 if client.isConnected {
                     LabeledContent("Transfer Speed") {
                         Text(client.transferRate)
@@ -1937,6 +1947,16 @@ struct DeviceDetailView: View {
                 }
 
                 HStack {
+                    Picker("Frame Rate", selection: $client.selectedFPS) {
+                        Text("Auto (60)").tag(0)
+                        Text("30 FPS").tag(30)
+                        Text("60 FPS").tag(60)
+                        Text("120 FPS").tag(120)
+                    }
+                    InfoTip(text: "Auto picks the best rate per connection (60). 30 saves bandwidth and battery. 120 is experimental for high-refresh receivers; needs a strong link and doubles bandwidth. Hit Apply Settings (or reconnect) to take effect.")
+                }
+
+                HStack {
                     Toggle("Audio Streaming", isOn: Binding(
                         get: { display.audioEnabled },
                         set: { client.setAudioEnabled($0, for: display.id) }
@@ -2133,6 +2153,16 @@ struct DiscoveredDeviceView: View {
                         }
                     }
                     InfoTip(text: "Higher quality uses more bandwidth. Use Low/Medium on WiFi, High/Ultra on P2P or cable.")
+                }
+
+                HStack {
+                    Picker("Frame Rate", selection: $client.selectedFPS) {
+                        Text("Auto (60)").tag(0)
+                        Text("30 FPS").tag(30)
+                        Text("60 FPS").tag(60)
+                        Text("120 FPS").tag(120)
+                    }
+                    InfoTip(text: "Auto picks the best rate per connection (60). 30 saves bandwidth and battery. 120 is experimental for high-refresh receivers; needs a strong link and doubles bandwidth. Hit Apply Settings (or reconnect) to take effect.")
                 }
 
                 HStack {
@@ -2369,6 +2399,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         static let useVirtualDisplay = "setting.useVirtualDisplay"
         static let manualHost = "setting.manualHost"
         static let manualPort = "setting.manualPort"
+        static let fps = "setting.fps"
     }
     private static func loadQuality() -> StreamQuality {
         (UserDefaults.standard.object(forKey: SettingsKey.quality) as? Int)
@@ -2413,6 +2444,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     @Published var selectedQuality: StreamQuality = NetworkClient.loadQuality() {
         didSet { UserDefaults.standard.set(selectedQuality.rawValue, forKey: SettingsKey.quality) }
+    }
+
+    /// User frame-rate override: 0 = Auto (per-path default, 60), or 30 / 60 / 120.
+    /// 120 also creates the virtual display at 120Hz for receivers with high-refresh panels.
+    @Published var selectedFPS: Int = (UserDefaults.standard.object(forKey: SettingsKey.fps) as? Int) ?? 0 {
+        didSet { UserDefaults.standard.set(selectedFPS, forKey: SettingsKey.fps) }
     }
 
     // Manual Interface Toggle — default Auto so Windows/Linux/Android receivers work out of the box
@@ -3957,7 +3994,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 name: "BetterCast Display (\(serviceName))"
             )
 
-            if let displayID = displayManager.createDisplay(resolution: resolution) {
+            // High-refresh receivers: create the virtual display at 120Hz when the user
+            // picked 120fps, so capture actually has 120 unique frames to deliver.
+            if let displayID = displayManager.createDisplay(resolution: resolution, refreshRate: selectedFPS >= 120 ? 120 : 60) {
                 targetDisplayID = displayID
                 pipelines[connectionId]?.virtualDisplayManager = displayManager
 
@@ -4019,7 +4058,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Adaptive quality: P2P gets full, loopback (ADB) gets medium-high, infrastructure gets capped
         let isP2P = pipelines[connectionId]?.isP2P ?? false
         let isLoopback = pipelines[connectionId]?.isLoopback ?? false
-        let fps: Int
+        var fps: Int
         let bitrate: Int
         let keyframeInterval: Double
         if isP2P {
@@ -4051,6 +4090,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             bitrate = selectedQuality.rawValue  // ceiling; adaptive bitrate steers the live rate
             keyframeInterval = 1.0  // Short interval bounds worst-case pixelation after a dropped P-frame
             LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 1s for \(serviceName)")
+        }
+
+        // User override from the Frame Rate setting (0 = Auto keeps the per-path value).
+        if selectedFPS > 0 && selectedFPS != fps {
+            fps = selectedFPS
+            LogManager.shared.log("Sender: Frame rate override — \(fps) FPS (user setting)")
         }
 
         let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil

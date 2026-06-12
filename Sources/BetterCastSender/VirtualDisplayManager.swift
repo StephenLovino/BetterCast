@@ -37,18 +37,19 @@ class VirtualDisplayManager {
     
     /// Creates a virtual display with the specified resolution
     /// - Returns: The CGDirectDisplayID of the created virtual display, or nil if creation failed
-    func createDisplay(resolution: Resolution) -> CGDirectDisplayID? {
+    func createDisplay(resolution: Resolution, refreshRate: Int = 60) -> CGDirectDisplayID? {
         return createDisplay(
             width: resolution.width,
             height: resolution.height,
             ppi: resolution.ppi,
             hiDPI: resolution.hiDPI,
-            name: resolution.name
+            name: resolution.name,
+            refreshRate: refreshRate
         )
     }
     
     /// Creates a virtual display with custom parameters
-    func createDisplay(width: Int, height: Int, ppi: Int, hiDPI: Bool, name: String) -> CGDirectDisplayID? {
+    func createDisplay(width: Int, height: Int, ppi: Int, hiDPI: Bool, name: String, refreshRate: Int = 60) -> CGDirectDisplayID? {
         // Call the Objective-C function
         guard let display = createVirtualDisplay(
             Int32(width),
@@ -56,7 +57,8 @@ class VirtualDisplayManager {
             Int32(ppi),
             hiDPI,
             name,
-            serialNum
+            serialNum,
+            Int32(refreshRate)
         ) else {
             LogManager.shared.log("VirtualDisplayManager: Failed to create virtual display")
             return nil

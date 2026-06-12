@@ -22,7 +22,7 @@
 
 #import "VirtualDisplay.h"
 
-id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum) {
+id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate) {
 
     CGVirtualDisplaySettings *settings = [[CGVirtualDisplaySettings alloc] init];
     settings.hiDPI = hiDPI;
@@ -51,7 +51,7 @@ id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *na
     }
     CGVirtualDisplayMode *mode = [[CGVirtualDisplayMode alloc] initWithWidth:width
                                                                       height:height
-                                                                 refreshRate:60];
+                                                                 refreshRate:(refreshRate > 0 ? refreshRate : 60)];
     settings.modes = @[mode];
 
     if (![display applySettings:settings])
