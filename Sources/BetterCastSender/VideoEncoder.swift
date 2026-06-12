@@ -118,12 +118,26 @@ class VideoEncoder {
     }
 
     func encode(sampleBuffer: CMSampleBuffer) {
-        guard let session = compressionSession,
-              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        encodeFrame(imageBuffer: imageBuffer,
+                    pts: CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
+                    duration: CMSampleBufferGetDuration(sampleBuffer))
+    }
 
-        let presentationTimestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let duration = CMSampleBufferGetDuration(sampleBuffer)
-        
+    /// Re-encode a held frame with a fresh host-clock timestamp. Used by the static-content
+    /// frame pump: when the screen is idle, ScreenCaptureKit stops delivering frames, and
+    /// hardware decoders (notably Android MediaCodec) hold 2-4 frames internally until more
+    /// input pushes them through — so the last real change (e.g. a typed character) stays
+    /// stuck inside the decoder. Repeating the previous frame keeps the pipeline flowing
+    /// (same trick as scrcpy's repeat-previous-frame). Static repeats encode to tiny P-frames.
+    func encodeRepeatFrame(pixelBuffer: CVPixelBuffer) {
+        encodeFrame(imageBuffer: pixelBuffer,
+                    pts: CMClockGetTime(CMClockGetHostTimeClock()),
+                    duration: .invalid)
+    }
+
+    private func encodeFrame(imageBuffer: CVImageBuffer, pts: CMTime, duration: CMTime) {
+        guard let session = compressionSession else { return }
         frameCount += 1
         var frameProperties: [String: Any] = [:]
         
@@ -151,7 +165,7 @@ class VideoEncoder {
         let status = VTCompressionSessionEncodeFrame(
             session,
             imageBuffer: imageBuffer,
-            presentationTimeStamp: presentationTimestamp,
+            presentationTimeStamp: pts,
             duration: duration,
             frameProperties: frameProperties as CFDictionary,
             sourceFrameRefcon: nil,

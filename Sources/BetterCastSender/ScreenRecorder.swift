@@ -1,6 +1,7 @@
 import Foundation
 import ScreenCaptureKit
 import CoreMedia
+import QuartzCore
 
 class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
@@ -74,9 +75,10 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             config.width = width
             config.height = height
             config.minimumFrameInterval = CMTime(value: 1, timescale: captureFPS)
-            // Lower queue depth = less capture-side buffering = lower input-to-display latency.
-            // 3 keeps a small cushion against encoder hiccups without holding ~4 frames (~66ms @60fps).
-            config.queueDepth = captureFPS > 60 ? 8 : 3
+            // Low queue depth = less capture-side buffering = lower input-to-display latency.
+            // 4 instead of 3 because the frame pump retains the newest buffer from this pool;
+            // SCK still has 3 free buffers in flight, so effective latency is unchanged.
+            config.queueDepth = captureFPS > 60 ? 8 : 4
             config.capturesAudio = captureAudio
 
             let stream = SCStream(filter: filter, configuration: config, delegate: self)
@@ -104,6 +106,7 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 return
             }
             LogManager.shared.log("ScreenRecorder: Started capture for display \(display.displayID)")
+            startFramePump()
 
         } catch {
             LogManager.shared.log("ScreenRecorder: Failed to start capture: \(error.localizedDescription)")
@@ -117,12 +120,46 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     
     func stopCapture() {
         stopRequested = true // Aborts an in-flight startCapture() that hasn't published its stream yet
+        stopFramePump()
         Task {
             try? await stream?.stopCapture()
             stream = nil
         }
     }
     
+    // MARK: - Static-content frame pump
+    // ScreenCaptureKit only delivers frames when content changes. Hardware decoders on the
+    // receiver (Android MediaCodec especially) hold 2-4 frames internally and only release
+    // them as more input arrives — so on a static screen the last real change (a typed
+    // character, a cursor stop) stays stuck inside the decoder for hundreds of ms. Repeat
+    // the most recent frame at ~30fps while capture is idle to keep the pipeline flushed
+    // (scrcpy's repeat-previous-frame, done sender-side). Repeats encode to tiny P-frames.
+    private let pumpQueue = DispatchQueue(label: "com.bettercast.framepump")
+    private var pumpTimer: DispatchSourceTimer?
+    private var lastSampleBuffer: CMSampleBuffer?   // newest frame; queueDepth is raised by 1 to compensate
+    private var lastFrameHostTime: CFTimeInterval = 0
+
+    private func startFramePump() {
+        let timer = DispatchSource.makeTimerSource(queue: pumpQueue)
+        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(33))
+        timer.setEventHandler { [weak self] in
+            guard let self = self, !self.stopRequested else { return }
+            // Only pump when SCK has gone quiet; live capture always wins.
+            guard CACurrentMediaTime() - self.lastFrameHostTime > 0.05,
+                  let sb = self.lastSampleBuffer,
+                  let pb = CMSampleBufferGetImageBuffer(sb) else { return }
+            self.videoEncoder?.encodeRepeatFrame(pixelBuffer: pb)
+        }
+        timer.resume()
+        pumpTimer = timer
+    }
+
+    private func stopFramePump() {
+        pumpTimer?.cancel()
+        pumpTimer = nil
+        pumpQueue.async { [weak self] in self?.lastSampleBuffer = nil }
+    }
+
     // SCStreamOutput
     private var frameCount = 0
     private var audioFrameCount = 0
@@ -134,6 +171,10 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 LogManager.shared.log("ScreenRecorder: Captured frame \(frameCount)")
             }
             videoEncoder?.encode(sampleBuffer: sampleBuffer)
+            pumpQueue.async { [weak self] in
+                self?.lastSampleBuffer = sampleBuffer
+                self?.lastFrameHostTime = CACurrentMediaTime()
+            }
 
         case .audio:
             audioFrameCount += 1

@@ -4056,9 +4056,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil
         LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, P2P: \(isP2P)]")
 
-        // P2P: tight 0.1s rate limit window prevents AWDL buffer bloat
-        // Infrastructure: loose 1.0s window lets the encoder handle burst scenes naturally
-        let rateLimitWindow: Double = isP2P ? 0.1 : 1.0
+        // P2P: tight 0.1s rate limit window prevents AWDL buffer bloat.
+        // Loopback (ADB tunnel): 0.25s — large bursts pool inside the adb server's buffers
+        // and come out as input-to-display latency, so keep bursts small on USB too.
+        // Infrastructure: loose 1.0s window lets the encoder handle burst scenes naturally.
+        let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? 0.25 : 1.0)
         let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow)
         encoder.delegate = self
         pipelines[connectionId]?.videoEncoder = encoder

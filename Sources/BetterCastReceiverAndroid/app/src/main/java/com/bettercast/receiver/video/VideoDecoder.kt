@@ -181,6 +181,9 @@ class VideoDecoder {
             format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             format.setInteger("vendor.low-latency.enable", 1)
+            // Hint the codec to run unthrottled instead of pacing to the nominal frame rate.
+            // Cloud-gaming/RTC apps use this to shave decoder dwell time on Qualcomm parts.
+            format.setInteger(MediaFormat.KEY_OPERATING_RATE, 240)
 
             val decoder = MediaCodec.createDecoderByType(MIME_TYPE)
             decoder.configure(format, surface, null, 0)
