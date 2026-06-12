@@ -1,6 +1,7 @@
 package com.bettercast.receiver.video
 
 import android.media.MediaCodec
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
 import android.view.Surface
@@ -40,6 +41,13 @@ class VideoDecoder {
     private var framesRendered: Long = 0
     private var framesDropped: Long = 0
     private var lastStatsTime: Long = 0
+
+    // Decoder dwell measurement: time from queueInputBuffer to dequeueOutputBuffer per PTS.
+    // This is the number that tells us whether low-latency mode is actually working.
+    private val feedTimesNs = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+    private var dwellSumMs: Double = 0.0
+    private var dwellMaxMs: Double = 0.0
+    private var dwellCount: Long = 0
 
     var onKeyframeNeeded: (() -> Unit)? = null
 
@@ -181,11 +189,29 @@ class VideoDecoder {
             format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             format.setInteger("vendor.low-latency.enable", 1)
+            // Qualcomm's actual vendor key (the generic one above is a no-op on QTI parts).
+            // Same set Moonlight uses for game-streaming latency.
+            format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
             // Hint the codec to run unthrottled instead of pacing to the nominal frame rate.
             // Cloud-gaming/RTC apps use this to shave decoder dwell time on Qualcomm parts.
             format.setInteger(MediaFormat.KEY_OPERATING_RATE, 240)
 
-            val decoder = MediaCodec.createDecoderByType(MIME_TYPE)
+            // Prefer a dedicated low-latency hardware decoder when the vendor ships one
+            // (e.g. c2.qti.avc.decoder.low_latency on Qualcomm). createDecoderByType picks
+            // the regular variant, which buffers 2-4 frames internally.
+            val lowLatencyName = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
+                !it.isEncoder &&
+                it.name.endsWith(".low_latency") && !it.name.contains(".secure") &&
+                it.supportedTypes.any { t -> t.equals(MIME_TYPE, ignoreCase = true) }
+            }?.name
+
+            val decoder = if (lowLatencyName != null) {
+                Log.i(TAG, "Using low-latency decoder: $lowLatencyName")
+                MediaCodec.createByCodecName(lowLatencyName)
+            } else {
+                Log.i(TAG, "No low-latency decoder variant; using default for $MIME_TYPE")
+                MediaCodec.createDecoderByType(MIME_TYPE)
+            }
             decoder.configure(format, surface, null, 0)
             decoder.start()
 
@@ -235,6 +261,12 @@ class VideoDecoder {
                     val outputIndex = decoder.dequeueOutputBuffer(bufferInfo, 8_000)
                     when {
                         outputIndex >= 0 -> {
+                            feedTimesNs.remove(bufferInfo.presentationTimeUs)?.let { fedAt ->
+                                val ms = (System.nanoTime() - fedAt) / 1e6
+                                dwellSumMs += ms
+                                if (ms > dwellMaxMs) dwellMaxMs = ms
+                                dwellCount++
+                            }
                             decoder.releaseOutputBuffer(outputIndex, true)
                             framesRendered++
                             lastRenderNs = System.nanoTime()
@@ -246,7 +278,10 @@ class VideoDecoder {
 
                     val now = System.currentTimeMillis()
                     if (now - lastStatsTime >= 5000) {
-                        Log.d(TAG, "Stats: fed=$framesDecoded rendered=$framesRendered dropped=$framesDropped queued=${frameQueue.size}")
+                        val dwellAvg = if (dwellCount > 0) dwellSumMs / dwellCount else 0.0
+                        Log.d(TAG, "Stats: fed=$framesDecoded rendered=$framesRendered dropped=$framesDropped queued=${frameQueue.size} " +
+                                "dwellAvg=${"%.1f".format(dwellAvg)}ms dwellMax=${"%.1f".format(dwellMaxMs)}ms (n=$dwellCount)")
+                        dwellSumMs = 0.0; dwellMaxMs = 0.0; dwellCount = 0
                         lastStatsTime = now
                     }
                 } catch (e: MediaCodec.CodecException) {
@@ -273,6 +308,8 @@ class VideoDecoder {
             }
 
             inputBuffer.put(data)
+            if (feedTimesNs.size > 256) feedTimesNs.clear() // bound the map if outputs stall
+            feedTimesNs[ptsUs] = System.nanoTime()
             decoder.queueInputBuffer(inputIndex, 0, data.size, ptsUs, 0)
             framesDecoded++
         } else {
