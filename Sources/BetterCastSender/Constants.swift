@@ -71,6 +71,17 @@ enum BCConstants {
     // MARK: - Display Defaults
     /// Default Android screen size when device hasn't reported its dimensions yet.
     /// Matches a typical phone resolution in landscape.
+    /// Where the Support button sends people.
+    ///
+    /// BetterCast for Mac ships outside the App Store (Developer ID + DMG), so Apple's
+    /// in-app-purchase rules do not apply and this can point anywhere. Keep it off the
+    /// iOS build: App Store donation rules are a separate question and not worth
+    /// entangling with a release that has only just been approved.
+    static let donateURL = "https://whop.com/bettercast/bettercast-donate/"
+
+    /// Author credit link in the settings footer.
+    static let authorGitHubURL = "https://github.com/StephenLovino"
+
     static let defaultAndroidWidth = 1080
     static let defaultAndroidHeight = 2400
 }

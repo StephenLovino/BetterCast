@@ -96,6 +96,15 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v17", date: "2026-08-16", highlights: [
+            "Much sharper picture over Wi-Fi — fixes the blur on faces and scene changes",
+            "Wi-Fi streams now run at 30 FPS by default: fewer dropped frames means the detail survives (force 60 in Frame Rate if you prefer)",
+            "Fixed stuttering when an iPhone and an Android stream at the same time",
+            "Fixed streams that connected and then immediately dropped",
+            "Android: connect to your Mac from the phone, no cable or ADB needed",
+            "Android: redesigned to match the iOS app, with light mode and a trackpad cursor mode",
+            "Wireless ADB is now a fallback — connecting directly is faster",
+        ]),
         Entry(version: "v16", date: "2026-07-09", highlights: [
             "App now follows your system language — Chinese, Japanese, Korean, German, French",
             "Retina mode fixed: displays now come up at the resolution you picked (was half-size, e.g. 1280x800)",

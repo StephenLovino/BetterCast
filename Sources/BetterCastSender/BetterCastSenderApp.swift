@@ -1,6 +1,7 @@
 import SwiftUI
 import Network
 import Security
+import CoreImage.CIFilterBuiltins
 import ScreenCaptureKit
 import IOKit.graphics
 
@@ -775,6 +776,8 @@ struct SidebarView: View {
             // Manual Connect
             Section("Connect") {
                 ManualConnectRow(client: client)
+                QRPairRow(client: client)
+                HotspotJoinRow(client: client)
             }
 
             // Receive mode
@@ -793,19 +796,61 @@ struct SidebarView: View {
         }
         .navigationTitle("BetterCast")
         .listStyle(.sidebar)
+        .sheet(isPresented: Binding(
+            get: { client.qrPairingPayload != nil },
+            set: { if !$0 { client.cancelQRPairing() } }
+        )) {
+            QRPairingSheet(client: client)
+        }
+        .sheet(isPresented: $client.showHotspotScanner) {
+            HotspotScanSheet(client: client)
+        }
         .safeAreaInset(edge: .bottom) {
-            HStack {
-                Spacer()
-                Button(role: .destructive) {
-                    client.quitApp()
+            VStack(spacing: 6) {
+                Button {
+                    if let url = URL(string: BCConstants.donateURL) {
+                        NSWorkspace.shared.open(url)
+                    }
                 } label: {
-                    Image(systemName: "power")
-                        .font(.system(size: 11))
+                    Label(tr("Support BetterCast"), systemImage: "heart.fill")
+                        .font(.caption)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderless)
-                .help("Quit BetterCast")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help(tr("BetterCast is free — chip in if it saved you buying a monitor"))
+
+                HStack(spacing: 4) {
+                    Button {
+                        if let url = URL(string: BCConstants.authorGitHubURL) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Text("Made with \u{2764}\u{FE0F} by Stephen Lovino")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { inside in
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                    .help("Open github.com/StephenLovino")
+
+                    Spacer(minLength: 4)
+
+                    Button(role: .destructive) {
+                        client.quitApp()
+                    } label: {
+                        Image(systemName: "power")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Quit BetterCast")
+                }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
     }
@@ -996,6 +1041,97 @@ struct SidebarDeviceRow: View {
                 ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.1))
                 : nil
         )
+    }
+}
+
+// MARK: - Hotspot Join Row
+
+/// Join a hotspot hosted by the phone. The last resort when there is no shared
+/// network at all: macOS cannot host one, so the phone does and the Mac joins.
+struct HotspotJoinRow: View {
+    @ObservedObject var client: NetworkClient
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("On the phone, tap Create Hotspot and type what it shows here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("Network name", text: $client.hotspotSSID)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Password", text: $client.hotspotPassword)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Join") { client.joinHotspot() }
+                        .disabled(client.hotspotJoining || client.hotspotSSID.isEmpty)
+                    if client.hotspotJoining { ProgressView().scaleEffect(0.5) }
+                }
+                Divider()
+                Button {
+                    client.showHotspotScanner = true
+                } label: {
+                    Label(tr("Scan QR from phone"), systemImage: "qrcode.viewfinder")
+                }
+                .help(tr("Point your Mac's camera at the QR shown on the phone to fill these in automatically."))
+                Divider()
+                // Works whenever you are already on the phone's hotspot, however
+                // you joined it — the phone is the gateway, so no discovery needed.
+                Button("Connect to Gateway") { client.connectToGateway() }
+                    .help(tr("Connect straight to whichever device is hosting this network. Use when already on the phone's hotspot."))
+                if !client.hotspotJoinStatus.isEmpty {
+                    Text(client.hotspotJoinStatus)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Your Mac loses internet while on a phone hotspot.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        } label: {
+            Text(tr("Join Hotspot"))
+        }
+        .help(tr("Connect with no router at all. The phone hosts a local hotspot and the Mac joins it."))
+    }
+}
+
+// MARK: - QR Pair Row
+
+/// Sidebar entry for wireless ADB pairing.
+///
+/// Deliberately lives beside Manual IP rather than inside a device's detail view:
+/// the phone has no reason to be discoverable yet. BetterCast may not even be
+/// running on it, so there would be no row to click through.
+struct QRPairRow: View {
+    @ObservedObject var client: NetworkClient
+
+    var body: some View {
+        Button {
+            client.startQRPairing()
+        } label: {
+            HStack {
+                Label {
+                    VStack(alignment: .leading) {
+                        Text(tr("Pair with QR"))
+                        Text(client.hasNetworkPath
+                             ? tr("Android over Wi-Fi, no cable")
+                             : tr("Network required"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "qrcode")
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!client.hasNetworkPath || client.adbInProgress)
+        .opacity(client.hasNetworkPath ? 1 : 0.5)
+        .help(tr("Pair an Android phone over Wi-Fi by scanning a code with its own camera. No USB cable needed. Android 11 or later."))
     }
 }
 
@@ -2139,21 +2275,26 @@ struct DiscoveredDeviceView: View {
                             Text("ADB (WiFi)")
                                 .fontWeight(.medium)
                             Text(client.hasNetworkPath
-                                 ? "60 FPS — wireless ADB tunnel, needs USB first"
+                                 ? "Fallback — pick the device above instead when it appears"
                                  : tr("Network required — no Wi-Fi connection"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
+                        // Deliberately not prominent. This row used to claim "full quality",
+                        // which is not true over Wi-Fi: adb relays every byte through two
+                        // daemons on top of the same wireless link the device list already
+                        // uses, so it can only ever be slower than connecting directly.
                         Button("Connect") {
                             client.connectADBWireless()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.bordered)
                         .controlSize(.small)
                         .disabled(client.adbInProgress || !client.hasNetworkPath)
-                        InfoTip(text: "Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality.")
+                        InfoTip(text: "Wireless ADB tunnel — a fallback for when the device will not connect directly. It carries the stream over the same Wi-Fi as a direct connection but adds an adb relay at each end, so expect lower throughput. Prefer USB, or pick the device from the list above.")
                     }
                     .opacity(client.hasNetworkPath ? 1 : 0.5)
+
                 }
 
                 // The USB row's endpoint is the loopback ADB tunnel, so a "network"
@@ -2460,6 +2601,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     // Transfer Stats
     @Published var transferRate: String = "0 Mbps"
     private var bytesSentWindow: Int = 0
+    /// The one stats/adaptive timer. Held so a second connection cannot start another —
+    /// startStatsTimer() is called per connection, and every extra timer was another
+    /// adaptBitrates() pass per second, splitting the drop counters into tiny samples and
+    /// letting the bitrate move several steps a second.
+    private var statsTimer: Timer?
     private var lastStatsTime: Date = Date()
     
     // MARK: - Persisted settings (remembered between launches — issue #32)
@@ -3079,6 +3225,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     )
                     pipeline.isP2P = isP2P
                     pipeline.isLoopback = isLoopback
+                    // Wireless ADB looks identical to USB ADB from the socket's point of
+                    // view (both land on lo0), but only USB has the headroom that flag
+                    // implies. Classify it here too, not just on the discovery path, or
+                    // flow control depends on which code path opened the connection.
+                    pipeline.isWiFiADB = isLoopback && service.name.contains("WiFi")
                     // iOS/Mac Swift receivers don't handle the type byte in TCP framing
                     // Match Mac/iOS Swift receivers that don't handle the type byte.
                     // Bonjour appends " (2)", " (3)" etc. for duplicate names, so we can't use exact match.
@@ -3194,6 +3345,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/adb")
         process.arguments = args
+        // adb's default Openscreen mDNS backend finds nothing on macOS — verified
+        // side by side: `dns-sd` and the Bonjour backend both list the pairing
+        // service while Openscreen returns an empty list. Without this, wireless
+        // pairing can never discover the phone.
+        var env = ProcessInfo.processInfo.environment
+        env["ADB_MDNS_BACKEND"] = "bonjour"
+        process.environment = env
         let pipe = Pipe()
         let errPipe = Pipe()
         process.standardOutput = pipe
@@ -3267,6 +3425,258 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     }
 
     /// Full ADB wireless handoff: USB → tcpip → forward → connect
+    // MARK: - Joining a phone's hotspot
+
+    @Published var showHotspotScanner: Bool = false
+    @Published var hotspotSSID: String = ""
+    @Published var hotspotPassword: String = ""
+    @Published var hotspotJoinStatus: String = ""
+    @Published var hotspotJoining: Bool = false
+
+    /// Join the local-only hotspot hosted by the phone.
+    ///
+    /// This is the no-network path: macOS cannot host a hotspot (Internet Sharing has
+    /// no public API), so the phone hosts and the Mac joins. `networksetup` needs no
+    /// admin rights for this. Expect the Mac to lose internet — a local-only hotspot
+    /// has no upstream, and the Mac has one Wi-Fi radio.
+    func joinHotspot() {
+        let ssid = hotspotSSID.trimmingCharacters(in: .whitespaces)
+        let password = hotspotPassword.trimmingCharacters(in: .whitespaces)
+        guard !ssid.isEmpty else {
+            hotspotJoinStatus = tr("Enter the network name shown on your phone")
+            return
+        }
+        hotspotJoining = true
+        hotspotJoinStatus = tr("Joining…")
+        LogManager.shared.log("Hotspot: Joining '\(ssid)'")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
+            var args = ["-setairportnetwork", "en0", ssid]
+            if !password.isEmpty { args.append(password) }
+            process.arguments = args
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            var output = ""
+            do {
+                try process.run()
+                process.waitUntilExit()
+                output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            } catch {
+                output = "\(error)"
+            }
+
+            // networksetup exits 0 even on failure, and reports the problem on stdout.
+            let failed = output.lowercased().contains("could not find")
+                || output.lowercased().contains("failed")
+                || output.lowercased().contains("error")
+
+            DispatchQueue.main.async {
+                self.hotspotJoining = false
+                if failed {
+                    self.hotspotJoinStatus = output.isEmpty ? tr("Could not join that network") : output
+                    LogManager.shared.log("Hotspot: Join failed — \(output)")
+                } else {
+                    self.hotspotJoinStatus = tr("Joined. Connecting to the phone…")
+                    LogManager.shared.log("Hotspot: Joined '\(ssid)' ✅")
+                    self.hotspotPassword = ""
+                    // The interface just changed; re-browse in case mDNS does work.
+                    self.startBrowsing()
+                    // But don't rely on it — see connectToGateway().
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        self.connectToGateway()
+                    }
+                }
+            }
+        }
+    }
+
+    /// The default gateway, which on a phone hotspot is the phone itself.
+    private func defaultGateway() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/sbin/route")
+        process.arguments = ["-n", "get", "default"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch { return nil }
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        for line in out.components(separatedBy: "\n") where line.contains("gateway:") {
+            return line.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces)
+        }
+        return nil
+    }
+
+    /// Connect straight to the default gateway on the receiver port.
+    ///
+    /// Discovery cannot be trusted on a phone hotspot: Android's NsdManager
+    /// advertises on the Wi-Fi client interface, and in hotspot mode Wi-Fi is off
+    /// and the phone is a soft AP instead, so it never announces itself. The phone
+    /// is still listening, and as the AP it is by definition our gateway — so its
+    /// address is knowable without any discovery at all.
+    func connectToGateway() {
+        guard let gateway = defaultGateway() else {
+            hotspotJoinStatus = tr("Joined, but no gateway found. Try Manual IP.")
+            LogManager.shared.log("Hotspot: No default gateway to connect to")
+            return
+        }
+        // Already connected to it? Leave it alone.
+        let name = "\(gateway):\(BCConstants.tcpPort)"
+        if connectedServices.contains(where: { $0.name == name }) {
+            hotspotJoinStatus = tr("Already connected")
+            return
+        }
+        LogManager.shared.log("Hotspot: Connecting to gateway \(name) (bypassing discovery)")
+        hotspotJoinStatus = tr("Connecting to \(gateway)…")
+        manualHost = gateway
+        manualPort = String(BCConstants.tcpPort)
+        connectManual()
+    }
+
+    // MARK: - Wireless pairing via QR
+
+    /// Payload for the on-screen QR, non-nil while the pairing sheet is up.
+    @Published var qrPairingPayload: String?
+    @Published var qrPairingStatus: String = ""
+    @Published var qrPairingFailed: Bool = false
+
+    private var qrPairingCode: String?
+    private var qrPairingTimer: Timer?
+    private var qrPairingDeadline: Date?
+
+    /// Pair with a phone over Wi-Fi by showing a QR its own OS can scan.
+    ///
+    /// Android 11+ reads `WIFI:T:ADB;S:<name>;P:<code>;;` from Developer options →
+    /// Wireless debugging → Pair device with QR code. It then advertises
+    /// `_adb-tls-pairing._tcp`, which we find via adb's own mDNS daemon, pair
+    /// against, and finally `adb connect` to. No cable at any point, and nothing
+    /// to install on the phone — the system scanner does the work.
+    func startQRPairing() {
+        guard !adbInProgress else { return }
+        let name = "BetterCast-\(String(format: "%04d", Int.random(in: 0...9999)))"
+        let code = String(format: "%06d", Int.random(in: 0...999999))
+        qrPairingCode = code
+        qrPairingPayload = "WIFI:T:ADB;S:\(name);P:\(code);;"
+        qrPairingFailed = false
+        qrPairingStatus = tr("Waiting for you to scan…")
+        qrPairingDeadline = Date().addingTimeInterval(180)
+        LogManager.shared.log("ADB QR: Waiting for pairing service (name \(name))")
+
+        // The running adb server keeps whichever backend it was started with, so a
+        // server launched before this fix would still be blind. Restart it — but not
+        // while a stream is live, since that would drop an active USB tunnel.
+        if connectedDisplays.isEmpty {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                _ = self?.runAdb(["kill-server"])
+                _ = self?.runAdb(["start-server"])
+            }
+        }
+
+        qrPairingTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.pollForPairingService()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        qrPairingTimer = timer
+    }
+
+    func cancelQRPairing() {
+        qrPairingTimer?.invalidate()
+        qrPairingTimer = nil
+        qrPairingPayload = nil
+        qrPairingCode = nil
+        qrPairingDeadline = nil
+        qrPairingStatus = ""
+        LogManager.shared.log("ADB QR: Pairing cancelled")
+    }
+
+    /// One line of `adb mdns services` looks like:
+    ///   `adb-XXXX-YYYY\t_adb-tls-pairing._tcp\t192.168.1.5:41234`
+    private func mdnsAddress(ofType type: String, in output: String) -> String? {
+        for line in output.components(separatedBy: "\n") where line.contains(type) {
+            if let addr = line.components(separatedBy: "\t").last?
+                .trimmingCharacters(in: .whitespaces), addr.contains(":") {
+                return addr
+            }
+        }
+        return nil
+    }
+
+    private func pollForPairingService() {
+        if let deadline = qrPairingDeadline, Date() > deadline {
+            qrPairingStatus = tr("Timed out. Check Wireless debugging is on, then try again.")
+            qrPairingFailed = true
+            qrPairingTimer?.invalidate()
+            qrPairingTimer = nil
+            LogManager.shared.log("ADB QR: Timed out waiting for the pairing service")
+            return
+        }
+        guard let code = qrPairingCode else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let services = self.runAdb(["mdns", "services"])
+            guard let addr = self.mdnsAddress(ofType: "_adb-tls-pairing._tcp", in: services.output) else { return }
+
+            DispatchQueue.main.async {
+                self.qrPairingTimer?.invalidate()
+                self.qrPairingTimer = nil
+                self.qrPairingStatus = tr("Pairing…")
+                LogManager.shared.log("ADB QR: Found pairing service at \(addr) — pairing")
+            }
+
+            let pair = self.runAdb(["pair", addr, code])
+            let paired = pair.success && pair.output.lowercased().contains("successfully")
+            guard paired else {
+                DispatchQueue.main.async {
+                    self.qrPairingStatus = tr("Pairing failed. Generate a new code and rescan.")
+                    self.qrPairingFailed = true
+                    LogManager.shared.log("ADB QR: Pair failed: \(pair.output.isEmpty ? "(no output)" : pair.output)")
+                }
+                return
+            }
+            LogManager.shared.log("ADB QR: Paired ✅")
+
+            // The phone switches to advertising the connect service once paired.
+            var connectAddr: String?
+            for _ in 0..<10 {
+                let s = self.runAdb(["mdns", "services"])
+                if let a = self.mdnsAddress(ofType: "_adb-tls-connect._tcp", in: s.output) {
+                    connectAddr = a
+                    break
+                }
+                Thread.sleep(forTimeInterval: 1.0)
+            }
+            guard let connectAddr = connectAddr else {
+                DispatchQueue.main.async {
+                    self.qrPairingStatus = tr("Paired, but the device never appeared. Try Connect again.")
+                    self.qrPairingFailed = true
+                    LogManager.shared.log("ADB QR: Paired but no _adb-tls-connect._tcp appeared")
+                }
+                return
+            }
+
+            let connect = self.runAdb(["connect", connectAddr])
+            LogManager.shared.log("ADB QR: connect \(connectAddr) — \(connect.output)")
+
+            DispatchQueue.main.async {
+                self.qrPairingPayload = nil
+                self.qrPairingCode = nil
+                self.qrPairingStatus = ""
+                // adb now lists a Wi-Fi device, which this already knows how to tunnel.
+                self.connectADBWireless()
+            }
+        }
+    }
+
     func connectADBWireless() {
         guard !adbInProgress else { return }
         adbInProgress = true
@@ -3302,6 +3712,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 // Set up port forwarding through existing WiFi connection
                 let forwardResult = self.runAdb(["-s", wifiSerial, "forward", "tcp:\(BCConstants.adbForwardPort)", "tcp:\(BCConstants.tcpPort)"])
                 LogManager.shared.log("ADB Wireless: forward result: \(forwardResult.output)")
+                self.ensureReceiverAppRunning(serial: wifiSerial)
 
                 DispatchQueue.main.async {
                     self.adbStatus = tr("Connecting stream...")
@@ -3488,6 +3899,43 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
     }
 
+    /// Make sure the receiver app is actually running before opening the tunnel.
+    ///
+    /// `adb forward` accepts the Mac's local connection immediately whether or not
+    /// anything is listening on the phone, then drops it when the forward fails. That
+    /// surfaces as "connected, sent a few frames, Connection reset by peer" — which
+    /// looks like a streaming bug but just means the app was closed. We have ADB, so
+    /// launch it rather than relying on the user to remember.
+    private func ensureReceiverAppRunning(serial: String?) {
+        var prefix = [String]()
+        if let serial = serial { prefix += ["-s", serial] }
+
+        // Already running? Leave it alone. Relaunching a live receiver used to stack a
+        // second activity on the first, and the two fought over the listening port.
+        // The manifest now pins the app to a single instance, but skipping the launch
+        // also avoids yanking the app to the foreground mid-stream.
+        let running = runAdb(prefix + ["shell", "pidof", "com.bettercast.receiver"])
+        if running.success, !running.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            LogManager.shared.log("ADB: Receiver app already running on the phone")
+            return
+        }
+
+        // --activity-single-top reuses the existing task rather than starting
+        // another copy on top of it.
+        let args = prefix + [
+            "shell", "am", "start", "--activity-single-top",
+            "-n", "com.bettercast.receiver/.MainActivity"
+        ]
+        let result = runAdb(args)
+        if result.success {
+            LogManager.shared.log("ADB: Launched the receiver app on the phone")
+        } else {
+            LogManager.shared.log("ADB: Could not launch the receiver app — \(result.output)")
+        }
+        // Give the activity a moment to bind its listening socket.
+        Thread.sleep(forTimeInterval: 1.2)
+    }
+
     /// Quick ADB USB-only: just forward port and connect (no wireless handoff)
     func connectADBUSB() {
         adbStatus = tr("Forwarding port...")
@@ -3532,6 +3980,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 return
             }
             LogManager.shared.log("ADB USB: forward tcp:\(BCConstants.adbForwardPort) → tcp:\(BCConstants.tcpPort) on \(serial)")
+            self.ensureReceiverAppRunning(serial: serial)
 
             DispatchQueue.main.async {
                 self.adbStatus = tr("Connecting...")
@@ -3935,10 +4384,19 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     }
     
     private func startStatsTimer() {
+        // Exactly one timer, however many receivers connect. This is called from every
+        // connection path; without the guard each new device added another 1 Hz pass over
+        // adaptBitrates(), and they fought each other for the same counters.
+        guard statsTimer == nil else { return }
+
         // Simple timer to update transfer rate UI
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+        statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
-            if self.pipelines.isEmpty { timer.invalidate(); return }
+            if self.pipelines.isEmpty {
+                timer.invalidate()
+                self.statsTimer = nil
+                return
+            }
             
             let bytes = self.bytesSentWindow
             self.bytesSentWindow = 0
@@ -3950,34 +4408,115 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
     }
 
-    /// Adaptive bitrate for the infrastructure (WiFi-TCP) path: match the encoder's rate to
-    /// what the link can actually carry. P2P (AWDL) and loopback (ADB USB) have plenty of
-    /// headroom and keep full quality. Backs off fast on drops, recovers gently when clear —
-    /// hysteresis prevents oscillation. Floor keeps motion smooth over a weak link.
+    /// Adaptive bitrate for links that can actually run out of room: match the encoder's
+    /// rate to what the link carries. P2P (AWDL) and USB ADB have plenty of headroom and
+    /// keep full quality. Wireless ADB does NOT — the local socket is on lo0, but the
+    /// bytes still cross Wi-Fi, so it is steered like any other Wi-Fi link. Backs off fast
+    /// on drops, recovers gently when clear — hysteresis prevents oscillation. Floor keeps
+    /// motion smooth over a weak link.
     private func adaptBitrates() {
         let floorBitrate = 2_000_000 // 2 Mbps — smooth-but-soft rather than blocky
+
+        // Every wireless receiver shares one radio on this Mac, AWDL included: the Wi-Fi
+        // chip time-slices between the AP channel and the AWDL social channel, so a P2P
+        // stream and an infrastructure stream are not independent links.
+        //
+        // Without a shared budget each pipeline asks for the full user-selected bitrate,
+        // and the two are not treated alike: P2P never backs off, so the infrastructure
+        // device absorbs all the contention. Measured on an iPhone + Android pair — the
+        // Android fell 18 → 2 Mbps (its floor) within seven seconds of the iPhone
+        // connecting, and climbed straight back the moment it left, while the iPhone held
+        // 20 Mbps at 2532x1170 throughout. Splitting the ceiling makes them share.
+        //
+        // USB ADB is excluded: it is a cable and takes nothing from the radio.
+        let radioPipelines = pipelines.values.filter { !$0.isLoopback || $0.isWiFiADB }
+        let sharedCeiling: Int = radioPipelines.count > 1
+            ? max(floorBitrate * 2, selectedQuality.rawValue / radioPipelines.count)
+            : selectedQuality.rawValue
+
+        for p in radioPipelines {
+            guard let enc = p.videoEncoder else { continue }
+            if enc.maxBitrate != sharedCeiling {
+                enc.maxBitrate = sharedCeiling
+                LogManager.shared.log(String(format: "Sender: Bitrate ceiling %@: %.1f Mbps (%d wireless receivers)",
+                    p.service.name, Double(sharedCeiling) / 1_000_000, radioPipelines.count))
+            }
+            // Pull an over-budget stream down immediately. P2P has no drop signal of its
+            // own to steer by, so this is the only thing that makes it yield.
+            if enc.currentBitrate > sharedCeiling {
+                enc.setTargetBitrate(sharedCeiling)
+            }
+        }
+
         // Collect (name, encoder) up front so we never mutate `pipelines` while iterating it,
         // and so all adaptive state reads/writes go through the encoder (a class), not the
         // shared dictionary. Mutating the dict here while the encoder callback thread also
         // touches it corrupts the heap (was the v11 crash).
         let targets: [(name: String, encoder: VideoEncoder)] = pipelines.values.compactMap { p in
-            guard !p.isP2P, !p.isLoopback, let enc = p.videoEncoder, enc.maxBitrate > 0 else { return nil }
+            guard !p.isP2P, !p.isLoopback || p.isWiFiADB,
+                  let enc = p.videoEncoder, enc.maxBitrate > 0 else { return nil }
             return (p.service.name, enc)
         }
         for (name, enc) in targets {
+            // Wait for a real sample rather than resetting every tick. A static screen
+            // encodes only a handful of frames per second, and judging a 30% bitrate cut
+            // on "1 drop out of 5 frames" is noise, not signal — that is what made the
+            // rate pump up and down several times a second. Counters keep accumulating
+            // across ticks until there are enough frames to mean something.
             let frames = enc.adaptFrames
             let drops = enc.adaptDrops
+            guard frames >= 30 else { continue }
             enc.adaptFrames = 0
             enc.adaptDrops = 0
-            guard frames >= 5 else { continue } // need a meaningful sample before steering
 
             let current = enc.currentBitrate
             let dropRatio = Double(drops) / Double(frames)
             var target = current
-            if dropRatio > 0.15 {
-                target = max(floorBitrate, Int(Double(current) * 0.7)) // back off 30%
-            } else if drops == 0 && current < enc.maxBitrate {
+            // Threshold sits above the link's natural noise floor, not at it.
+            //
+            // A backpressure drop only means the previous send had not completed within
+            // one frame interval — 16.7ms at 60fps. Ordinary Wi-Fi jitter clears that bar
+            // regularly, and measurement shows it is not a bitrate signal at all: on a
+            // single direct connection the drop ratio held at 16-21% across 20.0, 14.0,
+            // 9.8, 8.9, 6.2 and 4.3 Mbps — flat while the bitrate fell fivefold. The old
+            // 0.15 threshold sat just under that floor, so the controller tripped on
+            // nothing and sawtoothed 20 → 3 → 20 Mbps with one device connected.
+            // Genuine trouble looks nothing like it: blackout windows run 50-95%.
+            if dropRatio > 0.35 {
+                // Only keep cutting while cutting is demonstrably helping.
+                //
+                // Backpressure drops mean "the previous send was still in flight", which
+                // congestion causes — but so does airtime starvation, and those look
+                // identical from here. When the Wi-Fi chip is time-slicing to AWDL, sends
+                // stall for tens of milliseconds no matter how small the frame is.
+                // Measured on this link: 22/43 drops at 10 Mbps, still 21/66 at 2 Mbps
+                // after five compounding cuts — five times less data, same drop ratio.
+                // Cutting further just destroys the picture and buys nothing.
+                let previous = enc.lastAdaptDropRatio
+                let cuttingHelps = previous < 0 || dropRatio < previous - 0.05
+                if cuttingHelps {
+                    target = max(floorBitrate, Int(Double(current) * 0.7)) // back off 30%
+                    enc.lastAdaptDropRatio = dropRatio
+                    enc.adaptHolding = false
+                } else if !enc.adaptHolding {
+                    // Held deliberately — say so once rather than looking stuck.
+                    enc.adaptHolding = true
+                    LogManager.shared.log(String(format: "Sender: Holding bitrate %@ at %.1f Mbps — drops %d/%d are not bandwidth-related",
+                        name, Double(current) / 1_000_000, drops, frames))
+                }
+            } else if dropRatio < 0.20 && current < enc.maxBitrate {
+                // Recover on "quiet enough", not on "perfectly clean". Requiring zero
+                // drops is unreachable on a link whose noise floor is ~17%, so the rate
+                // ratcheted down at the first burst and never climbed back — measured
+                // stuck at 14 Mbps for a whole session after one startup keyframe spike.
+                // The gap between this and the 0.35 cut threshold is deliberate
+                // hysteresis, so it neither oscillates nor sits pinned low.
+                enc.lastAdaptDropRatio = -1 // clean window; a later spike may cut again
+                enc.adaptHolding = false
                 target = min(enc.maxBitrate, current + enc.maxBitrate / 10) // recover ~10%/s
+            } else {
+                enc.lastAdaptDropRatio = -1
+                enc.adaptHolding = false
             }
 
             if target != current {
@@ -4362,10 +4901,30 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             }
         } else {
             // Infrastructure (WiFi router, Windows/Linux receivers)
-            // 60 FPS for smooth cursor/motion. Previously 30 to avoid WiFi frame drops, but
-            // adaptive bitrate now softens per-frame quality under congestion instead of
-            // dropping frames — so we keep the higher frame rate and let motion stay fluid.
-            fps = 60
+            //
+            // 30 FPS, and it looks *better* than 60 here, which is worth explaining.
+            //
+            // A frame must be sent within one frame interval or backpressure drops it.
+            // At 60fps that window is 16.7ms, and ordinary Wi-Fi jitter misses it about
+            // one time in six. Every dropped P-frame breaks the H.264 reference chain, so
+            // each one forces a recovery keyframe — throttled, but still up to three a
+            // second. The stream ends up mostly keyframes, inter-frame prediction stops
+            // doing any work, and the picture goes soft exactly when it matters: faces,
+            // scene changes, fast motion.
+            //
+            // At 30fps the window doubles to 33ms, sends land inside it, and the drops
+            // stop. Measured on the same link and content: 60fps gave 25/67, 10/59, 6/64
+            // drops with the bitrate being steered constantly; 30fps gave zero adaptive
+            // events over 41 seconds and P-frames ranging 1.9-40KB against a 94KB
+            // keyframe — proper temporal compression instead of a keyframe slideshow.
+            //
+            // A previous comment here claimed adaptive bitrate had made 60 safe by
+            // softening quality instead of dropping frames. Measurement says otherwise:
+            // the drops happen regardless of bitrate, so the softening *was* the damage.
+            //
+            // USB and P2P keep 60 — they have the headroom to make the deadline.
+            // Users who want 60 here can still force it with the Frame Rate setting.
+            fps = 30
             bitrate = selectedQuality.rawValue  // ceiling; adaptive bitrate steers the live rate
             keyframeInterval = 1.0  // Short interval bounds worst-case pixelation after a dropped P-frame
             LogManager.shared.log("Sender: Infrastructure mode — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 1s for \(serviceName)")
@@ -4440,9 +4999,15 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
         // TCP backpressure: skip P-frame if previous send still in flight.
         // NEVER drop keyframes — the decoder needs them to recover.
-        // P2P / Loopback: no backpressure (reliable links).
-        // Infrastructure only: completion-based backpressure.
-        let isInfra = !pipeline.isP2P && !pipeline.isLoopback && useTCP
+        // P2P / USB ADB: no backpressure (genuinely fat, reliable links).
+        // Infrastructure and wireless ADB: completion-based backpressure.
+        //
+        // Wireless ADB has to be in this group even though its socket is on lo0. The adb
+        // daemon relays every byte over Wi-Fi, so without backpressure the sender keeps
+        // handing frames to a connection whose previous send is still in flight, adb's
+        // buffers absorb them, and the phone sees the stream stall for seconds and then
+        // burst — while its decoder sits idle at ~7ms dwell with an empty queue.
+        let isInfra = !pipeline.isP2P && (!pipeline.isLoopback || pipeline.isWiFiADB) && useTCP
         if isInfra {
             // Feed the adaptive-bitrate controller (evaluated once/sec in the stats timer).
             // Counters live on the encoder (a class) — mutating them here, on the encoder
@@ -4454,10 +5019,24 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 // reliable TCP that's the real source of "pixelation", not packet loss.
                 // Request a keyframe (throttled in the encoder) so the picture resyncs in
                 // a fraction of a second, and count the drop so adaptive bitrate backs off.
-                encoder.forceKeyframe(silent: true)
+                //
+                // Only for isolated drops, though. When the radio is time-slicing to AWDL
+                // the sends stop completing altogether — measured runs of 58/62 and 62/65
+                // drops — and asking for a keyframe on each one starts a storm: the
+                // throttle still allows three per second, each keyframe is far larger than
+                // a P-frame, and at 2 Mbps they consume most of the budget while taking
+                // even longer to push through a link that is already blocked. That feeds
+                // back into more drops. During a blackout, stop asking and wait for the
+                // link; the receiver requests its own keyframe on the gap once frames flow
+                // again.
+                encoder.consecutiveDrops += 1
+                if encoder.consecutiveDrops <= 3 {
+                    encoder.forceKeyframe(silent: true)
+                }
                 encoder.adaptDrops += 1
                 return
             }
+            encoder.consecutiveDrops = 0
         }
 
         if !useTCP {
@@ -4588,5 +5167,81 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 LogManager.shared.log("Sender: Audio send error to \(pipeline.service.name): \(error)")
             }
         })
+    }
+}
+
+// MARK: - QR Pairing Sheet
+
+/// Shows the ADB pairing QR. Android's own scanner reads it under
+/// Developer options → Wireless debugging → Pair device with QR code.
+struct QRPairingSheet: View {
+    @ObservedObject var client: NetworkClient
+
+    private func qrImage(from string: String) -> NSImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(string.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?
+            .transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+        let rep = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Pair over Wi-Fi")
+                .font(.headline)
+
+            if let payload = client.qrPairingPayload, let image = qrImage(from: payload) {
+                Image(nsImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 220, height: 220)
+                    .padding(8)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                ProgressView().frame(width: 220, height: 220)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("On your Android phone:").fontWeight(.medium)
+                Text("1. Settings → Developer options → Wireless debugging")
+                Text("2. Turn it on, then tap “Pair device with QR code”")
+                Text("3. Point that scanner at this code")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The payload begins with WIFI:, so the ordinary camera reads it as a
+            // network to join and offers a Wi-Fi network that does not exist. Only
+            // the Wireless debugging scanner understands the ADB type.
+            Label("Don't use the normal Camera app — it will offer to join a Wi-Fi network that doesn't exist.",
+                  systemImage: "exclamationmark.triangle")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !client.qrPairingStatus.isEmpty {
+                Label(client.qrPairingStatus,
+                      systemImage: client.qrPairingFailed ? "exclamationmark.triangle" : "clock")
+                    .font(.caption)
+                    .foregroundStyle(client.qrPairingFailed ? .orange : .secondary)
+            }
+
+            HStack {
+                if client.qrPairingFailed {
+                    Button("Try Again") { client.startQRPairing() }
+                }
+                Spacer()
+                Button("Cancel") { client.cancelQRPairing() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
     }
 }

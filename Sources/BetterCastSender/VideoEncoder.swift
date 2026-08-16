@@ -20,6 +20,16 @@ class VideoEncoder {
     var maxBitrate: Int = 0          // ceiling = user-selected quality
     var adaptFrames: Int = 0         // frames seen this window (infrastructure path)
     var adaptDrops: Int = 0          // frames dropped this window (backpressure)
+    /// Drop ratio at the previous cut, or -1 when no cut is in progress. Lets the
+    /// controller check whether cutting the bitrate is actually reducing drops before it
+    /// cuts again — on an airtime-starved link it is not, and compounding is destructive.
+    var lastAdaptDropRatio: Double = -1
+    /// True while the controller has deliberately stopped cutting, so the explanatory
+    /// log line is emitted once per episode rather than every second.
+    var adaptHolding: Bool = false
+    /// Consecutive backpressure drops. Distinguishes an isolated stall, which is worth
+    /// chasing with a resync keyframe, from a blackout, where keyframes make it worse.
+    var consecutiveDrops: Int = 0
 
     // Cache for headers so we can re-send them if needed
     private var cachedSPS: Data?

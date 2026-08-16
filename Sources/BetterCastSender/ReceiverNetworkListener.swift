@@ -717,6 +717,10 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
 
     /// Detects when video frames stop arriving while clients are connected,
     /// and requests a keyframe to recover (e.g. after Android encoder restart).
+    /// Consecutive watchdog ticks with no decoded frame. Bounds both how often the
+    /// decoder is torn down and how loudly the failure is logged.
+    private var staleRecoveryAttempts = 0
+
     private func startStaleFrameWatchdog() {
         staleFrameTimer?.invalidate()
         staleFrameTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
@@ -724,12 +728,31 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             let neverGotFrames = (self.lastDecodedFrameTime == .distantPast)
             let staleDuration = Date().timeIntervalSince(self.lastDecodedFrameTime)
 
-            if neverGotFrames || staleDuration > 3.0 {
-                if !neverGotFrames {
-                    LogManager.shared.log("Receiver: No frames for \(Int(staleDuration))s — requesting keyframe")
-                    self.videoRenderer?.flushForFormatChange()
-                    self.videoDecoder?.reset()
-                }
+            guard neverGotFrames || staleDuration > 3.0 else {
+                self.staleRecoveryAttempts = 0
+                return
+            }
+
+            self.staleRecoveryAttempts += 1
+
+            // Resetting the decoder is only worth doing while the keyframe we asked for
+            // could still plausibly be in flight. Doing it on every 3s tick destroyed the
+            // very frame it was waiting for: a full IDR over a congested link routinely
+            // takes longer than the window, so the recovery loop kept demolishing its own
+            // recovery and the stream could never come back.
+            if !neverGotFrames && self.staleRecoveryAttempts <= 2 {
+                LogManager.shared.log("Receiver: No frames for \(Int(staleDuration))s — resetting decoder and requesting keyframe")
+                self.videoRenderer?.flushForFormatChange()
+                self.videoDecoder?.reset()
+            }
+
+            // Keep asking, but stop shouting. This used to log and re-request every three
+            // seconds indefinitely — 265 seconds of it in one report — which buried the
+            // real failure in noise and told the user nothing.
+            if self.staleRecoveryAttempts <= 3 {
+                self.sendInputEvent(InputEvent(type: .command, keyCode: 999))
+            } else if self.staleRecoveryAttempts % 10 == 0 {
+                LogManager.shared.log("Receiver: Still no video after \(Int(staleDuration))s — the sender has stopped sending frames")
                 self.sendInputEvent(InputEvent(type: .command, keyCode: 999))
             }
         }
@@ -739,6 +762,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
 
     func didDecode(sampleBuffer: CMSampleBuffer) {
         lastDecodedFrameTime = Date()
+        staleRecoveryAttempts = 0
         if isReconnecting {
             isReconnecting = false
             reconnectAttempts = 0

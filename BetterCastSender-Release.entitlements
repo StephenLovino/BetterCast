@@ -2,5 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Read a Wi-Fi QR shown on the phone so hotspot credentials need not be typed.
+         Required because the app is signed with the hardened runtime. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
 </dict>
 </plist>

@@ -31,6 +31,8 @@
 	<string>17</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
+	<key>NSCameraUsageDescription</key>
+	<string>BetterCast uses the camera only to read a Wi-Fi QR code shown on your phone, so you do not have to type hotspot details. No images are stored or sent anywhere.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
