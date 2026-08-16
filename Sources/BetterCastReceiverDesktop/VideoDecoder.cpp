@@ -43,7 +43,12 @@ void VideoDecoder::decode(const QByteArray& data, bool hasPtsPrefix) {
     int naluCount = 0;
     while (offset + 4 <= videoLen) {
         uint32_t naluLen = qFromBigEndian<uint32_t>(videoData + offset);
-        if (naluLen == 0 || offset + 4 + static_cast<int>(naluLen) > videoLen) {
+        // Compare in 64-bit. A corrupt length above INT_MAX used to cast to a negative
+        // int, slip past this guard, and drive `offset` backwards — so the next read
+        // landed gigabytes outside the buffer and took the process down with an access
+        // violation instead of dropping one bad frame.
+        if (naluLen == 0 ||
+            static_cast<qint64>(offset) + 4 + static_cast<qint64>(naluLen) > static_cast<qint64>(videoLen)) {
             if (decodeCallCount <= 5) {
                 LogManager::instance().log(QString("Decoder: frame %1 NALU scan stopped at offset %2, naluLen=%3, videoLen=%4")
                     .arg(decodeCallCount).arg(offset).arg(naluLen).arg(videoLen));

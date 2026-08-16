@@ -189,7 +189,12 @@ void NetworkListener::processTcpBuffer(QTcpSocket* socket) {
         if (format == 1 && body.size() > 1) {
             uint8_t typeByte = static_cast<uint8_t>(body[0]);
             if (typeByte == 0x01) {
-                handleVideoData(body.mid(1), false);  // type-byte framing: no PTS prefix
+                // The type byte is *in addition to* the PTS header, not instead of it:
+                // the Mac sends [0x01][8-byte PTS][AVCC NALUs]. Passing false here made
+                // the decoder read the first four bytes of a little-endian nanosecond
+                // timestamp as a big-endian NALU length — a near-random 32-bit value that
+                // crashed the app one frame into every Mac-to-Windows stream.
+                handleVideoData(body.mid(1), true);
             } else if (typeByte == 0x02) {
                 handleAudioData(body.mid(1));
             }
