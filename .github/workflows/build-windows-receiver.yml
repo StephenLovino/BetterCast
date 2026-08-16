@@ -19,7 +19,14 @@ env:
 
 jobs:
   build-windows:
-    runs-on: windows-2022   # Pinned for reproducibility — don't track windows-latest
+    # Was pinned to windows-2022 for reproducibility. That pin is what silently broke
+    # this workflow: the image's Visual Studio moved on, "Visual Studio 17 2022" stopped
+    # existing on the runner, and configure failed on every release from v14 to v16
+    # without anyone noticing — the Mac release path does not depend on this job.
+    # The build no longer cares which Visual Studio is installed (see the Ninja generator
+    # below), so tracking latest is now the safer choice than pinning to an image that
+    # will eventually be retired again.
+    runs-on: windows-latest
 
     env:
       # Surface to step `if:` conditions. Secrets cannot be referenced directly
@@ -99,7 +106,14 @@ jobs:
           cd Sources/BetterCastReceiverDesktop
           mkdir build | Out-Null
           cd build
-          cmake .. -G "Visual Studio 17 2022" -A x64 `
+          # Ninja, not the Visual Studio generator. "Setup MSVC" above already put the
+          # x64 toolchain on PATH, so the compiler is found through the environment
+          # instead of by looking up a specific Visual Studio version — which is exactly
+          # what stopped working when the runner image changed.
+          # Ninja is single-config, so the build type is set here rather than at build
+          # time, and the output lands in build/ rather than build/Release/.
+          cmake .. -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
             -DENABLE_SENDER=ON
@@ -108,12 +122,12 @@ jobs:
         shell: pwsh
         run: |
           cd Sources/BetterCastReceiverDesktop/build
-          cmake --build . --config Release
+          cmake --build .
 
       - name: Verify EXE version metadata
         shell: pwsh
         run: |
-          $exe = "Sources/BetterCastReceiverDesktop/build/Release/BetterCastReceiver.exe"
+          $exe = "Sources/BetterCastReceiverDesktop/build/BetterCastReceiver.exe"
           $info = (Get-Item $exe).VersionInfo
           $expected = "${{ steps.version.outputs.version }}"
           Write-Host "EXE FileVersion:    $($info.FileVersion)"
@@ -213,7 +227,7 @@ jobs:
         run: |
           mkdir artifact | Out-Null
 
-          Copy-Item "Sources/BetterCastReceiverDesktop/build/Release/BetterCastReceiver.exe" "artifact/"
+          Copy-Item "Sources/BetterCastReceiverDesktop/build/BetterCastReceiver.exe" "artifact/"
 
           windeployqt --release --no-translations --no-system-d3d-compiler `
             --no-opengl-sw "artifact/BetterCastReceiver.exe"
