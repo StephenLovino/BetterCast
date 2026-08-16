@@ -18,11 +18,13 @@ class AudioPlayerIOS {
     private var started = false
     private var decodeCount = 0
 
-    // Low-latency buffer management
+    // Jitter buffer
     // At 48kHz with 1024-frame AAC packets, each buffer is ~21ms.
-    // Cap at 3 buffers (~63ms) to keep latency tight.
+    // 8 buffers ≈ 170ms — wide enough to absorb Wi-Fi jitter without audible cracks.
+    // On overflow we drop the OLDEST queued buffer (skip forward) instead of the newest,
+    // so the discontinuity lands on already-stale audio rather than producing a mid-stream crack.
     private var pendingBuffers: Int = 0
-    private let maxPendingBuffers: Int = 3
+    private let maxPendingBuffers: Int = 8
 
     // Shared state for the converter input callback
     fileprivate var currentPacketData: Data?
@@ -43,12 +45,24 @@ class AudioPlayerIOS {
     // MARK: - Setup
 
     private func setupEngine() {
+        // Default category .soloAmbient doesn't grant low-latency hardware access
+        // and produces crackles on streamed audio. .playback fixes routing without
+        // changing anything else — keep options minimal so we don't fight iOS.
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback)
+            try session.setActive(true)
+        } catch {
+            LogManager.shared.log("AudioPlayer: Session setup failed: \(error)")
+        }
+        // Best-effort low-latency hint; never fatal if the device rejects it.
+        try? session.setPreferredIOBufferDuration(0.005)
+
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
 
         engine.attach(player)
 
-        // Standard format: non-interleaved float32 (AVAudioEngine default)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: outputSampleRate,
                                           channels: AVAudioChannelCount(outputChannels)) else {
             LogManager.shared.log("AudioPlayer: Failed to create output format")
@@ -57,10 +71,6 @@ class AudioPlayerIOS {
 
         outputFormat = format
         engine.connect(player, to: engine.mainMixerNode, format: format)
-
-        // Minimize output buffer for lower latency
-        let session = AVAudioSession.sharedInstance()
-        try? session.setPreferredIOBufferDuration(0.005) // 5ms buffer
 
         self.audioEngine = engine
         self.playerNode = player
@@ -130,7 +140,9 @@ class AudioPlayerIOS {
         guard let converter = audioConverter,
               let format = outputFormat else { return }
 
-        // Drop frames if too many buffers are queued (prevents latency buildup)
+        // Drop new packet if jitter buffer is full. With 8 buffers (~170ms) this is
+        // rare; if it happens we accept a brief discontinuity rather than risk
+        // disturbing the player node mid-playback.
         if pendingBuffers >= maxPendingBuffers {
             return
         }

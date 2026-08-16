@@ -3,7 +3,7 @@
 # Exit on error
 set -e
 
-VERSION="v13"
+VERSION="v17"
 
 # Code signing identity (Developer ID Application certificate)
 # Set to "-" for ad-hoc signing (local use), or your Developer ID for distribution
@@ -19,7 +19,16 @@ echo "============================================"
 swift build -c release --arch arm64 --arch x86_64
 
 # Define Paths
-BUILD_DIR=".build/apple/Products/Release"
+# Xcode 26 and earlier put the universal binary under .build/apple/…; Xcode 27
+# moved it to .build/out/…. Accept whichever this toolchain produced.
+if [ -f ".build/apple/Products/Release/BetterCastSender" ]; then
+    BUILD_DIR=".build/apple/Products/Release"
+elif [ -f ".build/out/Products/Release/BetterCastSender" ]; then
+    BUILD_DIR=".build/out/Products/Release"
+else
+    echo "error: could not find the built BetterCastSender binary under .build/" >&2
+    exit 1
+fi
 APP_NAME="BetterCast.app"
 DMG_NAME="BetterCast.dmg"
 DMG_STAGING="dmg_staging"
@@ -37,6 +46,13 @@ mkdir -p "$APP_NAME/Contents/Resources"
 cp "$BUILD_DIR/BetterCastSender" "$APP_NAME/Contents/MacOS/BetterCastSender"
 cp "BetterCastSender-Info.plist" "$APP_NAME/Contents/Info.plist"
 cp "assets/branding/BetterCastIcon.icns" "$APP_NAME/Contents/Resources/AppIcon.icns"
+
+# Localizations: NSLocalizedString / SwiftUI LocalizedStringKey resolve through
+# Bundle.main, so shipping the .lproj folders in Contents/Resources is all it
+# takes for the app to follow the system language.
+for lproj in localization/*.lproj; do
+    cp -R "$lproj" "$APP_NAME/Contents/Resources/"
+done
 
 # Code sign with entitlements
 codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" --entitlements "BetterCastSender-Release.entitlements" "$APP_NAME"

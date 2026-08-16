@@ -1,0 +1,241 @@
+/*
+  Localizable.strings — 日本語 (Japanese)
+
+  This is the Japanese translation of BetterCast's localizable UI strings.
+  Keys are the English source strings from en.lproj/Localizable.strings and
+  must remain identical to that file — only the right-hand values are
+  translated. Keep format placeholders (%@, %lld, %.1f) intact and in the
+  same order.
+*/
+
+/* Onboarding & guided tour */
+"Welcome to BetterCast" = "BetterCastへようこそ";
+"A few permissions are needed to get started" = "開始するにはいくつかの権限が必要です";
+"Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "アプリを簡単にご案内します。BetterCastは、あらゆるデバイスをMacのワイヤレス拡張ディスプレイに変えます。";
+"Overview" = "概要";
+"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "これはダッシュボードです。接続中のすべてのディスプレイをライブプレビューで確認し、接続を管理できます。「配置...」を使うとシステム設定でディスプレイの位置を調整できます。";
+"Device Settings" = "デバイス設定";
+"Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "サイドバーの接続済みデバイスをクリックすると、そのディスプレイの解像度、ビットレート、Retinaモード、オーディオストリーミングを調整できます。";
+"Receive Screen" = "画面を受信";
+"BetterCast can also receive streams from other Macs. Start listening here and incoming video opens in a separate window." = "BetterCastは他のMacからのストリームも受信できます。ここで待機を開始すると、受信したビデオが別ウインドウで開きます。";
+"Settings" = "設定";
+"Configure global preferences like connection mode, auto-connect, and manage connected displays." = "接続モードや自動接続などの全体設定を行い、接続済みディスプレイを管理します。";
+"Logs" = "ログ";
+"View detailed connection and streaming logs for troubleshooting. Useful if something isn't working right." = "トラブルシューティング用に接続とストリーミングの詳細なログを表示します。動作がおかしいときに役立ちます。";
+"You're All Set!" = "準備完了です！";
+"Connect a receiver device from the sidebar or use \"Receive Screen\" to receive from another Mac. Enjoy your extended display!" = "サイドバーからレシーバーデバイスに接続するか、「画面を受信」で他のMacから受信できます。拡張ディスプレイをお楽しみください！";
+"Back" = "戻る";
+"Skip Tour" = "ツアーをスキップ";
+"Next" = "次へ";
+"Skip" = "スキップ";
+"Done" = "完了";
+"Get Started" = "はじめる";
+"You're all set!" = "準備完了です！";
+"Some permissions are missing. You can grant them later in System Settings, but some features won't work until they're enabled." = "一部の権限が付与されていません。後からシステム設定で許可できますが、有効にするまで一部の機能は使用できません。";
+"Granted" = "許可済み";
+"Not granted" = "未許可";
+"Permission granted" = "権限が許可されました";
+"Ready" = "準備完了";
+
+/* Permissions */
+"Screen Recording" = "画面収録";
+"BetterCast needs Screen Recording permission to capture your display and stream it to receivers." = "BetterCastがディスプレイをキャプチャしてレシーバーにストリーミングするには、画面収録の権限が必要です。";
+"Open Screen Recording Settings" = "画面収録の設定を開く";
+"Accessibility" = "アクセシビリティ";
+"Accessibility permission lets BetterCast relay mouse and keyboard input from your receivers back to this Mac." = "アクセシビリティの権限により、BetterCastはレシーバーからのマウスとキーボードの入力をこのMacに中継できます。";
+"Open Accessibility Settings" = "アクセシビリティの設定を開く";
+"Reset Permissions" = "権限をリセット";
+"Restart" = "再起動";
+"Setup Wizard" = "設定アシスタント";
+"Replay Tour" = "ツアーを再生";
+
+/* Sidebar & device list */
+"Devices" = "デバイス";
+"Searching..." = "検索中...";
+"Connect" = "接続";
+"Receive" = "受信";
+"BetterCast" = "BetterCast";
+"Quit BetterCast" = "BetterCastを終了";
+"Connected" = "接続済み";
+"Available" = "利用可能";
+"Connected (USB)" = "接続済み（USB）";
+"Connected (WiFi ADB)" = "接続済み（WiFi ADB）";
+"Connected (WiFi)" = "接続済み（WiFi）";
+"Manual IP" = "IPを手動入力";
+"IP / hostname" = "IP / ホスト名";
+"Port" = "ポート";
+"Android (ADB)" = "Android（ADB）";
+"Setting up..." = "設定中...";
+"Wireless" = "ワイヤレス";
+"USB" = "USB";
+
+/* Empty state / getting started */
+"Select a device from the sidebar to connect" = "サイドバーからデバイスを選択して接続";
+"No Devices Found" = "デバイスが見つかりません";
+"To use BetterCast, you need the receiver app running on another device." = "BetterCastを使用するには、別のデバイスでレシーバーアプリを実行しておく必要があります。";
+"Download Receiver App" = "レシーバーアプリをダウンロード";
+"Searching for devices on your network..." = "ネットワーク上のデバイスを検索中...";
+"Download the Receiver" = "レシーバーをダウンロード";
+"Install BetterCast Receiver on your iPad, Android, Windows, Linux, or Mac." = "iPad、Android、Windows、Linux、またはMacにBetterCast Receiverをインストールします。";
+"Connect to the Same Network" = "同じネットワークに接続";
+"Make sure both devices are on the same Wi-Fi network." = "両方のデバイスが同じWi-Fiネットワークに接続されていることを確認してください。";
+"Open the Receiver App" = "レシーバーアプリを開く";
+"Your device will appear automatically in the sidebar." = "デバイスは自動的にサイドバーに表示されます。";
+
+/* Display settings */
+"Use as" = "使用方法";
+"Extended Display" = "拡張ディスプレイ";
+"Mirror Built-in" = "内蔵ディスプレイをミラーリング";
+"Resolution" = "解像度";
+"Dimensions" = "サイズ";
+"Retina (HiDPI)" = "Retina（HiDPI）";
+"Brightness" = "輝度";
+"Audio Streaming" = "オーディオストリーミング";
+"Compatibility Mode" = "互換モード";
+"Arrange Displays" = "ディスプレイを配置";
+"Display" = "ディスプレイ";
+"Displays" = "ディスプレイ";
+"Arrange..." = "配置...";
+"Built-in Display" = "内蔵ディスプレイ";
+"Position" = "位置";
+"View Settings" = "表示設定";
+"Quality" = "品質";
+"Bitrate" = "ビットレート";
+"Frame Rate" = "フレームレート";
+"Auto (60)" = "自動（60）";
+"30 FPS" = "30 FPS";
+"60 FPS" = "60 FPS";
+"120 FPS" = "120 FPS";
+"Transfer Speed" = "転送速度";
+"Low (5 Mbps)" = "低（5 Mbps）";
+"Medium (10 Mbps)" = "中（10 Mbps）";
+"High (20 Mbps)" = "高（20 Mbps）";
+"Ultra (50 Mbps)" = "ウルトラ（50 Mbps）";
+"Extreme (100 Mbps)" = "エクストリーム（100 Mbps）";
+
+/* Connection settings */
+"Connection" = "接続";
+"Auto-Connect" = "自動接続";
+"Mode" = "モード";
+"Auto (Apple Default)" = "自動（Apple標準）";
+"Force P2P (WiFi Direct)" = "P2Pを強制（WiFi Direct）";
+"Force Router/WiFi" = "ルーター/WiFiを強制";
+"USB / Thunderbolt Cable" = "USB / Thunderboltケーブル";
+"Protocol" = "プロトコル";
+"TCP (Recommended)" = "TCP（推奨）";
+"UDP (Faster, P2P only)" = "UDP（高速、P2Pのみ）";
+"Controls" = "コントロール";
+"Apply Settings" = "設定を適用";
+"Connected Displays" = "接続済みディスプレイ";
+"Disconnect" = "接続解除";
+"Connected Devices" = "接続済みデバイス";
+"Available Devices" = "利用可能なデバイス";
+"Method" = "接続方法";
+"Switch to Wireless" = "ワイヤレスに切り替え";
+"Switch to USB (smoother)" = "USBに切り替え（より滑らか）";
+"Status" = "状況";
+"Current" = "現在";
+"USB (ADB)" = "USB（ADB）";
+"Wireless (WiFi ADB)" = "ワイヤレス（WiFi ADB）";
+"WiFi" = "WiFi";
+
+/* About / updates */
+"About" = "このアプリについて";
+"Version" = "バージョン";
+"Download" = "ダウンロード";
+"You're on the latest version" = "最新バージョンです";
+"You're on the latest version (%@)" = "最新バージョンです（%@）";
+"What's New" = "新機能";
+"BetterCast %@" = "BetterCast %@";
+"Update available: %@" = "アップデートがあります: %@";
+"Report Issue" = "問題を報告";
+"Copy" = "コピー";
+"Clear" = "消去";
+
+/* Android (ADB) connect */
+"ADB (USB)" = "ADB（USB）";
+"60 FPS — best quality, requires USB cable" = "60 FPS — 最高品質、USBケーブルが必要";
+"ADB (WiFi)" = "ADB（WiFi）";
+"60 FPS — wireless ADB tunnel, needs USB first" = "60 FPS — ワイヤレスADBトンネル、最初にUSB接続が必要";
+"WiFi (TCP)" = "WiFi（TCP）";
+"30 FPS — direct network, no ADB needed" = "30 FPS — 直接ネットワーク接続、ADB不要";
+"Connect via network" = "ネットワーク経由で接続";
+"ADB Status" = "ADBの状況";
+
+/* ADB status messages */
+"Checking device..." = "デバイスを確認中...";
+"Setting up wireless tunnel..." = "ワイヤレストンネルを設定中...";
+"Connecting stream..." = "ストリームに接続中...";
+"Wireless ADB active" = "ワイヤレスADBが有効";
+"No USB or WiFi device found" = "USBまたはWiFiデバイスが見つかりません";
+"Found: %@" = "検出: %@";
+"Cannot get device IP" = "デバイスのIPを取得できません";
+"Device IP: %@" = "デバイスIP: %@";
+"Switching to wireless — disconnecting USB..." = "ワイヤレスに切り替え中 — USBを切断しています...";
+"Switching to wireless — enabling TCP mode..." = "ワイヤレスに切り替え中 — TCPモードを有効にしています...";
+"Switching to wireless — connecting %@..." = "ワイヤレスに切り替え中 — %@ に接続しています...";
+"WiFi connect failed — check WiFi" = "WiFi接続に失敗しました — WiFiを確認してください";
+"Switching to wireless — setting up tunnel..." = "ワイヤレスに切り替え中 — トンネルを設定しています...";
+"Forwarding port..." = "ポートを転送中...";
+"USB device unauthorized — tap 'Allow' on the phone" = "USBデバイスが未承認です — スマートフォンで「許可」をタップしてください";
+"No USB device — enable USB debugging" = "USBデバイスがありません — USBデバッグを有効にしてください";
+"Port forward failed" = "ポート転送に失敗しました";
+"Connecting..." = "接続中...";
+"USB ADB active" = "USB ADBが有効";
+"Initializing..." = "初期化中...";
+
+/* Receiver mode */
+"Show Video Window" = "ビデオウインドウを表示";
+"Stop Listening" = "待機を停止";
+"Start Listening" = "待機を開始";
+"Manual Connect" = "手動接続";
+"Host" = "ホスト";
+"Connect to an Android device streaming via USB." = "USB経由でストリーミング中のAndroidデバイスに接続します。";
+"Connect via ADB" = "ADB経由で接続";
+"Receiving" = "受信中";
+"Waiting for Connection" = "接続を待機中";
+"Receiver Mode" = "レシーバーモード";
+"Video is playing in a separate window." = "ビデオは別ウインドウで再生されています。";
+"Listening for incoming connections..." = "着信接続を待機中...";
+"Start listening to receive screen streams from other BetterCast senders." = "待機を開始すると、他のBetterCast送信側から画面ストリームを受信できます。";
+"No network detected" = "ネットワークが検出されません";
+"This device: %@ : %lld" = "このデバイス: %@ : %lld";
+"BetterCast — Receiving" = "BetterCast — 受信中";
+"BetterCast — 1 sender" = "BetterCast — 送信側 1台";
+"BetterCast — %lld senders" = "BetterCast — 送信側 %lld台";
+"1 sender connected" = "送信側 1台が接続中";
+"%lld senders connected" = "送信側 %lld台が接続中";
+
+/* Receiver network status */
+"Setting up ADB tunnel..." = "ADBトンネルを設定中...";
+"ADB not found. Install Android SDK or add adb to PATH." = "ADBが見つかりません。Android SDKをインストールするか、adbをPATHに追加してください。";
+"ADB forward failed: %@" = "ADBフォワードに失敗しました: %@";
+"Failed to run ADB: %@" = "ADBの実行に失敗しました: %@";
+"ADB connected (wireless enabled)" = "ADB接続済み（ワイヤレス有効）";
+"That is this Mac's own port. For Android USB use Connect via ADB; otherwise enter the sender's IP." = "これはこのMac自身のポートです。Android USBの場合は「ADB経由で接続」を使用し、それ以外は送信側のIPを入力してください。";
+"Connecting to %@:%@..." = "%@:%@ に接続中...";
+"Ready%@. Advertising as _bettercast._tcp" = "準備完了%@。_bettercast._tcp として通知中";
+"Failed: %@" = "失敗しました: %@";
+"Reconnecting via ADB..." = "ADB経由で再接続中...";
+"Reconnect failed. Tap 'Connect via ADB' to retry." = "再接続に失敗しました。「ADB経由で接続」をタップして再試行してください。";
+"Reconnecting via ADB (%lld/%lld)..." = "ADB経由で再接続中（%lld/%lld）...";
+
+/* Info tips */
+"Extended creates a separate virtual monitor. Mirror duplicates your main display." = "拡張は独立した仮想モニタを作成します。ミラーリングはメインディスプレイを複製します。";
+"Resolution of the virtual display. Higher resolutions use more bandwidth." = "仮想ディスプレイの解像度です。解像度が高いほど帯域幅を多く使用します。";
+"Doubles pixel density. Sharper text but uses more bandwidth." = "ピクセル密度を2倍にします。テキストがより鮮明になりますが、帯域幅を多く使用します。";
+"Adjusts the brightness of your built-in display." = "内蔵ディスプレイの輝度を調整します。";
+"Streams system audio to the receiver. Requires a compatible receiver." = "システムオーディオをレシーバーにストリーミングします。対応するレシーバーが必要です。";
+"Uses legacy display capture to bypass DRM/HDCP blocking (Netflix, Apple TV). May use more CPU and disables audio streaming. Only works when mirroring a physical display." = "レガシーのディスプレイキャプチャを使用してDRM/HDCPによるブロック（Netflix、Apple TV）を回避します。CPU使用率が上がる場合があり、オーディオストリーミングは無効になります。物理ディスプレイのミラーリング時のみ動作します。";
+"Automatically connect to discovered receivers when they appear on the network." = "ネットワーク上でレシーバーが検出されたときに自動的に接続します。";
+"Auto: AWDL for Apple devices, WiFi for others. P2P: forces direct link. Router: uses your WiFi network. Cable: USB/Thunderbolt only." = "自動: AppleデバイスにはAWDL、その他にはWiFiを使用。P2P: 直接接続を強制。ルーター: WiFiネットワークを使用。ケーブル: USB/Thunderboltのみ。";
+"TCP is reliable and works everywhere. UDP has lower latency but only works over P2P/AWDL." = "TCPは信頼性が高く、どこでも動作します。UDPは低遅延ですが、P2P/AWDL経由でのみ動作します。";
+"Higher quality uses more bandwidth. Use Low/Medium on WiFi, High/Ultra on P2P or cable." = "品質が高いほど帯域幅を多く使用します。WiFiでは低/中、P2Pまたはケーブルでは高/ウルトラをお使いください。";
+"Auto picks the best rate per connection (60). 30 saves bandwidth and battery. 120 is experimental for high-refresh receivers; needs a strong link and doubles bandwidth. Hit Apply Settings (or reconnect) to take effect." = "自動は接続ごとに最適なレートを選択します（60）。30は帯域幅とバッテリーを節約します。120は高リフレッシュレートのレシーバー向けの実験的機能で、強力な接続が必要となり帯域幅が2倍になります。「設定を適用」を押すか再接続すると有効になります。";
+"Streams system audio to this receiver." = "システムオーディオをこのレシーバーにストリーミングします。";
+"Switches to a wireless ADB tunnel so you can unplug the cable. Stays connected through the handoff." = "ワイヤレスADBトンネルに切り替えて、ケーブルを外せるようにします。切り替え中も接続は維持されます。";
+"Plug in a USB cable first. USB gives lower latency and higher bandwidth than WiFi." = "最初にUSBケーブルを接続してください。USBはWiFiより低遅延で帯域幅も広くなります。";
+"Streams via USB using Android Debug Bridge. Highest quality with no network needed. Plug in your Android device first." = "Android Debug Bridgeを使用してUSB経由でストリーミングします。ネットワーク不要で最高品質です。最初にAndroidデバイスを接続してください。";
+"Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality." = "ワイヤレスADBトンネルです。一度USBで接続してペアリングした後、ケーブルを外してフル品質でワイヤレスストリーミングできます。";
+"Connects directly over WiFi without ADB. Lower FPS but no USB setup required." = "ADBなしでWiFi経由で直接接続します。FPSは低くなりますが、USBの設定は不要です。";
+"Connects over your local network. Apple devices use AWDL peer-to-peer when available for best performance." = "ローカルネットワーク経由で接続します。Appleデバイスは、利用可能な場合はAWDLピアツーピアを使用して最高のパフォーマンスを実現します。";

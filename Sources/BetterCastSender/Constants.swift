@@ -1,5 +1,22 @@
 import Foundation
 
+/// Returns the localized string for `key`, formatting any arguments into it.
+///
+/// Lookup goes through `Bundle.main`; `make_app.sh` copies
+/// `localization/<lang>.lproj/Localizable.strings` into `Contents/Resources`.
+/// The key is the English source string, so when no translation exists (or when
+/// running a bare `swift run` binary outside the .app) the English text is shown.
+///
+/// SwiftUI `Text("…")`/`Button("…")`/etc. literals localize automatically via
+/// `LocalizedStringKey` and do NOT need this helper — it exists for strings in
+/// plain `String` contexts (status vars, enum display names, window titles).
+/// Lives here (not its own file) because this file is symlinked into the
+/// LegacyMacReceiver package, which compiles the shared receiver sources.
+func tr(_ key: String, _ args: CVarArg...) -> String {
+    let format = NSLocalizedString(key, comment: "")
+    return args.isEmpty ? format : String(format: format, locale: Locale.current, arguments: args)
+}
+
 /// Shared constants for the BetterCast sender app.
 /// Centralizes magic numbers, ports, paths, and dimensions that were previously
 /// duplicated across multiple files.

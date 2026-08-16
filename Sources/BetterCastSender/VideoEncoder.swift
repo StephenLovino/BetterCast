@@ -124,21 +124,44 @@ class VideoEncoder {
                     duration: CMSampleBufferGetDuration(sampleBuffer))
     }
 
+    /// Encode a raw CVPixelBuffer directly. Used by the CGDisplayStream legacy capture
+    /// path, which produces pixel buffers instead of CMSampleBuffers.
+    func encodePixelBuffer(_ pixelBuffer: CVPixelBuffer, pts: CMTime, duration: CMTime = .invalid) {
+        encodeFrame(imageBuffer: pixelBuffer, pts: pts, duration: duration)
+    }
+
     /// Re-encode a held frame with a fresh host-clock timestamp. Used by the static-content
     /// frame pump: when the screen is idle, ScreenCaptureKit stops delivering frames, and
     /// hardware decoders (notably Android MediaCodec) hold 2-4 frames internally until more
     /// input pushes them through — so the last real change (e.g. a typed character) stays
     /// stuck inside the decoder. Repeating the previous frame keeps the pipeline flowing
     /// (same trick as scrcpy's repeat-previous-frame). Static repeats encode to tiny P-frames.
+    // Monotonic PTS clock. encodeFrame() advances this from every real frame's PTS; repeats
+    // derive their PTS as lastPTS + one frame interval so timestamps stay strictly increasing
+    // in the SAME domain as real frames. Mixing a separate host clock made VideoToolbox
+    // silently drop repeats on the discontinuity. Touched from two threads, so lock it.
+    private var lastEncodedPTSSeconds: Double = 0
+    private let ptsLock = NSLock()
+
     func encodeRepeatFrame(pixelBuffer: CVPixelBuffer) {
+        let interval = 1.0 / Double(max(expectedFPS, 1))
+        ptsLock.lock()
+        let ptsSeconds = lastEncodedPTSSeconds + interval
+        ptsLock.unlock()
         encodeFrame(imageBuffer: pixelBuffer,
-                    pts: CMClockGetTime(CMClockGetHostTimeClock()),
+                    pts: CMTime(seconds: ptsSeconds, preferredTimescale: 1_000_000_000),
                     duration: .invalid)
     }
 
-    private func encodeFrame(imageBuffer: CVImageBuffer, pts: CMTime, duration: CMTime) {
+    func encodeFrame(imageBuffer: CVImageBuffer, pts: CMTime, duration: CMTime) {
         guard let session = compressionSession else { return }
         frameCount += 1
+        // Advance the monotonic PTS clock the repeat pump derives its timestamps from.
+        if pts.seconds.isFinite {
+            ptsLock.lock()
+            if pts.seconds > lastEncodedPTSSeconds { lastEncodedPTSSeconds = pts.seconds }
+            ptsLock.unlock()
+        }
         var frameProperties: [String: Any] = [:]
         
         // Force keyframe if requested or first frame

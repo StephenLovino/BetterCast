@@ -48,7 +48,7 @@ class ReceiverWindowController {
             backing: .buffered,
             defer: false
         )
-        w.title = "BetterCast — Receiving"
+        w.title = tr("BetterCast — Receiving")
         w.backgroundColor = .black
         w.isReleasedWhenClosed = false
         w.contentMinSize = NSSize(width: 320, height: 180)
@@ -146,9 +146,9 @@ class ReceiverWindowController {
     func updateTitle(senderCount: Int) {
         guard let w = window else { return }
         if senderCount > 0 {
-            w.title = "BetterCast — \(senderCount) sender\(senderCount == 1 ? "" : "s")"
+            w.title = senderCount == 1 ? tr("BetterCast — 1 sender") : tr("BetterCast — %lld senders", senderCount)
         } else {
-            w.title = "BetterCast — Receiving"
+            w.title = tr("BetterCast — Receiving")
         }
     }
 }
@@ -277,7 +277,7 @@ struct ReceiverModeView: View {
                                 Circle()
                                     .fill(Color.green)
                                     .frame(width: 10, height: 10)
-                                Text("\(manager.networkListener.connectedClients.count) sender\(manager.networkListener.connectedClients.count == 1 ? "" : "s") connected")
+                                Text(manager.networkListener.connectedClients.count == 1 ? tr("1 sender connected") : tr("%lld senders connected", manager.networkListener.connectedClients.count))
                                     .font(.system(size: 14, weight: .semibold))
                                 Spacer()
                             }
@@ -392,15 +392,15 @@ struct ReceiverModeView: View {
     }
 
     private var statusTitle: String {
-        if isConnected { return "Receiving" }
-        if manager.isRunning { return "Waiting for Connection" }
-        return "Receiver Mode"
+        if isConnected { return tr("Receiving") }
+        if manager.isRunning { return tr("Waiting for Connection") }
+        return tr("Receiver Mode")
     }
 
     private var statusSubtitle: String {
-        if isConnected { return "Video is playing in a separate window." }
-        if manager.isRunning { return "Listening for incoming connections..." }
-        return "Start listening to receive screen streams from other BetterCast senders."
+        if isConnected { return tr("Video is playing in a separate window.") }
+        if manager.isRunning { return tr("Listening for incoming connections...") }
+        return tr("Start listening to receive screen streams from other BetterCast senders.")
     }
 
     private func refreshLocalIPs() {
@@ -412,7 +412,7 @@ struct ReceiverModeView: View {
                     ips.append(iface)
                 }
             }
-            let result = ips.isEmpty ? "No network detected" : "This device: " + ips.joined(separator: " / ") + " : \(port)"
+            let result = ips.isEmpty ? tr("No network detected") : tr("This device: %@ : %lld", ips.joined(separator: " / "), Int(port))
             DispatchQueue.main.async {
                 cachedLocalIPs = result
             }

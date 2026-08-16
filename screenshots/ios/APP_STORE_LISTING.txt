@@ -1,0 +1,58 @@
+# BetterCast - App Store Listing Copy
+
+## App Name
+BetterCast: Display Receiver
+
+## Subtitle
+Wireless second display for Mac
+
+## Description
+Turn your iPhone or iPad into a high-performance wireless display for your Mac.
+
+BetterCast streams your Mac screen to your iOS device with hardware-level encoding for near-zero latency at 60 FPS. Use it as a portable second monitor, a mirror for presentations, or a dedicated preview display — all without cables, dongles, or paid subscriptions.
+
+SETUP IN SECONDS
+- Install BetterCast Sender on your Mac (free download at bettercast.online)
+- Connect both devices to the same Wi-Fi network
+- Select your device from the Sender app — your Mac display appears instantly
+
+BUILT FOR PERFORMANCE
+- Hardware-accelerated H.264/HEVC encoding for minimal CPU usage
+- Adaptive bitrate to match your network conditions
+- Native 4K support with crystal-clear text rendering
+- 60 FPS smooth playback with ultra-low latency
+
+DESIGNED FOR REAL WORK
+- Extend or mirror any Mac display
+- Touch input relay for interactive control from your device
+- Aspect fill mode to eliminate letterboxing
+- Custom device naming for multi-device setups
+- Persistent auto-reconnect to known senders
+
+COMPLETELY FREE
+No subscriptions. No ads. No watermarks. BetterCast is built to be the wireless display tool you can rely on every day, at no cost.
+
+Requirements: macOS 13+ with BetterCast Sender installed. iOS 15+. Both devices must be on the same local network.
+
+## Keywords
+screen mirroring,wireless display,second monitor,sidecar alternative,external display,Mac display,display extender,wireless monitor,airplay receiver,display mirror,extended desktop,dual screen,free sidecar
+
+## What's New (Version 1.3)
+- Redesigned onboarding with step-by-step setup guide
+- Improved Bonjour sender discovery with instant connect
+- New Settings tab with audio toggle, aspect fill, and cursor mode
+- Enhanced video pipeline for smoother 60 FPS playback
+- Expanded device support including iPad
+- Status bar shows real-time sender search status
+
+## Support URL
+https://bettercast.online/support
+
+## Privacy Policy URL
+https://bettercast.online/privacy
+
+## Notes for submission
+- The app requires NSLocalNetworkUsageDescription (already in Info.plist)
+- Bonjour services declared: _bettercast._tcp, _bettercast._udp, _bettercast-sender._tcp
+- No user accounts, no data collection, no analytics
+- App Review: emphasize that BetterCast only communicates over the local network and does not connect to any external servers

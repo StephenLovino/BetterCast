@@ -16,6 +16,13 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     var audioEncoder: AudioEncoder?
     var captureAudio: Bool = false
 
+    /// When true, uses CGDisplayStream instead of ScreenCaptureKit to capture.
+    /// CGDisplayStream reads the GPU's composited framebuffer directly, which bypasses
+    /// SCK's DRM/HDCP blocking. Only works for physical displays (not virtual).
+    /// Set before calling startCapture().
+    var useLegacyCapture: Bool = false
+    private var legacyCapture: LegacyDisplayCapture?
+
     private var width: Int
     private var height: Int
     private var captureFPS: Int32
@@ -31,6 +38,13 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     
     func startCapture() async {
         stopRequested = false
+
+        // ── Legacy capture path (CGDisplayStream) ──
+        if useLegacyCapture {
+            await startLegacyCapture()
+            return
+        }
+
         do {
             // Retry logic for Virtual Display availability (Race condition fix)
             var display: SCDisplay?
@@ -120,13 +134,61 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     
     func stopCapture() {
         stopRequested = true // Aborts an in-flight startCapture() that hasn't published its stream yet
+        legacyCapture?.stop()
+        legacyCapture = nil
         stopFramePump()
         Task {
             try? await stream?.stopCapture()
             stream = nil
         }
     }
-    
+
+    // MARK: - Legacy capture (CGDisplayStream — DRM bypass)
+
+    private func startLegacyCapture() async {
+        // CGDisplayStream only works with physical displays that have a hardware framebuffer.
+        // Virtual displays are software-only; detect and fall back to the main display.
+        let captureDisplayID: CGDirectDisplayID
+        if let tid = targetDisplayID {
+            // Check whether this display is online (physical) or likely virtual.
+            // CGGetOnlineDisplayList returns currently active physical displays.
+            var onlineCount: UInt32 = 0
+            var onlineIDs = [CGDirectDisplayID](repeating: 0, count: 16)
+            CGGetOnlineDisplayList(16, &onlineIDs, &onlineCount)
+            let isOnline = onlineIDs.prefix(Int(onlineCount)).contains(tid)
+            if isOnline {
+                captureDisplayID = tid
+            } else {
+                LogManager.shared.log("ScreenRecorder: Target display \(tid) is not online (virtual?) — falling back to main display for legacy capture")
+                captureDisplayID = CGMainDisplayID()
+            }
+        } else {
+            captureDisplayID = CGMainDisplayID()
+        }
+        LogManager.shared.log("ScreenRecorder: Legacy capture targeting display \(captureDisplayID)")
+
+        let capture = LegacyDisplayCapture(
+            displayID: captureDisplayID,
+            width: width,
+            height: height,
+            fps: captureFPS
+        )
+        capture.onFrame = { [weak self] pixelBuffer, pts in
+            guard let self = self, !self.stopRequested else { return }
+            // Feed directly into the encoder.
+            self.videoEncoder?.encodePixelBuffer(pixelBuffer, pts: pts, duration: .invalid)
+            // Update the pump buffer so static-content repeats are fresh.
+            self.updatePumpFrame(from: pixelBuffer)
+            let nowReal = CACurrentMediaTime()
+            self.encodeTimeLock.lock(); self.lastEncodeHostTime = nowReal; self.encodeTimeLock.unlock()
+            self.lastFrameHostTime = nowReal
+        }
+        self.legacyCapture = capture
+        capture.start()
+        startFramePump()
+        LogManager.shared.log("ScreenRecorder: Legacy capture started for display \(captureDisplayID)")
+    }
+
     // MARK: - Static-content frame pump
     // ScreenCaptureKit only delivers frames when content changes. Hardware decoders on the
     // receiver (Android MediaCodec especially) hold 2-4 frames internally and only release
@@ -136,18 +198,81 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // (scrcpy's repeat-previous-frame, done sender-side). Repeats encode to tiny P-frames.
     private let pumpQueue = DispatchQueue(label: "com.bettercast.framepump")
     private var pumpTimer: DispatchSourceTimer?
-    private var lastSampleBuffer: CMSampleBuffer?   // newest frame; queueDepth is raised by 1 to compensate
     private var lastFrameHostTime: CFTimeInterval = 0
+    // Owned copy of the most recent frame. We can't retain the SCK sample buffer for this:
+    // when capture goes idle SCK reclaims its pool, so the held buffer's backing vanishes
+    // exactly when the pump needs it. Copying into a buffer we own keeps a valid frame to
+    // repeat indefinitely. Written on the SCK thread, read on the pump queue, hence the lock.
+    private var pumpFrameBuffer: CVPixelBuffer?
+    private let pumpBufferLock = NSLock()
+    // Floor pacing: time of the most recent encode of ANY kind (real SCK frame or pump repeat).
+    // Written from the SCK callback thread and the pump queue, so guard with a lock.
+    private var lastEncodeHostTime: CFTimeInterval = 0
+    private let encodeTimeLock = NSLock()
+    private static let pumpFloorInterval: CFTimeInterval = 0.015   // ~66fps floor of encodes
+
+    /// Copy the latest captured frame into a buffer we own, so the pump always has a valid
+    /// frame to repeat even after ScreenCaptureKit goes idle and recycles its pool. Reuses
+    /// the destination buffer across frames; reallocates only on a size/format change.
+    private func updatePumpFrame(from src: CVPixelBuffer) {
+        let w = CVPixelBufferGetWidth(src)
+        let h = CVPixelBufferGetHeight(src)
+        let fmt = CVPixelBufferGetPixelFormatType(src)
+        pumpBufferLock.lock()
+        defer { pumpBufferLock.unlock() }
+        if pumpFrameBuffer == nil ||
+            CVPixelBufferGetWidth(pumpFrameBuffer!) != w ||
+            CVPixelBufferGetHeight(pumpFrameBuffer!) != h ||
+            CVPixelBufferGetPixelFormatType(pumpFrameBuffer!) != fmt {
+            var nb: CVPixelBuffer?
+            let attrs: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary]
+            CVPixelBufferCreate(kCFAllocatorDefault, w, h, fmt, attrs as CFDictionary, &nb)
+            pumpFrameBuffer = nb
+        }
+        guard let dst = pumpFrameBuffer else { return }
+        CVPixelBufferLockBaseAddress(src, .readOnly)
+        CVPixelBufferLockBaseAddress(dst, [])
+        if CVPixelBufferIsPlanar(src) {
+            for p in 0..<CVPixelBufferGetPlaneCount(src) {
+                guard let s = CVPixelBufferGetBaseAddressOfPlane(src, p),
+                      let d = CVPixelBufferGetBaseAddressOfPlane(dst, p) else { continue }
+                let sBPR = CVPixelBufferGetBytesPerRowOfPlane(src, p)
+                let dBPR = CVPixelBufferGetBytesPerRowOfPlane(dst, p)
+                let bytes = min(sBPR, dBPR)
+                for row in 0..<CVPixelBufferGetHeightOfPlane(src, p) {
+                    memcpy(d + row * dBPR, s + row * sBPR, bytes)
+                }
+            }
+        } else if let s = CVPixelBufferGetBaseAddress(src), let d = CVPixelBufferGetBaseAddress(dst) {
+            let sBPR = CVPixelBufferGetBytesPerRow(src)
+            let dBPR = CVPixelBufferGetBytesPerRow(dst)
+            let bytes = min(sBPR, dBPR)
+            for row in 0..<h { memcpy(d + row * dBPR, s + row * sBPR, bytes) }
+        }
+        CVPixelBufferUnlockBaseAddress(dst, [])
+        CVPixelBufferUnlockBaseAddress(src, .readOnly)
+    }
 
     private func startFramePump() {
         let timer = DispatchSource.makeTimerSource(queue: pumpQueue)
-        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(16))
+        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(8))
         timer.setEventHandler { [weak self] in
             guard let self = self, !self.stopRequested else { return }
-            // Only pump when SCK has gone quiet; live capture always wins.
-            guard CACurrentMediaTime() - self.lastFrameHostTime > 0.03,
-                  let sb = self.lastSampleBuffer,
-                  let pb = CMSampleBufferGetImageBuffer(sb) else { return }
+            // Maintain a ~60fps floor of encodes. Gate on time since the last encode of ANY
+            // kind — not since the last SCK frame — so we fill the gap whether the screen went
+            // static OR the encoder dropped a real frame. This keeps the Android decoder's
+            // ~15-frame pipeline flushed so the newest content (a keystroke) isn't stuck for
+            // seconds when capture goes quiet. scrcpy's repeat-previous-frame, output-paced.
+            let now = CACurrentMediaTime()
+            self.encodeTimeLock.lock()
+            let gap = now - self.lastEncodeHostTime
+            self.encodeTimeLock.unlock()
+            guard gap >= ScreenRecorder.pumpFloorInterval else { return }
+            self.pumpBufferLock.lock()
+            let pb = self.pumpFrameBuffer
+            self.pumpBufferLock.unlock()
+            guard let pb = pb else { return }
+            self.encodeTimeLock.lock(); self.lastEncodeHostTime = now; self.encodeTimeLock.unlock()
             self.videoEncoder?.encodeRepeatFrame(pixelBuffer: pb)
         }
         timer.resume()
@@ -157,7 +282,7 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private func stopFramePump() {
         pumpTimer?.cancel()
         pumpTimer = nil
-        pumpQueue.async { [weak self] in self?.lastSampleBuffer = nil }
+        pumpBufferLock.lock(); pumpFrameBuffer = nil; pumpBufferLock.unlock()
     }
 
     // SCStreamOutput
@@ -171,10 +296,13 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 LogManager.shared.log("ScreenRecorder: Captured frame \(frameCount)")
             }
             videoEncoder?.encode(sampleBuffer: sampleBuffer)
-            pumpQueue.async { [weak self] in
-                self?.lastSampleBuffer = sampleBuffer
-                self?.lastFrameHostTime = CACurrentMediaTime()
+            let nowReal = CACurrentMediaTime()
+            // Copy the frame into our own buffer now, while it's still valid on this thread.
+            if let pb = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                updatePumpFrame(from: pb)
             }
+            encodeTimeLock.lock(); lastEncodeHostTime = nowReal; encodeTimeLock.unlock()
+            lastFrameHostTime = nowReal
 
         case .audio:
             audioFrameCount += 1

@@ -179,8 +179,9 @@ class VideoDecoder {
              }
              
              let hostTime = CMClockGetTime(CMClockGetHostTimeClock())
-             // 50ms buffer
-             let presentationTime = CMTimeAdd(hostTime, CMTime(seconds: 0.05, preferredTimescale: 1_000_000_000))
+             // 16ms buffer = one frame at 60fps. Was 50ms — pure end-to-end latency we
+             // don't need now that the encoder pipeline is stable.
+             let presentationTime = CMTimeAdd(hostTime, CMTime(seconds: 0.016, preferredTimescale: 1_000_000_000))
              
              var timing = CMSampleTimingInfo(
                  duration: CMTime.invalid,
@@ -201,7 +202,9 @@ class VideoDecoder {
           )
           
           if sbStatus == noErr, let sb = sampleBuffer {
-             let flags: VTDecodeFrameFlags = [._EnableAsynchronousDecompression, ._EnableTemporalProcessing]
+             // Encoder uses AllowFrameReordering=false (no B-frames), so temporal
+             // processing only adds reorder latency for nothing.
+             let flags: VTDecodeFrameFlags = [._EnableAsynchronousDecompression]
              var infoFlags: VTDecodeInfoFlags = []
              
              let status = VTDecompressionSessionDecodeFrame(

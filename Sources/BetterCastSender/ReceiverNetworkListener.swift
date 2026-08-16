@@ -93,7 +93,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         isConnectingADB = true
 
         DispatchQueue.main.async {
-            self.status = "Setting up ADB tunnel..."
+            self.status = tr("Setting up ADB tunnel...")
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -107,7 +107,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
 
             guard let adb = adbPath else {
                 DispatchQueue.main.async {
-                    self?.status = "ADB not found. Install Android SDK or add adb to PATH."
+                    self?.status = tr("ADB not found. Install Android SDK or add adb to PATH.")
                 }
                 self?.isConnectingADB = false
                 return
@@ -150,13 +150,13 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                 } else {
                     self?.isConnectingADB = false
                     DispatchQueue.main.async {
-                        self?.status = "ADB forward failed: \(output.trimmingCharacters(in: .whitespacesAndNewlines))"
+                        self?.status = tr("ADB forward failed: %@", output.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                 }
             } catch {
                 self?.isConnectingADB = false
                 DispatchQueue.main.async {
-                    self?.status = "Failed to run ADB: \(error.localizedDescription)"
+                    self?.status = tr("Failed to run ADB: %@", error.localizedDescription)
                 }
             }
         }
@@ -248,7 +248,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             if connectOutput.contains("connected") || connectOutput.contains("already") {
                 LogManager.shared.log("Receiver: Wireless ADB enabled (\(deviceIp):5555)")
                 DispatchQueue.main.async {
-                    self.status = "ADB connected (wireless enabled)"
+                    self.status = tr("ADB connected (wireless enabled)")
                 }
             }
         } catch {
@@ -266,7 +266,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         if loopbackNames.contains(host), let ownPort = tcpListener?.port?.rawValue, port == ownPort {
             LogManager.shared.log("Receiver: Refusing to connect to our own listener (localhost:\(port))")
             DispatchQueue.main.async {
-                self.status = "That is this Mac's own port. For Android USB use Connect via ADB; otherwise enter the sender's IP."
+                self.status = tr("That is this Mac's own port. For Android USB use Connect via ADB; otherwise enter the sender's IP.")
             }
             return
         }
@@ -282,7 +282,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
 
         LogManager.shared.log("Receiver: Connecting to \(host):\(port)...")
         DispatchQueue.main.async {
-            self.status = "Connecting to \(host):\(port)..."
+            self.status = tr("Connecting to %@:%@...", host, String(port))
         }
 
         handleNewConnection(connection, type: .tcp)
@@ -392,12 +392,12 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
                     portStr = ""
                 }
                 if type == "TCP" {
-                    self.status = "Ready\(portStr). Advertising as _bettercast._tcp"
+                    self.status = tr("Ready%@. Advertising as _bettercast._tcp", portStr)
                 }
                 LogManager.shared.log("Receiver (\(type)): Ready\(portStr)")
             case .failed(let error):
                 if type == "TCP" {
-                    self.status = "Failed: \(error.localizedDescription)"
+                    self.status = tr("Failed: %@", error.localizedDescription)
                     LogManager.shared.log("Receiver (TCP): Failed — \(error). Check if port 51820 is in use or if macOS firewall is blocking incoming connections.")
                 } else {
                     LogManager.shared.log("Receiver (\(type)): Failed \(error)")
@@ -622,7 +622,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         stopReconnectTimer()
         LogManager.shared.log("Receiver: Connection lost. Will auto-reconnect via ADB...")
         DispatchQueue.main.async {
-            self.status = "Reconnecting via ADB..."
+            self.status = tr("Reconnecting via ADB...")
         }
 
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
@@ -645,14 +645,14 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             isReconnecting = false
             LogManager.shared.log("Receiver: ADB auto-reconnect failed after \(Self.maxReconnectAttempts) attempts")
             DispatchQueue.main.async {
-                self.status = "Reconnect failed. Tap 'Connect via ADB' to retry."
+                self.status = tr("Reconnect failed. Tap 'Connect via ADB' to retry.")
             }
             return
         }
 
         LogManager.shared.log("Receiver: ADB reconnect attempt \(reconnectAttempts)/\(Self.maxReconnectAttempts)")
         DispatchQueue.main.async {
-            self.status = "Reconnecting via ADB (\(self.reconnectAttempts)/\(Self.maxReconnectAttempts))..."
+            self.status = tr("Reconnecting via ADB (%lld/%lld)...", self.reconnectAttempts, Self.maxReconnectAttempts)
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

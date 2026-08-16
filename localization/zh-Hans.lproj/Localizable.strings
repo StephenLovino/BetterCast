@@ -1,0 +1,242 @@
+/*
+  Localizable.strings — 简体中文 (Simplified Chinese)
+
+  This is the Simplified Chinese translation of BetterCast's localizable UI
+  strings. Keys are the English source strings and must stay identical to
+  localization/en.lproj/Localizable.strings; only the right-hand values are
+  translated.
+
+  Keep format placeholders (%@, %lld, %.1f) intact and in the same order.
+*/
+
+/* Onboarding & guided tour */
+"Welcome to BetterCast" = "欢迎使用 BetterCast";
+"A few permissions are needed to get started" = "开始使用前需要授予一些权限";
+"Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "让我们快速了解一下这款应用。BetterCast 可将任何设备变成 Mac 的无线扩展显示器。";
+"Overview" = "概览";
+"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "这是你的仪表盘。可查看所有已连接显示器的实时预览、管理连接，并使用\"排列…\"在系统设置中调整显示器位置。";
+"Device Settings" = "设备设置";
+"Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "点按边栏中任意已连接的设备，即可调整该显示器的分辨率、码率、Retina 模式和音频串流。";
+"Receive Screen" = "接收屏幕";
+"BetterCast can also receive streams from other Macs. Start listening here and incoming video opens in a separate window." = "BetterCast 也可以接收来自其他 Mac 的串流。在此开始监听，传入的视频将在单独的窗口中打开。";
+"Settings" = "设置";
+"Configure global preferences like connection mode, auto-connect, and manage connected displays." = "配置全局偏好设置，如连接模式、自动连接，并管理已连接的显示器。";
+"Logs" = "日志";
+"View detailed connection and streaming logs for troubleshooting. Useful if something isn't working right." = "查看详细的连接和串流日志以排查问题。当功能异常时非常有用。";
+"You're All Set!" = "一切就绪！";
+"Connect a receiver device from the sidebar or use \"Receive Screen\" to receive from another Mac. Enjoy your extended display!" = "从边栏连接接收端设备，或使用\"接收屏幕\"接收来自其他 Mac 的画面。尽情享受你的扩展显示器吧！";
+"Back" = "返回";
+"Skip Tour" = "跳过导览";
+"Next" = "下一步";
+"Skip" = "跳过";
+"Done" = "完成";
+"Get Started" = "开始使用";
+"You're all set!" = "一切就绪！";
+"Some permissions are missing. You can grant them later in System Settings, but some features won't work until they're enabled." = "部分权限尚未授予。你可以稍后在系统设置中授予，但在启用之前某些功能将无法使用。";
+"Granted" = "已授予";
+"Not granted" = "未授予";
+"Permission granted" = "权限已授予";
+"Ready" = "就绪";
+
+/* Permissions */
+"Screen Recording" = "屏幕录制";
+"BetterCast needs Screen Recording permission to capture your display and stream it to receivers." = "BetterCast 需要屏幕录制权限来捕获你的显示器画面并将其串流到接收端。";
+"Open Screen Recording Settings" = "打开屏幕录制设置";
+"Accessibility" = "辅助功能";
+"Accessibility permission lets BetterCast relay mouse and keyboard input from your receivers back to this Mac." = "辅助功能权限可让 BetterCast 将接收端的鼠标和键盘输入转发回这台 Mac。";
+"Open Accessibility Settings" = "打开辅助功能设置";
+"Reset Permissions" = "重置权限";
+"Restart" = "重新启动";
+"Setup Wizard" = "设置向导";
+"Replay Tour" = "重播导览";
+
+/* Sidebar & device list */
+"Devices" = "设备";
+"Searching..." = "正在搜索…";
+"Connect" = "连接";
+"Receive" = "接收";
+"BetterCast" = "BetterCast";
+"Quit BetterCast" = "退出 BetterCast";
+"Connected" = "已连接";
+"Available" = "可用";
+"Connected (USB)" = "已连接 (USB)";
+"Connected (WiFi ADB)" = "已连接 (WiFi ADB)";
+"Connected (WiFi)" = "已连接 (WiFi)";
+"Manual IP" = "手动输入 IP";
+"IP / hostname" = "IP / 主机名";
+"Port" = "端口";
+"Android (ADB)" = "Android (ADB)";
+"Setting up..." = "正在设置…";
+"Wireless" = "无线";
+"USB" = "USB";
+
+/* Empty state / getting started */
+"Select a device from the sidebar to connect" = "从边栏选择要连接的设备";
+"No Devices Found" = "未找到设备";
+"To use BetterCast, you need the receiver app running on another device." = "要使用 BetterCast，需要在另一台设备上运行接收端应用。";
+"Download Receiver App" = "下载接收端应用";
+"Searching for devices on your network..." = "正在网络中搜索设备…";
+"Download the Receiver" = "下载接收端";
+"Install BetterCast Receiver on your iPad, Android, Windows, Linux, or Mac." = "在你的 iPad、Android、Windows、Linux 或 Mac 上安装 BetterCast 接收端。";
+"Connect to the Same Network" = "连接到同一网络";
+"Make sure both devices are on the same Wi-Fi network." = "确保两台设备连接到同一个 Wi-Fi 网络。";
+"Open the Receiver App" = "打开接收端应用";
+"Your device will appear automatically in the sidebar." = "你的设备将自动显示在边栏中。";
+
+/* Display settings */
+"Use as" = "用作";
+"Extended Display" = "扩展显示器";
+"Mirror Built-in" = "镜像内建显示器";
+"Resolution" = "分辨率";
+"Dimensions" = "尺寸";
+"Retina (HiDPI)" = "Retina (HiDPI)";
+"Brightness" = "亮度";
+"Audio Streaming" = "音频串流";
+"Compatibility Mode" = "兼容模式";
+"Arrange Displays" = "排列显示器";
+"Display" = "显示器";
+"Displays" = "显示器";
+"Arrange..." = "排列…";
+"Built-in Display" = "内建显示器";
+"Position" = "位置";
+"View Settings" = "查看设置";
+"Quality" = "质量";
+"Bitrate" = "码率";
+"Frame Rate" = "帧率";
+"Auto (60)" = "自动 (60)";
+"30 FPS" = "30 FPS";
+"60 FPS" = "60 FPS";
+"120 FPS" = "120 FPS";
+"Transfer Speed" = "传输速度";
+"Low (5 Mbps)" = "低 (5 Mbps)";
+"Medium (10 Mbps)" = "中 (10 Mbps)";
+"High (20 Mbps)" = "高 (20 Mbps)";
+"Ultra (50 Mbps)" = "超高 (50 Mbps)";
+"Extreme (100 Mbps)" = "极高 (100 Mbps)";
+
+/* Connection settings */
+"Connection" = "连接";
+"Auto-Connect" = "自动连接";
+"Mode" = "模式";
+"Auto (Apple Default)" = "自动（Apple 默认）";
+"Force P2P (WiFi Direct)" = "强制 P2P（WiFi 直连）";
+"Force Router/WiFi" = "强制路由器/WiFi";
+"USB / Thunderbolt Cable" = "USB / 雷雳线缆";
+"Protocol" = "协议";
+"TCP (Recommended)" = "TCP（推荐）";
+"UDP (Faster, P2P only)" = "UDP（更快，仅限 P2P）";
+"Controls" = "控制";
+"Apply Settings" = "应用设置";
+"Connected Displays" = "已连接的显示器";
+"Disconnect" = "断开连接";
+"Connected Devices" = "已连接的设备";
+"Available Devices" = "可用设备";
+"Method" = "方式";
+"Switch to Wireless" = "切换到无线";
+"Switch to USB (smoother)" = "切换到 USB（更流畅）";
+"Status" = "状态";
+"Current" = "当前";
+"USB (ADB)" = "USB (ADB)";
+"Wireless (WiFi ADB)" = "无线 (WiFi ADB)";
+"WiFi" = "WiFi";
+
+/* About / updates */
+"About" = "关于";
+"Version" = "版本";
+"Download" = "下载";
+"You're on the latest version" = "你使用的已是最新版本";
+"You're on the latest version (%@)" = "你使用的已是最新版本 (%@)";
+"What's New" = "新功能";
+"BetterCast %@" = "BetterCast %@";
+"Update available: %@" = "有可用更新：%@";
+"Report Issue" = "报告问题";
+"Copy" = "拷贝";
+"Clear" = "清除";
+
+/* Android (ADB) connect */
+"ADB (USB)" = "ADB (USB)";
+"60 FPS — best quality, requires USB cable" = "60 FPS — 最佳质量，需要 USB 线缆";
+"ADB (WiFi)" = "ADB (WiFi)";
+"60 FPS — wireless ADB tunnel, needs USB first" = "60 FPS — 无线 ADB 隧道，需先连接 USB";
+"WiFi (TCP)" = "WiFi (TCP)";
+"30 FPS — direct network, no ADB needed" = "30 FPS — 直接联网，无需 ADB";
+"Connect via network" = "通过网络连接";
+"ADB Status" = "ADB 状态";
+
+/* ADB status messages */
+"Checking device..." = "正在检查设备…";
+"Setting up wireless tunnel..." = "正在设置无线隧道…";
+"Connecting stream..." = "正在连接串流…";
+"Wireless ADB active" = "无线 ADB 已激活";
+"No USB or WiFi device found" = "未找到 USB 或 WiFi 设备";
+"Found: %@" = "已找到：%@";
+"Cannot get device IP" = "无法获取设备 IP";
+"Device IP: %@" = "设备 IP：%@";
+"Switching to wireless — disconnecting USB..." = "正在切换到无线 — 正在断开 USB…";
+"Switching to wireless — enabling TCP mode..." = "正在切换到无线 — 正在启用 TCP 模式…";
+"Switching to wireless — connecting %@..." = "正在切换到无线 — 正在连接 %@…";
+"WiFi connect failed — check WiFi" = "WiFi 连接失败 — 请检查 WiFi";
+"Switching to wireless — setting up tunnel..." = "正在切换到无线 — 正在设置隧道…";
+"Forwarding port..." = "正在转发端口…";
+"USB device unauthorized — tap 'Allow' on the phone" = "USB 设备未授权 — 请在手机上点按\"允许\"";
+"No USB device — enable USB debugging" = "无 USB 设备 — 请启用 USB 调试";
+"Port forward failed" = "端口转发失败";
+"Connecting..." = "正在连接…";
+"USB ADB active" = "USB ADB 已激活";
+"Initializing..." = "正在初始化…";
+
+/* Receiver mode */
+"Show Video Window" = "显示视频窗口";
+"Stop Listening" = "停止监听";
+"Start Listening" = "开始监听";
+"Manual Connect" = "手动连接";
+"Host" = "主机";
+"Connect to an Android device streaming via USB." = "连接通过 USB 串流的 Android 设备。";
+"Connect via ADB" = "通过 ADB 连接";
+"Receiving" = "正在接收";
+"Waiting for Connection" = "等待连接";
+"Receiver Mode" = "接收端模式";
+"Video is playing in a separate window." = "视频正在单独的窗口中播放。";
+"Listening for incoming connections..." = "正在监听传入连接…";
+"Start listening to receive screen streams from other BetterCast senders." = "开始监听以接收来自其他 BetterCast 发送端的屏幕串流。";
+"No network detected" = "未检测到网络";
+"This device: %@ : %lld" = "本设备：%@ : %lld";
+"BetterCast — Receiving" = "BetterCast — 正在接收";
+"BetterCast — 1 sender" = "BetterCast — 1 个发送端";
+"BetterCast — %lld senders" = "BetterCast — %lld 个发送端";
+"1 sender connected" = "已连接 1 个发送端";
+"%lld senders connected" = "已连接 %lld 个发送端";
+
+/* Receiver network status */
+"Setting up ADB tunnel..." = "正在设置 ADB 隧道…";
+"ADB not found. Install Android SDK or add adb to PATH." = "未找到 ADB。请安装 Android SDK 或将 adb 添加到 PATH。";
+"ADB forward failed: %@" = "ADB 端口转发失败：%@";
+"Failed to run ADB: %@" = "运行 ADB 失败：%@";
+"ADB connected (wireless enabled)" = "ADB 已连接（无线已启用）";
+"That is this Mac's own port. For Android USB use Connect via ADB; otherwise enter the sender's IP." = "这是这台 Mac 自身的端口。Android USB 请使用\"通过 ADB 连接\"；否则请输入发送端的 IP。";
+"Connecting to %@:%@..." = "正在连接 %@:%@…";
+"Ready%@. Advertising as _bettercast._tcp" = "就绪%@。正在以 _bettercast._tcp 广播";
+"Failed: %@" = "失败：%@";
+"Reconnecting via ADB..." = "正在通过 ADB 重新连接…";
+"Reconnect failed. Tap 'Connect via ADB' to retry." = "重新连接失败。请点按\"通过 ADB 连接\"重试。";
+"Reconnecting via ADB (%lld/%lld)..." = "正在通过 ADB 重新连接 (%lld/%lld)…";
+
+/* Info tips */
+"Extended creates a separate virtual monitor. Mirror duplicates your main display." = "扩展会创建一个独立的虚拟显示器。镜像会复制你的主显示器画面。";
+"Resolution of the virtual display. Higher resolutions use more bandwidth." = "虚拟显示器的分辨率。分辨率越高，占用带宽越多。";
+"Doubles pixel density. Sharper text but uses more bandwidth." = "使像素密度翻倍。文字更清晰，但占用更多带宽。";
+"Adjusts the brightness of your built-in display." = "调节内建显示器的亮度。";
+"Streams system audio to the receiver. Requires a compatible receiver." = "将系统音频串流到接收端。需要兼容的接收端。";
+"Uses legacy display capture to bypass DRM/HDCP blocking (Netflix, Apple TV). May use more CPU and disables audio streaming. Only works when mirroring a physical display." = "使用旧式显示器捕获以绕过 DRM/HDCP 限制（Netflix、Apple TV）。可能占用更多 CPU 并停用音频串流。仅在镜像物理显示器时可用。";
+"Automatically connect to discovered receivers when they appear on the network." = "当发现的接收端出现在网络中时自动连接。";
+"Auto: AWDL for Apple devices, WiFi for others. P2P: forces direct link. Router: uses your WiFi network. Cable: USB/Thunderbolt only." = "自动：Apple 设备使用 AWDL，其他设备使用 WiFi。P2P：强制直连。路由器：使用你的 WiFi 网络。线缆：仅限 USB/雷雳。";
+"TCP is reliable and works everywhere. UDP has lower latency but only works over P2P/AWDL." = "TCP 可靠且适用于所有环境。UDP 延迟更低，但仅适用于 P2P/AWDL。";
+"Higher quality uses more bandwidth. Use Low/Medium on WiFi, High/Ultra on P2P or cable." = "质量越高，占用带宽越多。WiFi 下建议使用低/中，P2P 或线缆连接下建议使用高/超高。";
+"Auto picks the best rate per connection (60). 30 saves bandwidth and battery. 120 is experimental for high-refresh receivers; needs a strong link and doubles bandwidth. Hit Apply Settings (or reconnect) to take effect." = "自动会为每个连接选择最佳帧率 (60)。30 可节省带宽和电量。120 为实验性功能，适用于高刷新率接收端；需要稳定的连接且带宽翻倍。点按\"应用设置\"（或重新连接）后生效。";
+"Streams system audio to this receiver." = "将系统音频串流到此接收端。";
+"Switches to a wireless ADB tunnel so you can unplug the cable. Stays connected through the handoff." = "切换到无线 ADB 隧道，之后即可拔掉线缆。切换过程中保持连接不中断。";
+"Plug in a USB cable first. USB gives lower latency and higher bandwidth than WiFi." = "请先插入 USB 线缆。USB 比 WiFi 延迟更低、带宽更高。";
+"Streams via USB using Android Debug Bridge. Highest quality with no network needed. Plug in your Android device first." = "通过 USB 使用 Android 调试桥 (ADB) 串流。质量最高且无需网络。请先插入你的 Android 设备。";
+"Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality." = "无线 ADB 隧道。先通过 USB 连接一次以配对，之后即可拔线并以全画质无线串流。";
+"Connects directly over WiFi without ADB. Lower FPS but no USB setup required." = "无需 ADB，直接通过 WiFi 连接。FPS 较低，但无需 USB 设置。";
+"Connects over your local network. Apple devices use AWDL peer-to-peer when available for best performance." = "通过本地网络连接。Apple 设备在可用时会使用 AWDL 点对点连接以获得最佳性能。";

@@ -7,6 +7,21 @@ import CoreMedia
 protocol NetworkListenerDelegate: AnyObject {
     func networkListener(_ listener: NetworkListenerIOS, didUpdateStatus status: String)
     func networkListener(_ listener: NetworkListenerIOS, didReceiveInput event: InputEvent) // If we were receiving input
+    /// Called whenever the discovered Mac-sender list changes. Optional.
+    func networkListener(_ listener: NetworkListenerIOS, didUpdateDiscoveredSenders senders: [DiscoveredSender])
+}
+
+extension NetworkListenerDelegate {
+    func networkListener(_ listener: NetworkListenerIOS, didUpdateDiscoveredSenders senders: [DiscoveredSender]) {}
+}
+
+/// A Mac sender discovered via Bonjour (`_bettercast-sender._tcp`).
+struct DiscoveredSender: Equatable {
+    let name: String
+    let endpoint: NWEndpoint
+    static func == (lhs: DiscoveredSender, rhs: DiscoveredSender) -> Bool {
+        return lhs.name == rhs.name
+    }
 }
 
 class NetworkListenerIOS {
@@ -36,20 +51,250 @@ class NetworkListenerIOS {
     
     // Heartbeat
     private var heartbeatTimer: Timer?
-    
+
+    // Browser for discovering Mac senders that are accepting iOS-initiated connections
+    // NWBrowser is iOS 13+. Stored as AnyObject so this class still compiles at the
+    // iOS 12 deployment target; sender discovery is gated behind #available below.
+    private var senderBrowser: AnyObject?
+    private(set) var discoveredSenders: [DiscoveredSender] = []
+
+    // AWDL interface cache (mirrors Mac sender). Populated by NWPathMonitor; pinned on
+    // outbound dials so iOS uses AWDL P2P instead of Wi-Fi LAN when both are available.
+    private var pathMonitor: NWPathMonitor?
+    private var cachedAWDLInterface: NWInterface?
+
+    // Last sender we successfully dialed — used to re-establish the link when the user
+    // toggles audio in Settings.
+    private var lastDialedSender: DiscoveredSender?
+
+    // Currently active dial-out connection (separate from accepted clients so we can
+    // cancel it cleanly during reconnect).
+    private var activeDialConnection: NWConnection?
+    private var awdlDialFallbackTimer: DispatchSourceTimer?
+
+    /// Set false to drop audio payloads (`0x02`) at the framing layer. Toggleable from Settings.
+    /// Defaults to whatever was persisted last; new installs default to enabled.
+    var audioEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: "audioEnabled") == nil { return true }
+        return UserDefaults.standard.bool(forKey: "audioEnabled")
+    }()
+
     init() {}
-    
+
     func setup(decoder: VideoDecoder, renderer: VideoRendererIOS) {
         self.videoDecoder = decoder
         self.videoRenderer = renderer
         self.audioPlayer = AudioPlayerIOS()
         decoder.delegate = self
     }
-    
+
     func start() {
+        startPathMonitor()
         startTCP()
         startUDP()
         startHeartbeat()
+        // Sender discovery (NWBrowser) is iOS 13+. On iOS 12 the receiver still listens
+        // and accepts connections from the Mac (NWListener) — it just can't browse for senders.
+        if #available(iOS 13.0, *) {
+            startSenderBrowser()
+        }
+    }
+
+    /// Watch for the AWDL pseudo-interface so we can pin outbound dials to it (same
+    /// trick the Mac sender uses in BetterCastSenderApp.swift:2520+).
+    private func startPathMonitor() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self = self else { return }
+            for interface in path.availableInterfaces {
+                if interface.name.contains("awdl") || interface.name.contains("llw") {
+                    let wasNil = (self.cachedAWDLInterface == nil)
+                    self.cachedAWDLInterface = interface
+                    if wasNil {
+                        LogManager.shared.log("ReceiverIOS: Cached AWDL interface \(interface.name) for P2P dial-out")
+                    }
+                    return
+                }
+            }
+        }
+        monitor.start(queue: networkQueue)
+        self.pathMonitor = monitor
+    }
+
+    /// Bonjour service type advertised by Mac senders accepting iOS-initiated connections.
+    /// Inlined here because Constants.swift isn't part of the Xcode project for this target.
+    private static let senderInviteServiceType = "_bettercast-sender._tcp"
+
+    /// Browse for Mac senders advertising `_bettercast-sender._tcp` on the local network
+    /// (and over AWDL for iPhone↔Mac). The discovered list is mirrored on the delegate.
+    @available(iOS 13.0, *)
+    private func startSenderBrowser() {
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true
+
+        let browser = NWBrowser(
+            for: .bonjour(type: NetworkListenerIOS.senderInviteServiceType, domain: nil),
+            using: parameters
+        )
+
+        browser.stateUpdateHandler = { (state: NWBrowser.State) in
+            switch state {
+            case .ready:
+                LogManager.shared.log("ReceiverIOS: Browsing for \(NetworkListenerIOS.senderInviteServiceType)")
+            case .failed(let error):
+                LogManager.shared.log("ReceiverIOS: Sender browser failed \(error)")
+            default: break
+            }
+        }
+
+        browser.browseResultsChangedHandler = { [weak self] (results: Set<NWBrowser.Result>, _: Set<NWBrowser.Result.Change>) in
+            guard let self = self else { return }
+            let senders: [DiscoveredSender] = results.compactMap { result in
+                if case .service(let name, _, _, _) = result.endpoint {
+                    return DiscoveredSender(name: name, endpoint: result.endpoint)
+                }
+                return nil
+            }
+            DispatchQueue.main.async {
+                self.discoveredSenders = senders
+                self.delegate?.networkListener(self, didUpdateDiscoveredSenders: senders)
+            }
+        }
+
+        browser.start(queue: networkQueue)
+        self.senderBrowser = browser
+    }
+
+    /// Dial out to a discovered Mac sender. The Mac side accepts the socket, builds a
+    /// ConnectionPipeline, and starts streaming through this same socket (data direction
+    /// stays Mac → iOS). We just hand the connection off to the existing receive flow.
+    ///
+    /// When an AWDL interface is cached, the first attempt pins to it (mirroring the Mac
+    /// sender's behaviour for outbound calls to Apple receivers). A 4s fallback timer
+    /// retries without the pin if the P2P attempt doesn't reach `.ready`.
+    func connectToSender(_ sender: DiscoveredSender) {
+        lastDialedSender = sender
+        cancelActiveDial()
+        dial(sender, preferP2P: cachedAWDLInterface != nil)
+    }
+
+    private func dial(_ sender: DiscoveredSender, preferP2P: Bool) {
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true
+        if let tcp = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
+            tcp.enableKeepalive = true
+            tcp.noDelay = true
+        }
+
+        let pathLabel: String
+        if preferP2P, let awdl = cachedAWDLInterface {
+            parameters.requiredInterface = awdl
+            pathLabel = "P2P/AWDL(\(awdl.name))"
+        } else {
+            pathLabel = "default"
+        }
+
+        let connection = NWConnection(to: sender.endpoint, using: parameters)
+        activeDialConnection = connection
+        LogManager.shared.log("ReceiverIOS: Dialing \(sender.name) via \(pathLabel)")
+        DispatchQueue.main.async {
+            self.delegate?.networkListener(self, didUpdateStatus: "Connecting to \(sender.name) (\(pathLabel))...")
+        }
+
+        if preferP2P {
+            scheduleAWDLFallback(for: sender, connection: connection)
+        }
+
+        handleNewConnection(connection, type: "TCP")
+    }
+
+    private func scheduleAWDLFallback(for sender: DiscoveredSender, connection: NWConnection) {
+        awdlDialFallbackTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: networkQueue)
+        timer.schedule(deadline: .now() + 4.0)
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            guard self.activeDialConnection === connection else { return }
+            if connection.state != .ready {
+                LogManager.shared.log("ReceiverIOS: AWDL dial not ready after 4s — falling back to default routing")
+                connection.cancel()
+                self.dial(sender, preferP2P: false)
+            }
+        }
+        timer.resume()
+        awdlDialFallbackTimer = timer
+    }
+
+    /// Send a one-shot hello with the device's friendly name. The Mac sender uses this
+    /// to look up the matching `_bettercast._tcp` service in its browse list and
+    /// re-dial via that endpoint, getting both proper naming and AWDL routing.
+    private func sendDeviceHello(on connection: NWConnection) {
+        let name = (UserDefaults.standard.string(forKey: "customDeviceName")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            ?? UIDevice.current.name
+        let hello = InputEvent(type: .command, keyCode: 770, deviceName: name)
+        guard let data = try? JSONEncoder().encode(hello) else { return }
+        var packet = Data()
+        var length32 = UInt32(data.count).bigEndian
+        packet.append(Data(bytes: &length32, count: 4))
+        packet.append(data)
+        connection.send(content: packet, completion: .contentProcessed { _ in
+            LogManager.shared.log("ReceiverIOS: Sent device hello '\(name)' to Mac")
+        })
+    }
+
+    private func cancelActiveDial() {
+        awdlDialFallbackTimer?.cancel()
+        awdlDialFallbackTimer = nil
+        if let conn = activeDialConnection {
+            conn.cancel()
+            activeDialConnection = nil
+        }
+    }
+
+    /// Persist + apply the audio-enabled flag. If we previously dialed a sender, drop
+    /// the current connections and re-dial so the link is cleanly re-established with
+    /// the new setting. Otherwise just drop the accepted Mac→iOS connections and let
+    /// the Mac's heartbeat reconnect.
+    func setAudioEnabled(_ enabled: Bool) {
+        guard audioEnabled != enabled else { return }
+        audioEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "audioEnabled")
+        LogManager.shared.log("ReceiverIOS: Audio \(enabled ? "enabled" : "disabled") — reconnecting")
+        reconnect()
+    }
+
+    /// Drop every active client + dial, clear the remembered sender, and put us
+    /// back in "waiting" state. Used by the Settings "Disconnect" action.
+    func disconnect() {
+        cancelActiveDial()
+        let toCancel = connectedClients
+        connectedClients.removeAll()
+        connectionFormat.removeAll()
+        for conn in toCancel {
+            conn.cancel()
+        }
+        lastDialedSender = nil
+        LogManager.shared.log("ReceiverIOS: Disconnected by user")
+        DispatchQueue.main.async {
+            self.delegate?.networkListener(self, didUpdateStatus: "Waiting for Sender...")
+        }
+    }
+
+    private func reconnect() {
+        cancelActiveDial()
+        let toCancel = connectedClients
+        connectedClients.removeAll()
+        connectionFormat.removeAll()
+        for conn in toCancel {
+            conn.cancel()
+        }
+        if let sender = lastDialedSender {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self = self else { return }
+                self.connectToSender(sender)
+            }
+        }
     }
     
     private func startTCP() {
@@ -203,13 +448,19 @@ class NetworkListenerIOS {
                 DispatchQueue.main.async {
                     self.delegate?.networkListener(self, didUpdateStatus: "Connected via \(type)")
                 }
-                
+
                 // Add to clients list safely
                 // (Using a lock or simple check on queue)
                 if !self.connectedClients.contains(where: { $0 === connection }) {
                     self.connectedClients.append(connection)
                 }
-                
+
+                // Outbound dial: send a device-name hello so the Mac re-dials via the
+                // proper Bonjour service name (and gets AWDL P2P via its own pinning).
+                if connection === self.activeDialConnection {
+                    self.sendDeviceHello(on: connection)
+                }
+
                 if type == "UDP" {
                     self.receiveUDP(on: connection)
                 } else {
@@ -281,7 +532,9 @@ class NetworkListenerIOS {
             if firstByte == 0x01 {
                 videoDecoder?.decode(data: payload)
             } else if firstByte == 0x02 {
-                audioPlayer?.decode(aacData: payload)
+                if audioEnabled {
+                    audioPlayer?.decode(aacData: payload)
+                }
             }
         } else {
             // Legacy framing: raw video data (with 8-byte PTS prefix handled by decoder)

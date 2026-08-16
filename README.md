@@ -81,6 +81,10 @@ Legacy receivers (pre-1.3 iOS / Mac Swift) use a different framing without the t
 
 See [docs/release-notes/](docs/release-notes/) for per-version notes (v5–v8).
 
+## Localization
+
+The macOS app follows your system language. English, Simplified Chinese, Japanese, Korean, German, and French ship today, and community translations are welcome — adding a language is a single-file pull request. See [localization/README.md](localization/README.md).
+
 ## Support the Project
 
 BetterCast is free and open source. If you find it useful and want to support development, you can donate here:

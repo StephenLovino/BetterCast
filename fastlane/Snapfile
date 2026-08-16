@@ -1,0 +1,34 @@
+# Fastlane Snapshot configuration for BetterCast iOS screenshots
+
+# Path to the Xcode project
+project_path = "../BetterCastReceiverIOS.xcodeproj"
+
+# Scheme for UI tests (we'll create this)
+scheme = "BetterCastReceiverIOSUITests"
+
+# Simulator devices for App Store screenshots
+devices([
+  # iPhone 6.9" (iPhone 17 Pro Max) - required for App Store
+  "iPhone 17 Pro Max",
+  # iPhone 6.7" alternative
+  "iPhone 17 Pro",
+  # iPad 13" - required for App Store
+  "iPad Pro 13-inch (M5)",
+])
+
+# Supported languages
+languages([
+  "en-US",
+])
+
+# Where screenshots are saved
+output_directory = "./screenshots"
+
+# Clear old screenshots before running
+clear_previous_screenshots = true
+
+# Use the system status bar (cleaner screenshots)
+override_status_bar = true
+
+# Wait for animations to complete
+wait_for_loading_indicator_to_finish = true

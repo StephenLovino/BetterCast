@@ -12,6 +12,9 @@ enum BCConstants {
     static let tcpServiceType = "_bettercast._tcp"
     static let udpServiceType = "_bettercast._udp"
 
+    /// Service type advertised by Mac senders accepting iOS-initiated connections.
+    static let senderInviteServiceType = "_bettercast-sender._tcp"
+
     /// AAC-LC frame size in samples.
     static let aacFrameSize: UInt32 = 1024
 

@@ -70,10 +70,12 @@ class InputHandler {
         case .mouseMove:
             postMouseEvent(type: .mouseMoved, point: point, button: .left) // Button ignored for move
         case .leftMouseDown:
+            LogManager.shared.log("InputHandler: leftDown → (\(Int(x)),\(Int(y))) bounds=\(bounds) fallback=\(usingFallback)")
             postMouseEvent(type: .leftMouseDown, point: point, button: .left)
         case .leftMouseUp:
             postMouseEvent(type: .leftMouseUp, point: point, button: .left)
         case .rightMouseDown:
+            LogManager.shared.log("InputHandler: rightDown → (\(Int(x)),\(Int(y))) bounds=\(bounds) fallback=\(usingFallback)")
             postMouseEvent(type: .rightMouseDown, point: point, button: .right)
         case .rightMouseUp:
             postMouseEvent(type: .rightMouseUp, point: point, button: .right)
@@ -120,5 +122,29 @@ class InputHandler {
     private func postKeyboardEvent(keyCode: UInt16, keyDown: Bool) {
         guard let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(keyCode), keyDown: keyDown) else { return }
         event.post(tap: .cghidEventTap)
+    }
+
+    /// Post a single Ctrl+Arrow keyboard chord for trackpad-style desktop gestures
+    /// (Mission Control / App Exposé / switch space). keyCode is the BetterCast
+    /// command code (600..603), not the raw macOS virtual key.
+    func postTrackpadShortcut(keyCode: UInt16) {
+        let virtualKey: CGKeyCode
+        let label: String
+        switch keyCode {
+        case 600: virtualKey = 0x7E; label = "Mission Control (Ctrl+Up)"
+        case 601: virtualKey = 0x7D; label = "App Exposé (Ctrl+Down)"
+        case 602: virtualKey = 0x7B; label = "Switch space left (Ctrl+Left)"
+        case 603: virtualKey = 0x7C; label = "Switch space right (Ctrl+Right)"
+        default: return
+        }
+        LogManager.shared.log("InputHandler: trackpad shortcut → \(label)")
+        if let down = CGEvent(keyboardEventSource: nil, virtualKey: virtualKey, keyDown: true) {
+            down.flags = .maskControl
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(keyboardEventSource: nil, virtualKey: virtualKey, keyDown: false) {
+            up.flags = .maskControl
+            up.post(tap: .cghidEventTap)
+        }
     }
 }

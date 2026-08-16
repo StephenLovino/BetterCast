@@ -49,3 +49,8 @@ aqtinstall.log
 .env.*
 *.local
 secrets.json
+Sources/BetterCastReceiverAndroid/keystore.properties
+*.jks
+*.keystore
+LegacyMacReceiver/.build/
+Sources/BetterCastReceiverAndroid/local.properties.bak

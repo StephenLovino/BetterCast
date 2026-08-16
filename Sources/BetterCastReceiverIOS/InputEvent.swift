@@ -21,16 +21,21 @@ struct InputEvent: Codable {
     let deltaX: Double
     let deltaY: Double
     let eventId: UInt64 // Unique ID for deduplication of redundant UDP sends
+    /// Optional friendly device name, set by command keyCode=770 (device hello).
+    /// Lets the Mac sender re-dial via the proper Bonjour service name instead of
+    /// labelling the connection "iOS @ <ip>:<port>".
+    let deviceName: String?
 
     private static var nextId: UInt64 = 0
 
-    init(type: InputEventType, x: Double = 0, y: Double = 0, keyCode: UInt16 = 0, deltaX: Double = 0, deltaY: Double = 0) {
+    init(type: InputEventType, x: Double = 0, y: Double = 0, keyCode: UInt16 = 0, deltaX: Double = 0, deltaY: Double = 0, deviceName: String? = nil) {
         self.type = type
         self.x = x
         self.y = y
         self.keyCode = keyCode
         self.deltaX = deltaX
         self.deltaY = deltaY
+        self.deviceName = deviceName
         InputEvent.nextId += 1
         self.eventId = InputEvent.nextId
     }

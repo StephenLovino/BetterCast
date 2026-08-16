@@ -1,0 +1,30 @@
+# BetterCast iOS Fastlane configuration
+
+default_platform(:ios)
+
+platform :ios do
+
+  desc "Take App Store screenshots"
+  lane :screenshots do
+    snapshot(
+      project: "BetterCastReceiverIOS.xcodeproj",
+      scheme: "BetterCastReceiverIOSUITests",
+      devices: ["iPhone 17 Pro Max", "iPad Pro 13-inch (M5)"],
+      languages: ["en-US"],
+      output_directory: "screenshots",
+      clear_previous_screenshots: true,
+      erase_simulator: true,
+    )
+  end
+
+  desc "Build for App Store submission"
+  lane :build do
+    gym(
+      project: "BetterCastReceiverIOS.xcodeproj",
+      scheme: "BetterCastReceiverIOS",
+      export_method: "app-store",
+      output_directory: "build",
+    )
+  end
+
+end

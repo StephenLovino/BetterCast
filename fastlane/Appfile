@@ -1,0 +1,6 @@
+# BetterCast iOS App Store Connect configuration
+
+app_identifier "com.bettercast.receiver.ios"
+apple_id "stephen@bettercast.online"  # Update with your Apple ID
+team_id "TQ8F92XYBL"
+itc_team_id ""  # Fill in your App Store Connect team ID

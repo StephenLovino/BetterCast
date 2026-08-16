@@ -27,6 +27,11 @@ cp "$BIN" "$APP_NAME/Contents/MacOS/LegacyMacReceiver"
 cp "LegacyMacReceiver/Info.plist" "$APP_NAME/Contents/Info.plist"
 cp "assets/branding/BetterCastIcon.icns" "$APP_NAME/Contents/Resources/AppIcon.icns"
 
+# Localizations (shared receiver status strings resolve via Bundle.main)
+for lproj in localization/*.lproj; do
+    cp -R "$lproj" "$APP_NAME/Contents/Resources/"
+done
+
 # Sign with hardened runtime (required for notarization)
 codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_NAME"
 codesign --verify --strict --verbose=2 "$APP_NAME"

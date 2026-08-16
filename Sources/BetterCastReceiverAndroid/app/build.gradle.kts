@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +14,28 @@ android {
         applicationId = "com.bettercast.receiver"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+    }
+
+    // Release signing. Credentials come from keystore.properties (gitignored) or,
+    // failing that, environment variables — never from this file.
+    val keystorePropsFile = rootProject.file("keystore.properties")
+    val keystoreProps = Properties().apply {
+        if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { stream -> load(stream) }
+    }
+    val storePath = keystoreProps.getProperty("storeFile") ?: System.getenv("BC_KEYSTORE")
+    val hasSigning = storePath != null && file(storePath).exists()
+
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = file(storePath!!)
+                storePassword = keystoreProps.getProperty("storePassword") ?: System.getenv("BC_KEYSTORE_PASSWORD")
+                keyAlias = keystoreProps.getProperty("keyAlias") ?: System.getenv("BC_KEY_ALIAS") ?: "bettercast"
+                keyPassword = keystoreProps.getProperty("keyPassword") ?: System.getenv("BC_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -23,6 +45,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 

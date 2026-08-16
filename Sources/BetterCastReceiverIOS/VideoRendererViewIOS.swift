@@ -24,7 +24,12 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
     var contentSize: CGSize = CGSize(width: 1920, height: 1080)
 
     /// Input mode: touch (direct) or cursor (trackpad-style relative movement)
-    var inputMode: InputMode = .touch
+    var inputMode: InputMode = .touch {
+        didSet {
+            virtualCursor.isHidden = (inputMode != .cursor)
+            updateVirtualCursorPosition()
+        }
+    }
 
     /// Virtual cursor position for trackpad mode (normalized 0-1)
     private var cursorX: Double = 0.5
@@ -32,6 +37,29 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
 
     /// Trackpad sensitivity multiplier
     private let cursorSensitivity: Double = 1.5
+
+    /// Last finger location during a long-press drag (cursor mode)
+    private var lastLongPressLocation: CGPoint = .zero
+
+    /// Visible iOS cursor for trackpad mode — separate from finger position
+    /// Styled to match the macOS pointer: white fill with a tight black outline.
+    private let virtualCursor: UIImageView = {
+        let iv = UIImageView()
+        if #available(iOS 13.0, *) {
+            let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .black)
+            iv.image = UIImage(systemName: "cursorarrow.fill", withConfiguration: cfg)
+        }
+        iv.tintColor = .white
+        // Tight black shadow at zero offset gives the macOS-style outline look
+        iv.layer.shadowColor = UIColor.black.cgColor
+        iv.layer.shadowOpacity = 1.0
+        iv.layer.shadowRadius = 0.6
+        iv.layer.shadowOffset = .zero
+        iv.isHidden = true
+        iv.isUserInteractionEnabled = false
+        return iv
+    }()
+    private let virtualCursorSize = CGSize(width: 16, height: 16)
     
     override class var layerClass: AnyClass {
         return AVSampleBufferDisplayLayer.self
@@ -45,12 +73,19 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         super.init(frame: frame)
         setupLayer()
         setupGestures()
+        addSubview(virtualCursor)
     }
-    
+
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupLayer()
         setupGestures()
+        addSubview(virtualCursor)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateVirtualCursorPosition()
     }
     
     private func setupLayer() {
@@ -110,9 +145,10 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         twoTap.numberOfTouchesRequired = 2
         addGestureRecognizer(twoTap)
         
-        // 4. Scroll (2 Finger Pan)
+        // 4. Scroll (2 Finger Pan) — strictly 2 fingers so 3-finger swipes pass through
         let scrollPan = UIPanGestureRecognizer(target: self, action: #selector(handleScroll(_:)))
         scrollPan.minimumNumberOfTouches = 2
+        scrollPan.maximumNumberOfTouches = 2
         addGestureRecognizer(scrollPan)
 
         // 5. Pinch to Zoom
@@ -124,14 +160,24 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         doubleTap.numberOfTapsRequired = 2
         doubleTap.numberOfTouchesRequired = 1
         addGestureRecognizer(doubleTap)
-        // Single tap should wait for double-tap to fail before firing
-        tap.require(toFail: doubleTap)
+        // Note: intentionally NOT calling tap.require(toFail: doubleTap) — that adds ~300ms
+        // latency to every single tap. Two quick taps will fire as two single clicks, which
+        // macOS interprets as a double-click anyway. The dedicated doubleTap recognizer also
+        // still fires for tighter double-click timing.
 
         // 7. Long Press (Click and Drag)
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.3
         addGestureRecognizer(longPress)
 
+        // 8. Three-finger swipe — Mission Control / App Exposé / Switch Space
+        for direction in [UISwipeGestureRecognizer.Direction.up,
+                          .down, .left, .right] {
+            let swipe = UISwipeGestureRecognizer(target: self, action: #selector(handleThreeFingerSwipe(_:)))
+            swipe.direction = direction
+            swipe.numberOfTouchesRequired = 3
+            addGestureRecognizer(swipe)
+        }
     }
 
     /// Toggle between aspect-fill (full screen) and aspect-fit (letterbox)
@@ -195,22 +241,36 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         cursorY += Double(dy / viewSize.height) * cursorSensitivity
         cursorX = max(0, min(1, cursorX))
         cursorY = max(0, min(1, cursorY))
+        updateVirtualCursorPosition()
+    }
+
+    private func updateVirtualCursorPosition() {
+        guard inputMode == .cursor else { return }
+        let viewSize = bounds.size
+        guard viewSize.width > 0, viewSize.height > 0 else { return }
+        let x = CGFloat(cursorX) * viewSize.width
+        let y = CGFloat(cursorY) * viewSize.height
+        // Anchor the arrow tip near the top-left of the icon
+        virtualCursor.frame = CGRect(
+            x: x - 2,
+            y: y - 2,
+            width: virtualCursorSize.width,
+            height: virtualCursorSize.height
+        )
     }
 
     // MARK: - Gesture Handlers
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        // Touch mode: panning the finger does NOT move the Mac cursor.
+        // Tap = click, long-press = drag. This keeps the Mac cursor from chasing the finger.
+        guard inputMode == .cursor else { return }
         switch gesture.state {
         case .began, .changed:
-            if inputMode == .cursor {
-                let translation = gesture.translation(in: self)
-                moveCursor(dx: translation.x, dy: translation.y)
-                gesture.setTranslation(.zero, in: self)
-                inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: cursorX, y: cursorY))
-            } else {
-                guard let (x, y) = normalizedPoint(from: gesture) else { return }
-                inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: x, y: y))
-            }
+            let translation = gesture.translation(in: self)
+            moveCursor(dx: translation.x, dy: translation.y)
+            gesture.setTranslation(.zero, in: self)
+            inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: cursorX, y: cursorY))
         default:
             break
         }
@@ -224,6 +284,10 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
             guard let pt = normalizedPoint(from: gesture) else { return }
             (x, y) = pt
         }
+        // Send a mouseMove first so AppKit/SwiftUI hover-aware UI engages before the click.
+        // CGEvent moves the cursor on .leftMouseDown too, but some Mac UI only reacts after
+        // it sees a hover transition.
+        inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: x, y: y))
         inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y))
@@ -254,13 +318,15 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         if inputMode == .cursor {
             switch gesture.state {
             case .began:
+                lastLongPressLocation = gesture.location(in: self)
                 inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: cursorX, y: cursorY))
             case .changed:
-                let location = gesture.location(in: self)
-                // Use delta from initial touch for relative movement
-                moveCursor(dx: 0, dy: 0) // Position already tracked
-                // For long press drag in cursor mode, we need to track movement
-                // Long press doesn't give translation, so we track manually
+                // Long-press doesn't give translation, so we compute delta from last location
+                let current = gesture.location(in: self)
+                let dx = current.x - lastLongPressLocation.x
+                let dy = current.y - lastLongPressLocation.y
+                lastLongPressLocation = current
+                moveCursor(dx: dx, dy: dy)
                 inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: cursorX, y: cursorY))
             case .ended, .cancelled:
                 inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: cursorX, y: cursorY))
@@ -283,7 +349,14 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
     }
 
     @objc private func handleTwoTap(_ gesture: UITapGestureRecognizer) {
-        guard let (x, y) = normalizedPoint(from: gesture) else { return }
+        let (x, y): (Double, Double)
+        if inputMode == .cursor {
+            (x, y) = (cursorX, cursorY)
+        } else {
+            guard let pt = normalizedPoint(from: gesture) else { return }
+            (x, y) = pt
+        }
+        inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: x, y: y))
         inputDelegate?.didTriggerInput(InputEvent(type: .rightMouseDown, x: x, y: y))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             self.inputDelegate?.didTriggerInput(InputEvent(type: .rightMouseUp, x: x, y: y))
@@ -300,6 +373,21 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
             }
             gesture.scale = 1.0 // Reset for incremental deltas
         }
+    }
+
+    @objc private func handleThreeFingerSwipe(_ gesture: UISwipeGestureRecognizer) {
+        // Maps to macOS keyboard shortcuts via .command keyCode 600..603.
+        // Sender posts Ctrl+Arrow which is the default macOS Mission Control / Spaces binding.
+        // Convention: swiping fingers LEFT moves you to the NEXT space on the right.
+        let keyCode: UInt16
+        switch gesture.direction {
+        case .up:    keyCode = 600 // Mission Control     (Ctrl+Up)
+        case .down:  keyCode = 601 // App Exposé          (Ctrl+Down)
+        case .left:  keyCode = 603 // Switch space right  (Ctrl+Right)
+        case .right: keyCode = 602 // Switch space left   (Ctrl+Left)
+        default: return
+        }
+        inputDelegate?.didTriggerInput(InputEvent(type: .command, keyCode: keyCode))
     }
 
     @objc private func handleScroll(_ gesture: UIPanGestureRecognizer) {

@@ -1,0 +1,243 @@
+/*
+  Localizable.strings — German (Deutsch)
+
+  This is the German translation of BetterCast. Keys are the English source
+  strings from localization/en.lproj/Localizable.strings and must contain the
+  same set of keys as the canonical English file.
+
+  To contribute a new language, copy the English file to localization/<code>.lproj/
+  (e.g. es.lproj), translate the right-hand values, and open a pull request.
+  Keep format placeholders (%@, %lld, %.1f) intact and in the same order.
+*/
+
+/* Onboarding & guided tour */
+"Welcome to BetterCast" = "Willkommen bei BetterCast";
+"A few permissions are needed to get started" = "Zum Loslegen werden einige Berechtigungen benötigt";
+"Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "Machen wir eine kurze Tour durch die App. BetterCast verwandelt jedes Gerät in ein kabelloses erweitertes Display für deinen Mac.";
+"Overview" = "Übersicht";
+"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "Dies ist dein Dashboard. Sieh alle verbundenen Displays mit Live-Vorschau, verwalte Verbindungen und nutze \"Anordnen...\", um Displays in den Systemeinstellungen zu positionieren.";
+"Device Settings" = "Geräteeinstellungen";
+"Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "Klicke auf ein verbundenes Gerät in der Seitenleiste, um Auflösung, Bitrate, Retina-Modus und Audio-Streaming für dieses Display anzupassen.";
+"Receive Screen" = "Bildschirm empfangen";
+"BetterCast can also receive streams from other Macs. Start listening here and incoming video opens in a separate window." = "BetterCast kann auch Streams von anderen Macs empfangen. Starte hier den Empfang, und eingehendes Video wird in einem separaten Fenster geöffnet.";
+"Settings" = "Einstellungen";
+"Configure global preferences like connection mode, auto-connect, and manage connected displays." = "Konfiguriere globale Einstellungen wie Verbindungsmodus und Auto-Verbinden und verwalte verbundene Displays.";
+"Logs" = "Protokolle";
+"View detailed connection and streaming logs for troubleshooting. Useful if something isn't working right." = "Zeige detaillierte Verbindungs- und Streaming-Protokolle zur Fehlersuche an. Nützlich, wenn etwas nicht richtig funktioniert.";
+"You're All Set!" = "Alles bereit!";
+"Connect a receiver device from the sidebar or use \"Receive Screen\" to receive from another Mac. Enjoy your extended display!" = "Verbinde ein Empfangsgerät über die Seitenleiste oder nutze \"Bildschirm empfangen\", um von einem anderen Mac zu empfangen. Viel Spaß mit deinem erweiterten Display!";
+"Back" = "Zurück";
+"Skip Tour" = "Tour überspringen";
+"Next" = "Weiter";
+"Skip" = "Überspringen";
+"Done" = "Fertig";
+"Get Started" = "Loslegen";
+"You're all set!" = "Alles bereit!";
+"Some permissions are missing. You can grant them later in System Settings, but some features won't work until they're enabled." = "Einige Berechtigungen fehlen. Du kannst sie später in den Systemeinstellungen erteilen, aber manche Funktionen sind bis dahin nicht verfügbar.";
+"Granted" = "Erteilt";
+"Not granted" = "Nicht erteilt";
+"Permission granted" = "Berechtigung erteilt";
+"Ready" = "Bereit";
+
+/* Permissions */
+"Screen Recording" = "Bildschirmaufnahme";
+"BetterCast needs Screen Recording permission to capture your display and stream it to receivers." = "BetterCast benötigt die Berechtigung für Bildschirmaufnahme, um dein Display zu erfassen und an Empfänger zu streamen.";
+"Open Screen Recording Settings" = "Einstellungen für Bildschirmaufnahme öffnen";
+"Accessibility" = "Bedienungshilfen";
+"Accessibility permission lets BetterCast relay mouse and keyboard input from your receivers back to this Mac." = "Die Berechtigung für Bedienungshilfen erlaubt BetterCast, Maus- und Tastatureingaben von deinen Empfängern zurück an diesen Mac weiterzuleiten.";
+"Open Accessibility Settings" = "Einstellungen für Bedienungshilfen öffnen";
+"Reset Permissions" = "Berechtigungen zurücksetzen";
+"Restart" = "Neu starten";
+"Setup Wizard" = "Einrichtungsassistent";
+"Replay Tour" = "Tour wiederholen";
+
+/* Sidebar & device list */
+"Devices" = "Geräte";
+"Searching..." = "Suchen...";
+"Connect" = "Verbinden";
+"Receive" = "Empfangen";
+"BetterCast" = "BetterCast";
+"Quit BetterCast" = "BetterCast beenden";
+"Connected" = "Verbunden";
+"Available" = "Verfügbar";
+"Connected (USB)" = "Verbunden (USB)";
+"Connected (WiFi ADB)" = "Verbunden (WLAN-ADB)";
+"Connected (WiFi)" = "Verbunden (WLAN)";
+"Manual IP" = "Manuelle IP";
+"IP / hostname" = "IP / Hostname";
+"Port" = "Port";
+"Android (ADB)" = "Android (ADB)";
+"Setting up..." = "Wird eingerichtet...";
+"Wireless" = "Drahtlos";
+"USB" = "USB";
+
+/* Empty state / getting started */
+"Select a device from the sidebar to connect" = "Wähle ein Gerät in der Seitenleiste aus, um es zu verbinden";
+"No Devices Found" = "Keine Geräte gefunden";
+"To use BetterCast, you need the receiver app running on another device." = "Um BetterCast zu nutzen, muss die Empfänger-App auf einem anderen Gerät laufen.";
+"Download Receiver App" = "Empfänger-App laden";
+"Searching for devices on your network..." = "Geräte im Netzwerk werden gesucht...";
+"Download the Receiver" = "Empfänger laden";
+"Install BetterCast Receiver on your iPad, Android, Windows, Linux, or Mac." = "Installiere BetterCast Receiver auf deinem iPad, Android-, Windows-, Linux-Gerät oder Mac.";
+"Connect to the Same Network" = "Mit demselben Netzwerk verbinden";
+"Make sure both devices are on the same Wi-Fi network." = "Stelle sicher, dass beide Geräte im selben WLAN sind.";
+"Open the Receiver App" = "Empfänger-App öffnen";
+"Your device will appear automatically in the sidebar." = "Dein Gerät erscheint automatisch in der Seitenleiste.";
+
+/* Display settings */
+"Use as" = "Verwenden als";
+"Extended Display" = "Erweitertes Display";
+"Mirror Built-in" = "Integriertes Display spiegeln";
+"Resolution" = "Auflösung";
+"Dimensions" = "Abmessungen";
+"Retina (HiDPI)" = "Retina (HiDPI)";
+"Brightness" = "Helligkeit";
+"Audio Streaming" = "Audio-Streaming";
+"Compatibility Mode" = "Kompatibilitätsmodus";
+"Arrange Displays" = "Displays anordnen";
+"Display" = "Display";
+"Displays" = "Displays";
+"Arrange..." = "Anordnen...";
+"Built-in Display" = "Integriertes Display";
+"Position" = "Position";
+"View Settings" = "Einstellungen anzeigen";
+"Quality" = "Qualität";
+"Bitrate" = "Bitrate";
+"Frame Rate" = "Bildrate";
+"Auto (60)" = "Automatisch (60)";
+"30 FPS" = "30 FPS";
+"60 FPS" = "60 FPS";
+"120 FPS" = "120 FPS";
+"Transfer Speed" = "Übertragungsgeschwindigkeit";
+"Low (5 Mbps)" = "Niedrig (5 Mbps)";
+"Medium (10 Mbps)" = "Mittel (10 Mbps)";
+"High (20 Mbps)" = "Hoch (20 Mbps)";
+"Ultra (50 Mbps)" = "Ultra (50 Mbps)";
+"Extreme (100 Mbps)" = "Extrem (100 Mbps)";
+
+/* Connection settings */
+"Connection" = "Verbindung";
+"Auto-Connect" = "Auto-Verbinden";
+"Mode" = "Modus";
+"Auto (Apple Default)" = "Automatisch (Apple-Standard)";
+"Force P2P (WiFi Direct)" = "P2P erzwingen (WiFi Direct)";
+"Force Router/WiFi" = "Router/WLAN erzwingen";
+"USB / Thunderbolt Cable" = "USB-/Thunderbolt-Kabel";
+"Protocol" = "Protokoll";
+"TCP (Recommended)" = "TCP (empfohlen)";
+"UDP (Faster, P2P only)" = "UDP (schneller, nur P2P)";
+"Controls" = "Steuerung";
+"Apply Settings" = "Einstellungen anwenden";
+"Connected Displays" = "Verbundene Displays";
+"Disconnect" = "Trennen";
+"Connected Devices" = "Verbundene Geräte";
+"Available Devices" = "Verfügbare Geräte";
+"Method" = "Methode";
+"Switch to Wireless" = "Zu Drahtlos wechseln";
+"Switch to USB (smoother)" = "Zu USB wechseln (flüssiger)";
+"Status" = "Status";
+"Current" = "Aktuell";
+"USB (ADB)" = "USB (ADB)";
+"Wireless (WiFi ADB)" = "Drahtlos (WLAN-ADB)";
+"WiFi" = "WLAN";
+
+/* About / updates */
+"About" = "Über";
+"Version" = "Version";
+"Download" = "Laden";
+"You're on the latest version" = "Du verwendest die neueste Version";
+"You're on the latest version (%@)" = "Du verwendest die neueste Version (%@)";
+"What's New" = "Neue Funktionen";
+"BetterCast %@" = "BetterCast %@";
+"Update available: %@" = "Update verfügbar: %@";
+"Report Issue" = "Problem melden";
+"Copy" = "Kopieren";
+"Clear" = "Löschen";
+
+/* Android (ADB) connect */
+"ADB (USB)" = "ADB (USB)";
+"60 FPS — best quality, requires USB cable" = "60 FPS — beste Qualität, erfordert ein USB-Kabel";
+"ADB (WiFi)" = "ADB (WLAN)";
+"60 FPS — wireless ADB tunnel, needs USB first" = "60 FPS — drahtloser ADB-Tunnel, benötigt zuerst USB";
+"WiFi (TCP)" = "WLAN (TCP)";
+"30 FPS — direct network, no ADB needed" = "30 FPS — direkte Netzwerkverbindung, kein ADB nötig";
+"Connect via network" = "Über Netzwerk verbinden";
+"ADB Status" = "ADB-Status";
+
+/* ADB status messages */
+"Checking device..." = "Gerät wird geprüft...";
+"Setting up wireless tunnel..." = "Drahtloser Tunnel wird eingerichtet...";
+"Connecting stream..." = "Stream wird verbunden...";
+"Wireless ADB active" = "Drahtloses ADB aktiv";
+"No USB or WiFi device found" = "Kein USB- oder WLAN-Gerät gefunden";
+"Found: %@" = "Gefunden: %@";
+"Cannot get device IP" = "Geräte-IP kann nicht ermittelt werden";
+"Device IP: %@" = "Geräte-IP: %@";
+"Switching to wireless — disconnecting USB..." = "Wechsel zu Drahtlos — USB wird getrennt...";
+"Switching to wireless — enabling TCP mode..." = "Wechsel zu Drahtlos — TCP-Modus wird aktiviert...";
+"Switching to wireless — connecting %@..." = "Wechsel zu Drahtlos — %@ wird verbunden...";
+"WiFi connect failed — check WiFi" = "WLAN-Verbindung fehlgeschlagen — WLAN prüfen";
+"Switching to wireless — setting up tunnel..." = "Wechsel zu Drahtlos — Tunnel wird eingerichtet...";
+"Forwarding port..." = "Port wird weitergeleitet...";
+"USB device unauthorized — tap 'Allow' on the phone" = "USB-Gerät nicht autorisiert — tippe auf dem Telefon auf 'Zulassen'";
+"No USB device — enable USB debugging" = "Kein USB-Gerät — aktiviere USB-Debugging";
+"Port forward failed" = "Portweiterleitung fehlgeschlagen";
+"Connecting..." = "Verbinden...";
+"USB ADB active" = "USB-ADB aktiv";
+"Initializing..." = "Initialisieren...";
+
+/* Receiver mode */
+"Show Video Window" = "Videofenster anzeigen";
+"Stop Listening" = "Empfang stoppen";
+"Start Listening" = "Empfang starten";
+"Manual Connect" = "Manuell verbinden";
+"Host" = "Host";
+"Connect to an Android device streaming via USB." = "Verbinde ein Android-Gerät, das über USB streamt.";
+"Connect via ADB" = "Über ADB verbinden";
+"Receiving" = "Empfang läuft";
+"Waiting for Connection" = "Warten auf Verbindung";
+"Receiver Mode" = "Empfängermodus";
+"Video is playing in a separate window." = "Das Video wird in einem separaten Fenster wiedergegeben.";
+"Listening for incoming connections..." = "Warten auf eingehende Verbindungen...";
+"Start listening to receive screen streams from other BetterCast senders." = "Starte den Empfang, um Bildschirm-Streams von anderen BetterCast-Sendern zu empfangen.";
+"No network detected" = "Kein Netzwerk erkannt";
+"This device: %@ : %lld" = "Dieses Gerät: %@ : %lld";
+"BetterCast — Receiving" = "BetterCast — Empfang läuft";
+"BetterCast — 1 sender" = "BetterCast — 1 Sender";
+"BetterCast — %lld senders" = "BetterCast — %lld Sender";
+"1 sender connected" = "1 Sender verbunden";
+"%lld senders connected" = "%lld Sender verbunden";
+
+/* Receiver network status */
+"Setting up ADB tunnel..." = "ADB-Tunnel wird eingerichtet...";
+"ADB not found. Install Android SDK or add adb to PATH." = "ADB nicht gefunden. Installiere das Android SDK oder füge adb zum PATH hinzu.";
+"ADB forward failed: %@" = "ADB-Weiterleitung fehlgeschlagen: %@";
+"Failed to run ADB: %@" = "ADB konnte nicht ausgeführt werden: %@";
+"ADB connected (wireless enabled)" = "ADB verbunden (Drahtlos aktiviert)";
+"That is this Mac's own port. For Android USB use Connect via ADB; otherwise enter the sender's IP." = "Das ist der eigene Port dieses Mac. Nutze für Android per USB die Option Über ADB verbinden; andernfalls gib die IP des Senders ein.";
+"Connecting to %@:%@..." = "Verbinden mit %@:%@...";
+"Ready%@. Advertising as _bettercast._tcp" = "Bereit%@. Sichtbar als _bettercast._tcp";
+"Failed: %@" = "Fehlgeschlagen: %@";
+"Reconnecting via ADB..." = "Erneutes Verbinden über ADB...";
+"Reconnect failed. Tap 'Connect via ADB' to retry." = "Erneutes Verbinden fehlgeschlagen. Tippe auf 'Über ADB verbinden', um es erneut zu versuchen.";
+"Reconnecting via ADB (%lld/%lld)..." = "Erneutes Verbinden über ADB (%lld/%lld)...";
+
+/* Info tips */
+"Extended creates a separate virtual monitor. Mirror duplicates your main display." = "Erweitert erstellt einen separaten virtuellen Monitor. Spiegeln dupliziert dein Hauptdisplay.";
+"Resolution of the virtual display. Higher resolutions use more bandwidth." = "Auflösung des virtuellen Displays. Höhere Auflösungen benötigen mehr Bandbreite.";
+"Doubles pixel density. Sharper text but uses more bandwidth." = "Verdoppelt die Pixeldichte. Schärferer Text, benötigt aber mehr Bandbreite.";
+"Adjusts the brightness of your built-in display." = "Passt die Helligkeit deines integrierten Displays an.";
+"Streams system audio to the receiver. Requires a compatible receiver." = "Streamt Systemaudio an den Empfänger. Erfordert einen kompatiblen Empfänger.";
+"Uses legacy display capture to bypass DRM/HDCP blocking (Netflix, Apple TV). May use more CPU and disables audio streaming. Only works when mirroring a physical display." = "Verwendet ältere Displayerfassung, um DRM-/HDCP-Blockierung zu umgehen (Netflix, Apple TV). Kann mehr CPU beanspruchen und deaktiviert Audio-Streaming. Funktioniert nur beim Spiegeln eines physischen Displays.";
+"Automatically connect to discovered receivers when they appear on the network." = "Verbindet automatisch mit gefundenen Empfängern, sobald sie im Netzwerk erscheinen.";
+"Auto: AWDL for Apple devices, WiFi for others. P2P: forces direct link. Router: uses your WiFi network. Cable: USB/Thunderbolt only." = "Automatisch: AWDL für Apple-Geräte, WLAN für andere. P2P: erzwingt eine Direktverbindung. Router: nutzt dein WLAN. Kabel: nur USB/Thunderbolt.";
+"TCP is reliable and works everywhere. UDP has lower latency but only works over P2P/AWDL." = "TCP ist zuverlässig und funktioniert überall. UDP hat geringere Latenz, funktioniert aber nur über P2P/AWDL.";
+"Higher quality uses more bandwidth. Use Low/Medium on WiFi, High/Ultra on P2P or cable." = "Höhere Qualität benötigt mehr Bandbreite. Nutze Niedrig/Mittel im WLAN, Hoch/Ultra über P2P oder Kabel.";
+"Auto picks the best rate per connection (60). 30 saves bandwidth and battery. 120 is experimental for high-refresh receivers; needs a strong link and doubles bandwidth. Hit Apply Settings (or reconnect) to take effect." = "Automatisch wählt die beste Rate pro Verbindung (60). 30 spart Bandbreite und Akku. 120 ist experimentell für Empfänger mit hoher Bildwiederholrate; benötigt eine starke Verbindung und verdoppelt die Bandbreite. Klicke auf Einstellungen anwenden (oder verbinde neu), damit die Änderung wirksam wird.";
+"Streams system audio to this receiver." = "Streamt Systemaudio an diesen Empfänger.";
+"Switches to a wireless ADB tunnel so you can unplug the cable. Stays connected through the handoff." = "Wechselt zu einem drahtlosen ADB-Tunnel, damit du das Kabel abziehen kannst. Die Verbindung bleibt während der Übergabe bestehen.";
+"Plug in a USB cable first. USB gives lower latency and higher bandwidth than WiFi." = "Schließe zuerst ein USB-Kabel an. USB bietet geringere Latenz und höhere Bandbreite als WLAN.";
+"Streams via USB using Android Debug Bridge. Highest quality with no network needed. Plug in your Android device first." = "Streamt über USB mit Android Debug Bridge. Höchste Qualität ganz ohne Netzwerk. Schließe zuerst dein Android-Gerät an.";
+"Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality." = "Drahtloser ADB-Tunnel. Verbinde einmal per USB zum Koppeln, dann Kabel abziehen und drahtlos in voller Qualität streamen.";
+"Connects directly over WiFi without ADB. Lower FPS but no USB setup required." = "Verbindet direkt über WLAN ohne ADB. Niedrigere FPS, aber keine USB-Einrichtung erforderlich.";
+"Connects over your local network. Apple devices use AWDL peer-to-peer when available for best performance." = "Verbindet über dein lokales Netzwerk. Apple-Geräte nutzen wenn verfügbar AWDL-Peer-to-Peer für die beste Leistung.";

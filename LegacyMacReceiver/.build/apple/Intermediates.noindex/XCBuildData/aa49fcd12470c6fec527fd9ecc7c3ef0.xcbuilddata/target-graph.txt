@@ -1,4 +1,0 @@
-Target dependency graph (2 targets)
-Target 'AllExcludingTests' in project 'Aggregate'
-➜ Explicit dependency on target 'LegacyMacReceiver_-6AEA4925D51B9954_PackageProduct' in project 'LegacyMacReceiver'
-Target 'LegacyMacReceiver_-6AEA4925D51B9954_PackageProduct' in project 'LegacyMacReceiver' (no dependencies)

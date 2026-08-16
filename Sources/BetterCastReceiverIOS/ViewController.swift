@@ -2,10 +2,20 @@
 import UIKit
 import Network
 
+/// UIButton subclass that holds a reference to the discovered sender it represents,
+/// so the action handler can connect to it without needing tag-based lookups.
+private class SenderButton: UIButton {
+    var sender: DiscoveredSender?
+    convenience init(sender: DiscoveredSender, type: UIButton.ButtonType) {
+        self.init(type: type)
+        self.sender = sender
+    }
+}
+
+// Receiver screen (tab-bar shell, SF Symbols, UIMenu/UIDeferredMenuElement).
 class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
 
     private var renderer: VideoRendererViewIOS!
-    private var settingsOverlay: UIView!
 
     private var videoDecoder: VideoDecoder?
     private var networkListener: NetworkListenerIOS?
@@ -17,9 +27,15 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
     private var deviceNameField: UITextField!
     private var isConnected = false
 
+    // "Connect to Mac" section — shown when senders are discovered via Bonjour
+    private var sendersHeader: UILabel!
+    private var sendersStack: UIStackView!
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // Connect screen is a video surface — pin it dark regardless of system theme.
+        overrideUserInterfaceStyle = .dark
 
         // 1. Setup Renderer
         renderer = VideoRendererViewIOS(frame: view.bounds)
@@ -30,9 +46,8 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         // 2. Setup Onboarding Screen
         setupOnboarding()
 
-        // 3. Setup Settings Button & Overlay
+        // 3. Setup Settings Button (with attached UIMenu) + reveal gesture
         setupSettingsButton()
-        setupSettingsOverlay()
         setupShowSettingsGesture()
 
         // 4. Setup Core Logic
@@ -225,6 +240,25 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         downloadButton.addTarget(self, action: #selector(openDownloadLink), for: .touchUpInside)
         downloadButton.translatesAutoresizingMaskIntoConstraints = false
 
+        // "Connect to Mac" section — populated as Bonjour discovers BetterCast Senders
+        sendersHeader = UILabel()
+        sendersHeader.text = "Available Senders"
+        sendersHeader.textColor = brightColor
+        sendersHeader.font = boldFont
+        sendersHeader.translatesAutoresizingMaskIntoConstraints = false
+
+        sendersStack = UIStackView()
+        sendersStack.axis = .vertical
+        sendersStack.spacing = 8
+        sendersStack.translatesAutoresizingMaskIntoConstraints = false
+
+        // Initial placeholder — replaced when senders are discovered
+        let placeholder = UILabel()
+        placeholder.text = "Searching..."
+        placeholder.textColor = dimColor
+        placeholder.font = bodyFont
+        sendersStack.addArrangedSubview(placeholder)
+
         // Pulsing dot + status
         let statusRow = UIView()
         statusRow.translatesAutoresizingMaskIntoConstraints = false
@@ -255,10 +289,18 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
             statusRow.heightAnchor.constraint(equalToConstant: 20),
         ])
 
-        // Container stack
+        // Scroll view wraps contentView so it never overlaps the bottom nav even if content is tall
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.alwaysBounceVertical = true
+        scrollView.showsVerticalScrollIndicator = false
+        // Bottom inset = nav bar height (88pt) so content can scroll fully into view above the nav
+        scrollView.contentInset = UIEdgeInsets(top: 24, left: 0, bottom: 96, right: 0)
+        onboardingView.addSubview(scrollView)
+
         let contentView = UIView()
         contentView.translatesAutoresizingMaskIntoConstraints = false
-        onboardingView.addSubview(contentView)
+        scrollView.addSubview(contentView)
 
         contentView.addSubview(iconView)
         contentView.addSubview(titleLabel)
@@ -267,27 +309,39 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         contentView.addSubview(divider)
         contentView.addSubview(instructionsLabel)
         contentView.addSubview(downloadButton)
+        contentView.addSubview(sendersHeader)
+        contentView.addSubview(sendersStack)
         contentView.addSubview(statusRow)
 
         if #available(iOS 11.0, *) {
             NSLayoutConstraint.activate([
-                contentView.centerYAnchor.constraint(equalTo: onboardingView.centerYAnchor, constant: -20),
-                contentView.leadingAnchor.constraint(equalTo: onboardingView.safeAreaLayoutGuide.leadingAnchor, constant: 40),
-                contentView.trailingAnchor.constraint(equalTo: onboardingView.safeAreaLayoutGuide.trailingAnchor, constant: -40),
+                scrollView.topAnchor.constraint(equalTo: onboardingView.safeAreaLayoutGuide.topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: onboardingView.bottomAnchor),
+                scrollView.leadingAnchor.constraint(equalTo: onboardingView.leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: onboardingView.trailingAnchor),
             ])
         } else {
             NSLayoutConstraint.activate([
-                contentView.centerYAnchor.constraint(equalTo: onboardingView.centerYAnchor, constant: -20),
-                contentView.leadingAnchor.constraint(equalTo: onboardingView.leadingAnchor, constant: 40),
-                contentView.trailingAnchor.constraint(equalTo: onboardingView.trailingAnchor, constant: -40),
+                scrollView.topAnchor.constraint(equalTo: onboardingView.topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: onboardingView.bottomAnchor),
+                scrollView.leadingAnchor.constraint(equalTo: onboardingView.leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: onboardingView.trailingAnchor),
             ])
         }
 
+        let contentWidth = contentView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -80)
+        contentWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            contentView.leadingAnchor.constraint(greaterThanOrEqualTo: scrollView.contentLayoutGuide.leadingAnchor),
+            contentView.trailingAnchor.constraint(lessThanOrEqualTo: scrollView.contentLayoutGuide.trailingAnchor),
+            contentView.centerXAnchor.constraint(equalTo: scrollView.frameLayoutGuide.centerXAnchor),
+            contentWidth,
+        ])
+
         // Max width for readability on iPad
-        let maxWidth = contentView.widthAnchor.constraint(lessThanOrEqualToConstant: 400)
-        maxWidth.priority = .defaultHigh
-        maxWidth.isActive = true
-        contentView.centerXAnchor.constraint(equalTo: onboardingView.centerXAnchor).isActive = true
+        contentView.widthAnchor.constraint(lessThanOrEqualToConstant: 400).isActive = true
 
         NSLayoutConstraint.activate([
             iconView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -321,7 +375,15 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
             downloadButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             downloadButton.heightAnchor.constraint(equalToConstant: 30),
 
-            statusRow.topAnchor.constraint(equalTo: downloadButton.bottomAnchor, constant: 20),
+            sendersHeader.topAnchor.constraint(equalTo: downloadButton.bottomAnchor, constant: 18),
+            sendersHeader.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            sendersHeader.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+
+            sendersStack.topAnchor.constraint(equalTo: sendersHeader.bottomAnchor, constant: 8),
+            sendersStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            sendersStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+
+            statusRow.topAnchor.constraint(equalTo: sendersStack.bottomAnchor, constant: 16),
             statusRow.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             statusRow.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             statusRow.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -346,6 +408,29 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         } completion: { _ in
             self.onboardingView.isHidden = true
         }
+        // Hide the tab bar so the mirror surface is unobstructed.
+        if #available(iOS 15.0, *) {
+            (tabBarController as? BCTabBarController)?.setTabBarVisible(false, animated: true)
+        }
+    }
+
+    /// Inverse of dismissOnboarding — brings the onboarding view back so the
+    /// user can pick a sender again after disconnecting.
+    private func restoreOnboarding() {
+        isConnected = false
+        onboardingView.isHidden = false
+        UIView.animate(withDuration: 0.3) {
+            self.onboardingView.alpha = 1
+        }
+        if #available(iOS 15.0, *) {
+            (tabBarController as? BCTabBarController)?.setTabBarVisible(true, animated: true)
+        }
+        pulseView.layer.removeAllAnimations()
+        pulseView.alpha = 1.0
+        pulseView.backgroundColor = UIColor(red: 0.4, green: 0.6, blue: 1.0, alpha: 1.0)
+        startPulseAnimation()
+        statusLabel.text = "Waiting for Sender..."
+        statusLabel.textColor = UIColor.white.withAlphaComponent(0.5)
     }
 
     @objc private func openDownloadLink() {
@@ -365,17 +450,15 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         deviceNameField.resignFirstResponder()
     }
 
-    // MARK: - Settings Button & Overlay
+    // MARK: - Settings Button (floating gear, opens UIMenu)
 
     private var settingsButton: UIButton!
-    private var inputModeButton: UIButton!
-    private var displayModeButton: UIButton!
-
     private var settingsButtonBlur: UIVisualEffectView!
 
     private func setupSettingsButton() {
-        // Blur background for the settings button
-        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+        // System material — adapts to light/dark automatically and gets
+        // Liquid Glass on iOS 26.
+        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterial)
         settingsButtonBlur = UIVisualEffectView(effect: blurEffect)
         settingsButtonBlur.layer.cornerRadius = 20
         settingsButtonBlur.clipsToBounds = true
@@ -385,27 +468,18 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         settingsButton = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         settingsButton.setImage(UIImage(systemName: "gearshape.fill", withConfiguration: config), for: .normal)
-        settingsButton.tintColor = UIColor.white.withAlphaComponent(0.7)
-        settingsButton.addTarget(self, action: #selector(settingsButtonTapped), for: .touchUpInside)
+        settingsButton.tintColor = UIColor.white.withAlphaComponent(0.85)
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        settingsButton.showsMenuAsPrimaryAction = true
+        settingsButton.menu = makeSettingsMenu()
         settingsButtonBlur.contentView.addSubview(settingsButton)
 
-        if #available(iOS 11.0, *) {
-            NSLayoutConstraint.activate([
-                settingsButtonBlur.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-                settingsButtonBlur.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
-                settingsButtonBlur.widthAnchor.constraint(equalToConstant: 40),
-                settingsButtonBlur.heightAnchor.constraint(equalToConstant: 40),
-            ])
-        } else {
-            NSLayoutConstraint.activate([
-                settingsButtonBlur.topAnchor.constraint(equalTo: view.topAnchor, constant: 28),
-                settingsButtonBlur.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-                settingsButtonBlur.widthAnchor.constraint(equalToConstant: 40),
-                settingsButtonBlur.heightAnchor.constraint(equalToConstant: 40),
-            ])
-        }
         NSLayoutConstraint.activate([
+            settingsButtonBlur.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            settingsButtonBlur.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            settingsButtonBlur.widthAnchor.constraint(equalToConstant: 40),
+            settingsButtonBlur.heightAnchor.constraint(equalToConstant: 40),
+
             settingsButton.topAnchor.constraint(equalTo: settingsButtonBlur.contentView.topAnchor),
             settingsButton.bottomAnchor.constraint(equalTo: settingsButtonBlur.contentView.bottomAnchor),
             settingsButton.leadingAnchor.constraint(equalTo: settingsButtonBlur.contentView.leadingAnchor),
@@ -413,83 +487,77 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         ])
     }
 
-    @objc private func settingsButtonTapped() {
-        toggleSettings()
+    /// Builds a UIMenu whose items reflect *current* state (input mode,
+    /// aspect fill, navigation visibility). `UIDeferredMenuElement.uncached`
+    /// rebuilds the menu body each time the user opens it, so toggles always
+    /// show the right checkmarks without manual title updates.
+    private func makeSettingsMenu() -> UIMenu {
+        let deferred = UIDeferredMenuElement.uncached { [weak self] completion in
+            guard let self = self else { completion([]); return }
+
+            let cursorOn = (self.renderer?.inputMode == .cursor)
+            let inputItem = UIAction(
+                title: cursorOn ? "Cursor Mode" : "Touch Mode",
+                image: UIImage(systemName: cursorOn ? "cursorarrow.motionlines" : "hand.tap"),
+                state: cursorOn ? .on : .off
+            ) { [weak self] _ in self?.toggleInputMode() }
+
+            let fillOn = (self.renderer?.isAspectFill ?? true)
+            let displayItem = UIAction(
+                title: fillOn ? "Fill Screen" : "Fit Screen",
+                image: UIImage(systemName: fillOn ? "rectangle.fill" : "rectangle"),
+                state: fillOn ? .on : .off
+            ) { [weak self] _ in self?.toggleDisplayMode() }
+
+            let navVisible = (self.tabBarController?.tabBar.isHidden == false)
+            let navItem = UIAction(
+                title: navVisible ? "Hide Navigation" : "Show Navigation",
+                image: UIImage(systemName: navVisible ? "rectangle.bottomthird.inset.filled" : "rectangle"),
+                state: navVisible ? .on : .off
+            ) { [weak self] _ in self?.toggleNavigationBar() }
+
+            let setupItem = UIAction(
+                title: "Setup Guide",
+                image: UIImage(systemName: "questionmark.circle")
+            ) { [weak self] _ in self?.showSetupGuide() }
+
+            let hideButtonItem = UIAction(
+                title: "Hide Settings Button",
+                image: UIImage(systemName: "eye.slash")
+            ) { [weak self] _ in self?.hideSettingsButton() }
+
+            let disconnectItem = UIAction(
+                title: "Disconnect",
+                image: UIImage(systemName: "xmark.circle.fill"),
+                attributes: .destructive
+            ) { [weak self] _ in self?.disconnectTapped() }
+
+            let modeGroup = UIMenu(options: .displayInline, children: [inputItem, displayItem])
+            let chromeGroup = UIMenu(options: .displayInline, children: [navItem, setupItem])
+            let manageGroup = UIMenu(options: .displayInline, children: [hideButtonItem, disconnectItem])
+
+            completion([modeGroup, chromeGroup, manageGroup])
+        }
+        return UIMenu(title: "BetterCast", children: [deferred])
     }
 
-    private var settingsOverlayBlur: UIVisualEffectView!
+    @objc private func showSetupGuide() {
+        // Make sure the tab bar is visible *before* switching tabs — otherwise
+        // the user lands on Setup with no way to leave.
+        if #available(iOS 15.0, *) {
+            (tabBarController as? BCTabBarController)?.setTabBarVisible(true, animated: true)
+        }
+        tabBarController?.selectedIndex = 1
+    }
 
-    private func setupSettingsOverlay() {
-        // Use blur effect instead of solid black
-        let blurEffect = UIBlurEffect(style: .systemThinMaterialDark)
-        settingsOverlayBlur = UIVisualEffectView(effect: blurEffect)
-        settingsOverlayBlur.layer.cornerRadius = 16
-        settingsOverlayBlur.clipsToBounds = true
-        settingsOverlayBlur.isHidden = true
-        settingsOverlayBlur.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(settingsOverlayBlur)
+    private func toggleNavigationBar() {
+        guard #available(iOS 15.0, *), let bar = tabBarController as? BCTabBarController else { return }
+        bar.setTabBarVisible(bar.tabBar.isHidden, animated: true)
+    }
 
-        // Keep settingsOverlay pointing to the blur view for hide/show logic
-        settingsOverlay = settingsOverlayBlur
-
-        // Input mode button
-        inputModeButton = UIButton(type: .system)
-        inputModeButton.setTitle("Touch Mode", for: .normal)
-        inputModeButton.setTitleColor(.white, for: .normal)
-        inputModeButton.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.5)
-        inputModeButton.layer.cornerRadius = 10
-        inputModeButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        inputModeButton.addTarget(self, action: #selector(toggleInputMode), for: .touchUpInside)
-        inputModeButton.translatesAutoresizingMaskIntoConstraints = false
-
-        // Display mode button
-        displayModeButton = UIButton(type: .system)
-        displayModeButton.setTitle("Fill Screen", for: .normal)
-        displayModeButton.setTitleColor(.white, for: .normal)
-        displayModeButton.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.5)
-        displayModeButton.layer.cornerRadius = 10
-        displayModeButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        displayModeButton.addTarget(self, action: #selector(toggleDisplayMode), for: .touchUpInside)
-        displayModeButton.translatesAutoresizingMaskIntoConstraints = false
-
-        // Hide button option
-        let hideButtonButton = UIButton(type: .system)
-        hideButtonButton.setTitle("Hide Settings Button", for: .normal)
-        hideButtonButton.setTitleColor(.white, for: .normal)
-        hideButtonButton.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.5)
-        hideButtonButton.layer.cornerRadius = 10
-        hideButtonButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        hideButtonButton.addTarget(self, action: #selector(hideSettingsButton), for: .touchUpInside)
-        hideButtonButton.translatesAutoresizingMaskIntoConstraints = false
-
-        // Close button
-        let closeButton = UIButton(type: .system)
-        closeButton.setTitle("Close", for: .normal)
-        closeButton.setTitleColor(UIColor.white.withAlphaComponent(0.6), for: .normal)
-        closeButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-        closeButton.addTarget(self, action: #selector(hideSettings), for: .touchUpInside)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = UIStackView(arrangedSubviews: [inputModeButton, displayModeButton, hideButtonButton, closeButton])
-        stack.axis = .vertical
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        settingsOverlayBlur.contentView.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            settingsOverlayBlur.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            settingsOverlayBlur.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            settingsOverlayBlur.widthAnchor.constraint(equalToConstant: 220),
-
-            stack.topAnchor.constraint(equalTo: settingsOverlayBlur.contentView.topAnchor, constant: 20),
-            stack.bottomAnchor.constraint(equalTo: settingsOverlayBlur.contentView.bottomAnchor, constant: -20),
-            stack.leadingAnchor.constraint(equalTo: settingsOverlayBlur.contentView.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: settingsOverlayBlur.contentView.trailingAnchor, constant: -20),
-
-            inputModeButton.heightAnchor.constraint(equalToConstant: 44),
-            displayModeButton.heightAnchor.constraint(equalToConstant: 44),
-            hideButtonButton.heightAnchor.constraint(equalToConstant: 44),
-        ])
+    @objc private func disconnectTapped() {
+        networkListener?.disconnect()
+        restoreOnboarding()
     }
 
     private func setupShowSettingsGesture() {
@@ -499,7 +567,6 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
     }
 
     @objc private func hideSettingsButton() {
-        settingsOverlay.isHidden = true
         UIView.animate(withDuration: 0.3) {
             self.settingsButtonBlur.alpha = 0
         } completion: { _ in
@@ -512,46 +579,20 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         UIView.animate(withDuration: 0.3) {
             self.settingsButtonBlur.alpha = 1
         }
-    }
-
-    private func toggleSettings() {
-        let willShow = settingsOverlay.isHidden
-        if willShow {
-            settingsOverlay.isHidden = false
-            settingsOverlay.alpha = 0
-            UIView.animate(withDuration: 0.25) {
-                self.settingsOverlay.alpha = 1
-            }
-        } else {
-            UIView.animate(withDuration: 0.2) {
-                self.settingsOverlay.alpha = 0
-            } completion: { _ in
-                self.settingsOverlay.isHidden = true
-            }
+        // 3-finger tap is the "reveal all chrome" gesture — also bring back
+        // the navigation tab bar so the user can switch tabs without going
+        // through the menu.
+        if #available(iOS 15.0, *) {
+            (tabBarController as? BCTabBarController)?.setTabBarVisible(true, animated: true)
         }
     }
 
-    @objc private func hideSettings() {
-        UIView.animate(withDuration: 0.2) {
-            self.settingsOverlay.alpha = 0
-        } completion: { _ in
-            self.settingsOverlay.isHidden = true
-        }
+    private func toggleInputMode() {
+        renderer.inputMode = (renderer.inputMode == .touch) ? .cursor : .touch
     }
 
-    @objc private func toggleInputMode() {
-        if renderer.inputMode == .touch {
-            renderer.inputMode = .cursor
-            inputModeButton.setTitle("Cursor Mode", for: .normal)
-        } else {
-            renderer.inputMode = .touch
-            inputModeButton.setTitle("Touch Mode", for: .normal)
-        }
-    }
-
-    @objc private func toggleDisplayMode() {
+    private func toggleDisplayMode() {
         renderer.isAspectFill.toggle()
-        displayModeButton.setTitle(renderer.isAspectFill ? "Fill Screen" : "Fit Screen", for: .normal)
     }
     
     // MARK: - NetworkListenerDelegate
@@ -589,6 +630,42 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
     func networkListener(_ listener: NetworkListenerIOS, didReceiveInput event: InputEvent) {
         // Receiver doesn't handle input from sender usually, but protocol demands conformance
     }
+
+    func networkListener(_ listener: NetworkListenerIOS, didUpdateDiscoveredSenders senders: [DiscoveredSender]) {
+        guard let sendersStack = sendersStack else { return }
+        // Clear and rebuild — small list, this is fine
+        sendersStack.arrangedSubviews.forEach { view in
+            sendersStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        if senders.isEmpty {
+            let placeholder = UILabel()
+            placeholder.text = "Searching..."
+            placeholder.textColor = UIColor.white.withAlphaComponent(0.4)
+            placeholder.font = .systemFont(ofSize: 14)
+            sendersStack.addArrangedSubview(placeholder)
+            return
+        }
+        for sender in senders {
+            let button = SenderButton(sender: sender, type: .system)
+            button.setTitle(sender.name, for: .normal)
+            button.setTitleColor(.white, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+            button.contentHorizontalAlignment = .left
+            button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+            button.backgroundColor = UIColor(red: 0.4, green: 0.6, blue: 1.0, alpha: 0.18)
+            button.layer.cornerRadius = 10
+            button.addTarget(self, action: #selector(connectToSenderTapped(_:)), for: .touchUpInside)
+            sendersStack.addArrangedSubview(button)
+            button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        }
+    }
+
+    @objc private func connectToSenderTapped(_ sender: SenderButton) {
+        guard let target = sender.sender else { return }
+        LogManager.shared.log("ViewController: User tapped Connect for sender \(target.name)")
+        networkListener?.connectToSender(target)
+    }
     
     // MARK: - InputDelegate
     
@@ -600,9 +677,55 @@ class ViewController: UIViewController, NetworkListenerDelegate, InputDelegate {
         return true
     }
     
-    @available(iOS 11.0, *)
     override var prefersHomeIndicatorAutoHidden: Bool {
         return true
+    }
+
+    // MARK: - Public state API (read/written by Settings + Setup tabs)
+
+    var isStreaming: Bool { isConnected }
+
+    var currentDeviceName: String {
+        UserDefaults.standard.string(forKey: "customDeviceName") ?? UIDevice.current.name
+    }
+
+    var currentAspectFill: Bool {
+        renderer?.isAspectFill ?? true
+    }
+
+    var currentCursorMode: Bool {
+        renderer?.inputMode == .cursor
+    }
+
+    var currentAudioEnabled: Bool {
+        networkListener?.audioEnabled ?? true
+    }
+
+    func commitDeviceName(_ name: String) {
+        UserDefaults.standard.set(name, forKey: "customDeviceName")
+        deviceNameField?.text = name
+        LogManager.shared.log("ViewController: Device name changed to '\(name)' — restart app to apply")
+    }
+
+    func applyAspectFill(_ fill: Bool) {
+        renderer?.isAspectFill = fill
+    }
+
+    func applyCursorMode(_ cursor: Bool) {
+        renderer?.inputMode = cursor ? .cursor : .touch
+    }
+
+    func applyAudioEnabled(_ enabled: Bool) {
+        networkListener?.setAudioEnabled(enabled)
+    }
+
+    func disconnectAndRestore() {
+        networkListener?.disconnect()
+        restoreOnboarding()
+    }
+
+    func hideSettingsButtonFromSibling() {
+        hideSettingsButton()
     }
 }
 #endif

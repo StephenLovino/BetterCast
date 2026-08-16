@@ -96,6 +96,13 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v16", date: "2026-07-09", highlights: [
+            "App now follows your system language — Chinese, Japanese, Korean, German, French",
+            "Retina mode fixed: displays now come up at the resolution you picked (was half-size, e.g. 1280x800)",
+            "USB / Thunderbolt Cable mode now actually carries the stream to Mac receivers (was WiFi-only)",
+            "Faster typing and cursor response on Android USB",
+            "Frame rate is user-configurable (Auto / 30 / 60 / 120)",
+        ]),
         Entry(version: "v13", date: "2026-06-05", highlights: [
             "Switch an Android device between WiFi and USB without disconnecting first",
         ]),
