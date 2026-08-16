@@ -4,21 +4,25 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,7 +45,8 @@ import androidx.lifecycle.ViewModelProvider
 import com.bettercast.receiver.sender.SenderScreen
 import com.bettercast.receiver.sender.SenderState
 import com.bettercast.receiver.sender.SenderViewModel
-import com.bettercast.receiver.ui.ReceiverScreen
+import com.bettercast.receiver.ui.ReceiverShell
+import com.bettercast.receiver.ui.theme.BC
 import com.bettercast.receiver.ui.theme.BetterCastReceiverTheme
 import com.bettercast.receiver.viewmodel.ReceiverState
 import com.bettercast.receiver.viewmodel.ReceiverViewModel
@@ -68,18 +74,27 @@ class MainActivity : ComponentActivity() {
         // Keep screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Immersive fullscreen
+        // Draw edge to edge, then let Compose inset the parts that need it. The app
+        // used to hide the system bars from launch and pad nothing, so the very top
+        // row of the UI sat underneath the status bar and camera cutout.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        controller.hide(WindowInsetsCompat.Type.systemBars())
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // Reassign rather than mutate in place — the setter is what makes the
+            // window manager re-lay-out with the new cutout mode.
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        applyImmersive(false)
 
         receiverViewModel = ViewModelProvider(this)[ReceiverViewModel::class.java]
         senderViewModel = ViewModelProvider(this)[SenderViewModel::class.java]
 
         setContent {
-            BetterCastReceiverTheme {
+            // Theme follows the persisted preference, so Settings can switch it live.
+            val themeMode by receiverViewModel.settings.themeMode.collectAsState()
+            BetterCastReceiverTheme(themeMode = themeMode) {
                 val requestProjection by senderViewModel.requestProjection.collectAsState()
 
                 // Launch MediaProjection permission when requested by SenderViewModel
@@ -104,14 +119,32 @@ class MainActivity : ComponentActivity() {
         senderViewModel.onOrientationChanged()
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
+    /**
+     * Hide the system bars only while the phone is actually showing a stream.
+     *
+     * Full-screen is right for video and wrong for everything else: with the bars
+     * hidden their insets report zero, so setup screens lose the padding that keeps
+     * them clear of the status bar and the gesture strip.
+     */
+    fun applyImmersive(immersive: Boolean) {
+        isImmersive = immersive
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        if (immersive) {
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    private var isImmersive = false
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Transient bars come back on their own after an interaction; re-apply so a
+        // stream returns to full screen, but never yank the bars off a setup screen.
+        if (hasFocus && isImmersive) applyImmersive(true)
     }
 }
 
@@ -132,7 +165,22 @@ fun AppContent(
         AppMode.SENDER -> senderState == SenderState.IDLE || senderState == SenderState.ERROR
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Video is the one thing that should reach the edges of the panel. Every other
+    // screen keeps clear of the status bar, the camera cutout and the gesture strip.
+    val fullBleed = mode == AppMode.RECEIVER && receiverState == ReceiverState.CONNECTED
+    LaunchedEffect(fullBleed) {
+        (activity as? MainActivity)?.applyImmersive(fullBleed)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BC.background)
+            .then(
+                if (fullBleed) Modifier
+                else Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+            )
+    ) {
         // Mode toggle bar
         if (showModeToggle) {
             ModeToggleBar(
@@ -148,11 +196,17 @@ fun AppContent(
                         // Set orientation and start the new mode
                         when (newMode) {
                             AppMode.RECEIVER -> {
-                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                // Portrait while waiting; ReceiverScreen flips to
+                                // landscape once a stream actually connects.
+                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 receiverViewModel.retry()
                             }
                             AppMode.SENDER -> {
-                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                // Portrait, like the receiver's idle screen. UNSPECIFIED
+                                // let the sensor swing it to landscape the moment the
+                                // phone tilted, which is not what picking "Send" asks for.
+                                // SenderScreen re-opens rotation once capture starts.
+                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                             }
                         }
                     }
@@ -163,20 +217,27 @@ fun AppContent(
         // Content
         Box(modifier = Modifier.fillMaxSize()) {
             when (mode) {
-                AppMode.RECEIVER -> ReceiverScreen(viewModel = receiverViewModel)
+                AppMode.RECEIVER -> ReceiverShell(viewModel = receiverViewModel)
                 AppMode.SENDER -> SenderScreen(viewModel = senderViewModel)
             }
         }
     }
 }
 
+/**
+ * Segmented control in the style of the iOS app: one recessed track, the selected
+ * half raised out of it. Replaces two competing filled buttons, which read as the
+ * loudest thing on screen when they are really just a mode switch.
+ */
 @Composable
 fun ModeToggleBar(currentMode: AppMode, onModeChange: (AppMode) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF1A1A1A))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = BC.screenPadding, vertical = 10.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(BC.segmentTrack)
+            .padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ModeButton(
@@ -185,7 +246,6 @@ fun ModeToggleBar(currentMode: AppMode, onModeChange: (AppMode) -> Unit) {
             onClick = { onModeChange(AppMode.RECEIVER) },
             modifier = Modifier.weight(1f)
         )
-
         ModeButton(
             text = "Send",
             isSelected = currentMode == AppMode.SENDER,
@@ -202,19 +262,19 @@ fun ModeButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) Color(0xFF2196F3) else Color(0xFF333333)
-        ),
-        shape = RoundedCornerShape(8.dp),
-        modifier = modifier.padding(horizontal = 4.dp)
+    Box(
+        modifier = modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (isSelected) BC.segmentThumb else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             fontSize = 14.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = Color.White
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (isSelected) BC.onSurface else BC.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }

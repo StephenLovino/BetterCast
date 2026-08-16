@@ -14,8 +14,7 @@ class ServiceAdvertiser(context: Context) {
         private const val TAG = "ServiceAdvertiser"
         private const val TCP_SERVICE_TYPE = "_bettercast._tcp."
         private const val UDP_SERVICE_TYPE = "_bettercast._udp."
-        private const val TCP_SERVICE_NAME = "BetterCast Receiver Android"
-        private const val UDP_SERVICE_NAME = "BetterCast Receiver UDP Android"
+        private const val DEFAULT_NAME = "BetterCast Receiver Android"
     }
 
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
@@ -29,12 +28,19 @@ class ServiceAdvertiser(context: Context) {
     private var tcpRegistrationListener: NsdManager.RegistrationListener? = null
     private var udpRegistrationListener: NsdManager.RegistrationListener? = null
 
-    fun startAdvertising(port: Int) {
+    /**
+     * Advertise on the local network under [deviceName], which is what the Mac shows in
+     * its device list. Changing the name only takes effect on the next advertise, which
+     * is why the settings screen tells the user to restart — same caveat as on iOS.
+     */
+    fun startAdvertising(port: Int, deviceName: String = DEFAULT_NAME) {
         if (_isAdvertising.value) return
+
+        val name = deviceName.ifBlank { DEFAULT_NAME }
 
         // Register TCP service
         registerService(
-            serviceName = TCP_SERVICE_NAME,
+            serviceName = name,
             serviceType = TCP_SERVICE_TYPE,
             port = port,
             onListener = { tcpRegistrationListener = it },
@@ -43,7 +49,7 @@ class ServiceAdvertiser(context: Context) {
 
         // Register UDP service on the same port
         registerService(
-            serviceName = UDP_SERVICE_NAME,
+            serviceName = "$name UDP",
             serviceType = UDP_SERVICE_TYPE,
             port = port,
             onListener = { udpRegistrationListener = it },

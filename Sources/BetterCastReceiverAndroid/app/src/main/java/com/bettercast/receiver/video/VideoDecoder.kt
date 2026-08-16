@@ -6,6 +6,9 @@ import android.media.MediaFormat
 import android.util.Log
 import android.view.Surface
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.LinkedBlockingQueue
@@ -50,6 +53,16 @@ class VideoDecoder {
     private var dwellCount: Long = 0
 
     var onKeyframeNeeded: (() -> Unit)? = null
+
+    /**
+     * Decoded picture size, published once the codec reports its output format.
+     *
+     * The UI needs this to size the surface to the stream's aspect ratio. Without it
+     * the surface is whatever shape the phone is and MediaCodec stretches the picture
+     * to fit, so a 16:10 Mac desktop arrives distorted on a 20:9 panel.
+     */
+    private val _videoSize = MutableStateFlow<Pair<Int, Int>?>(null)
+    val videoSize: StateFlow<Pair<Int, Int>?> = _videoSize.asStateFlow()
 
     private val frameQueue = LinkedBlockingQueue<FrameData>()
     private var decoderJob: Job? = null
@@ -173,6 +186,13 @@ class VideoDecoder {
     }
 
     private fun configureCodec(sps: ByteArray, pps: ByteArray) {
+        // Release any previous instance first. Reconfiguring without this leaks one
+        // MediaCodec per attempt, and the codec pool is small — a handful of
+        // reconnects or surface changes exhausts it and start() then fails with
+        // NO_MEMORY, leaving the decoder permanently unable to come up.
+        stop()
+
+        var decoder: MediaCodec? = null
         try {
             val format = MediaFormat.createVideoFormat(MIME_TYPE, 1920, 1080)
 
@@ -210,7 +230,7 @@ class VideoDecoder {
                 it.supportedTypes.any { t -> t.equals(MIME_TYPE, ignoreCase = true) }
             }?.name
 
-            val decoder = if (lowLatencyName != null) {
+            decoder = if (lowLatencyName != null) {
                 Log.i(TAG, "Using low-latency decoder: $lowLatencyName")
                 MediaCodec.createByCodecName(lowLatencyName)
             } else {
@@ -230,6 +250,13 @@ class VideoDecoder {
             startDrainLoop()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to configure codec", e)
+            // The instance exists even when configure/start throws. Without releasing
+            // it here, every failure permanently consumes a codec slot — which is how
+            // a single bad attempt snowballs into NO_MEMORY on all later ones.
+            try { decoder?.release() } catch (_: Exception) {}
+            codec = null
+            isConfigured = false
+            isStarted = false
             isConfigured = false
             isStarted = false
         }
@@ -278,6 +305,7 @@ class VideoDecoder {
                         }
                         outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                             Log.d(TAG, "Output format changed: ${decoder.outputFormat}")
+                            publishVideoSize(decoder.outputFormat)
                         }
                     }
 
@@ -296,6 +324,37 @@ class VideoDecoder {
                     if (isActive) Log.e(TAG, "Drain loop error", e)
                 }
             }
+        }
+    }
+
+    /**
+     * Read the real picture size out of the output format.
+     *
+     * KEY_WIDTH/KEY_HEIGHT are the padded, macroblock-aligned buffer dimensions —
+     * 1080 rounds up to 1088 on plenty of decoders. The crop rectangle is the part
+     * that is actually meant to be shown, so prefer it when present, or the aspect
+     * ratio comes out slightly wrong and the picture sits a few pixels off.
+     */
+    private fun publishVideoSize(format: MediaFormat) {
+        try {
+            val hasCrop = format.containsKey("crop-left") && format.containsKey("crop-right") &&
+                    format.containsKey("crop-top") && format.containsKey("crop-bottom")
+            val width = if (hasCrop) {
+                format.getInteger("crop-right") - format.getInteger("crop-left") + 1
+            } else {
+                format.getInteger(MediaFormat.KEY_WIDTH)
+            }
+            val height = if (hasCrop) {
+                format.getInteger("crop-bottom") - format.getInteger("crop-top") + 1
+            } else {
+                format.getInteger(MediaFormat.KEY_HEIGHT)
+            }
+            if (width > 0 && height > 0) {
+                _videoSize.value = width to height
+                Log.i(TAG, "Video size ${width}x$height")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read video size from output format", e)
         }
     }
 

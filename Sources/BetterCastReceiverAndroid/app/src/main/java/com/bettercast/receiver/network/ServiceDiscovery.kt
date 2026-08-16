@@ -18,7 +18,16 @@ class ServiceDiscovery(context: Context) {
 
     companion object {
         private const val TAG = "ServiceDiscovery"
-        private const val SERVICE_TYPE = "_bettercast._tcp."
+
+        /**
+         * The Mac sender's *invite* service.
+         *
+         * This used to browse `_bettercast._tcp.`, which is what receivers advertise —
+         * so the phone was looking for other receivers, found itself, and never saw a
+         * Mac. Senders advertise `_bettercast-sender._tcp`, matching the type the iOS
+         * receiver browses in NetworkListenerIOS.
+         */
+        private const val SERVICE_TYPE = "_bettercast-sender._tcp."
     }
 
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager

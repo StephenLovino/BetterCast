@@ -18,7 +18,43 @@ class TouchHandler(
         private const val TAG = "TouchHandler"
         private const val TAP_DELAY_MS = 50L
         private const val SCROLL_SCALE_FACTOR = 0.5
+
+        /** Matches `cursorSensitivity` in the iOS renderer, so both feel the same. */
+        private const val CURSOR_SENSITIVITY = 1.5
     }
+
+    /**
+     * Trackpad mode.
+     *
+     * In touch mode a tap lands where the finger lands, and dragging does not move the
+     * Mac pointer at all. In cursor mode the screen behaves like a trackpad: dragging
+     * pushes a pointer around relatively and every click happens wherever that pointer
+     * is, which is the only way to hit small targets on a 1920px desktop shown at phone
+     * size. Same split as `InputMode` on iOS.
+     */
+    var cursorMode: Boolean = false
+
+    /** Normalised pointer position, reported so the UI can draw it. */
+    private var cursorX = 0.5
+    private var cursorY = 0.5
+
+    var onCursorMoved: ((Float, Float) -> Unit)? = null
+
+    private fun moveCursor(dx: Float, dy: Float) {
+        val w = if (videoWidth > 0) videoWidth else view.width.toFloat()
+        val h = if (videoHeight > 0) videoHeight else view.height.toFloat()
+        if (w <= 0 || h <= 0) return
+        cursorX = (cursorX + dx / w * CURSOR_SENSITIVITY).coerceIn(0.0, 1.0)
+        cursorY = (cursorY + dy / h * CURSOR_SENSITIVITY).coerceIn(0.0, 1.0)
+        onCursorMoved?.invoke(cursorX.toFloat(), cursorY.toFloat())
+    }
+
+    /**
+     * Where an action should land: under the pointer in cursor mode, under the finger
+     * in touch mode.
+     */
+    private fun actionPoint(x: Float, y: Float): Pair<Double, Double> =
+        if (cursorMode) Pair(cursorX, cursorY) else normalizePoint(x, y)
 
     // Video dimensions within the view (accounting for letterboxing)
     private var videoLeft = 0f
@@ -29,10 +65,20 @@ class TouchHandler(
 
     private val handler = Handler(Looper.getMainLooper())
 
+    /**
+     * Three fingers down reveals the on-screen controls, matching the iOS receiver.
+     *
+     * Every other touch is forwarded to the Mac, so there is no spare single-tap to
+     * spend on showing a menu. Three fingers is something no desktop gesture uses.
+     */
+    var onThreeFingerTap: (() -> Unit)? = null
+
     private var lastTwoFingerScrollY = 0f
     private var lastTwoFingerScrollX = 0f
     private var isTwoFingerDragging = false
     private var isLongPressDragging = false
+    private var lastDragX = 0f
+    private var lastDragY = 0f
 
     private val gestureDetector = GestureDetector(view.context, object : GestureDetector.SimpleOnGestureListener() {
 
@@ -41,7 +87,7 @@ class TouchHandler(
         }
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            val (nx, ny) = normalizePoint(e.x, e.y)
+            val (nx, ny) = actionPoint(e.x, e.y)
             if (nx < 0) return false
 
             // Left click: down + delay + up
@@ -53,7 +99,7 @@ class TouchHandler(
         }
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            val (nx, ny) = normalizePoint(e.x, e.y)
+            val (nx, ny) = actionPoint(e.x, e.y)
             if (nx < 0) return false
 
             // Double click: two down+up sequences
@@ -74,11 +120,13 @@ class TouchHandler(
         }
 
         override fun onLongPress(e: MotionEvent) {
-            val (nx, ny) = normalizePoint(e.x, e.y)
+            val (nx, ny) = actionPoint(e.x, e.y)
             if (nx < 0) return
 
             // Start drag (left mouse down, then track moves)
             isLongPressDragging = true
+            lastDragX = e.x
+            lastDragY = e.y
             onInputEvent(InputEvent.leftMouseDown(nx, ny))
         }
 
@@ -90,7 +138,15 @@ class TouchHandler(
         ): Boolean {
             if (isTwoFingerDragging || isLongPressDragging) return false
 
-            // Single finger drag = mouse move
+            if (cursorMode) {
+                // Trackpad: push the pointer by the drag delta. distanceX/Y are
+                // previous-minus-current, so negate them to get travel direction.
+                moveCursor(-distanceX, -distanceY)
+                onInputEvent(InputEvent.mouseMove(cursorX, cursorY))
+                return true
+            }
+
+            // Touch mode: single finger drag = mouse move to the finger
             val (nx, ny) = normalizePoint(e2.x, e2.y)
             if (nx < 0) return false
 
@@ -104,7 +160,7 @@ class TouchHandler(
             // Pinch-to-zoom: send as scroll with keyCode=1 (zoom mode)
             val scaleFactor = detector.scaleFactor
             val deltaY = ((scaleFactor - 1.0f) * 100).toDouble()
-            val (nx, ny) = normalizePoint(detector.focusX, detector.focusY)
+            val (nx, ny) = actionPoint(detector.focusX, detector.focusY)
             if (nx < 0) return false
 
             val event = InputEvent(
@@ -133,6 +189,22 @@ class TouchHandler(
     }
 
     private fun handleTouch(event: MotionEvent): Boolean {
+        // Swallow three-finger gestures before the detectors see them, so revealing
+        // the controls never also fires a click or a scroll at the Mac. Any drag in
+        // progress is released first, otherwise the button stays stuck down there.
+        if (event.pointerCount >= 3) {
+            if (isLongPressDragging) {
+                val (nx, ny) = actionPoint(event.x, event.y)
+                if (nx >= 0) onInputEvent(InputEvent.leftMouseUp(nx, ny))
+                isLongPressDragging = false
+            }
+            isTwoFingerDragging = false
+            if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+                onThreeFingerTap?.invoke()
+            }
+            return true
+        }
+
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
 
@@ -156,7 +228,7 @@ class TouchHandler(
                     val dy = (currentY - lastTwoFingerScrollY) * SCROLL_SCALE_FACTOR
 
                     if (abs(dx) > 1 || abs(dy) > 1) {
-                        val (nx, ny) = normalizePoint(currentX, currentY)
+                        val (nx, ny) = actionPoint(currentX, currentY)
                         if (nx >= 0) {
                             onInputEvent(InputEvent.scroll(nx, ny, dx, dy))
                         }
@@ -164,9 +236,18 @@ class TouchHandler(
                         lastTwoFingerScrollY = currentY
                     }
                 } else if (isLongPressDragging && pointerCount == 1) {
-                    val (nx, ny) = normalizePoint(event.x, event.y)
-                    if (nx >= 0) {
-                        onInputEvent(InputEvent.mouseMove(nx, ny))
+                    if (cursorMode) {
+                        // Long-press drag has no translation of its own, so track the
+                        // delta between moves the way the iOS handler does.
+                        moveCursor(event.x - lastDragX, event.y - lastDragY)
+                        lastDragX = event.x
+                        lastDragY = event.y
+                        onInputEvent(InputEvent.mouseMove(cursorX, cursorY))
+                    } else {
+                        val (nx, ny) = normalizePoint(event.x, event.y)
+                        if (nx >= 0) {
+                            onInputEvent(InputEvent.mouseMove(nx, ny))
+                        }
                     }
                 }
             }
@@ -181,7 +262,7 @@ class TouchHandler(
                             // Two-finger tap = right click
                             val midX = (event.getX(0) + event.getX(1)) / 2
                             val midY = (event.getY(0) + event.getY(1)) / 2
-                            val (nx, ny) = normalizePoint(midX, midY)
+                            val (nx, ny) = actionPoint(midX, midY)
                             if (nx >= 0) {
                                 onInputEvent(InputEvent.rightMouseDown(nx, ny))
                                 handler.postDelayed({
@@ -196,7 +277,7 @@ class TouchHandler(
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (isLongPressDragging) {
-                    val (nx, ny) = normalizePoint(event.x, event.y)
+                    val (nx, ny) = actionPoint(event.x, event.y)
                     if (nx >= 0) {
                         onInputEvent(InputEvent.leftMouseUp(nx, ny))
                     }

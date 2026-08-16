@@ -27,6 +27,13 @@ class TcpClient {
 
     companion object {
         private const val TAG = "TcpServer"
+
+        /**
+         * A second connection arriving within this long of the current one is treated as
+         * the sender racing addresses, not as a new session. Happy Eyeballs settles in
+         * tens of milliseconds; a genuine reconnect is always far slower than this.
+         */
+        private const val DUPLICATE_ACCEPT_WINDOW_MS = 1_500L
         private const val HEARTBEAT_INTERVAL_MS = 500L
         const val DEFAULT_PORT = 51820
     }
@@ -46,6 +53,9 @@ class TcpClient {
     private var inputStream: DataInputStream? = null
 
     private val sendQueue = Channel<ByteArray>(Channel.BUFFERED)
+
+    /** When the current client was accepted, for spotting address-race duplicates. */
+    private var lastAcceptAtMs: Long = 0
 
     private var acceptJob: Job? = null
     private var readJob: Job? = null
@@ -96,6 +106,27 @@ class TcpClient {
                 while (isActive) {
                     Log.d(TAG, "Waiting for sender connection...")
                     val socket = server.accept()
+
+                    // Ignore the losers of the sender's address race.
+                    //
+                    // One NWConnection on the Mac can open several TCP connections at
+                    // once — link-local IPv6, global IPv6, IPv4 — and keep whichever
+                    // completes first (Happy Eyeballs). Observed 10ms apart. Adopting
+                    // every accept meant the straggler evicted the connection the sender
+                    // had already chosen, and the Mac saw "connection reset by peer"
+                    // moments after it began streaming. The sender keeps the fastest, so
+                    // the first accept is the real one; a second arriving on its heels is
+                    // a duplicate, not a reconnect.
+                    val now = System.currentTimeMillis()
+                    val live = clientSocket?.let { it.isConnected && !it.isClosed } ?: false
+                    if (live && now - lastAcceptAtMs < DUPLICATE_ACCEPT_WINDOW_MS) {
+                        Log.d(TAG, "Ignoring duplicate connection from ${socket.remoteSocketAddress} " +
+                                "(${now - lastAcceptAtMs}ms after the current one)")
+                        try { socket.close() } catch (_: Exception) {}
+                        continue
+                    }
+                    lastAcceptAtMs = now
+
                     socket.tcpNoDelay = true
                     socket.keepAlive = true
                     socket.receiveBufferSize = 524288  // 512KB — handles ADB tunnel jitter bursts

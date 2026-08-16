@@ -14,8 +14,8 @@ android {
         applicationId = "com.bettercast.receiver"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Release signing. Credentials come from keystore.properties (gitignored) or,
@@ -60,6 +60,8 @@ android {
 
     buildFeatures {
         compose = true
+        // Settings shows the version/build, read from BuildConfig.
+        buildConfig = true
     }
 
     composeOptions {
@@ -80,6 +82,18 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // Pulled in transitively by material3, but named here because the receiver's
+    // settings menu depends on it directly.
+    implementation("androidx.compose.material:material-icons-core")
+    // The extended set covers the glyphs the UI actually needs (Usb, Wifi, QrCode,
+    // Cast...) which the core set does not. It is large, but R8 strips the unused
+    // vectors — worth checking the release APK size if minification is ever turned off.
+    implementation("androidx.compose.material:material-icons-extended")
+
+    // QR encoding for hotspot credentials — the Mac reads this with its camera,
+    // because startLocalOnlyHotspot generates the SSID/passphrase and regenerates
+    // them each start, so they can only travel phone -> Mac.
+    implementation("com.google.zxing:core:3.5.3")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

@@ -3,21 +3,51 @@ package com.bettercast.receiver.ui
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.verticalScroll
+import android.Manifest
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import androidx.compose.ui.platform.LocalContext
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DesktopMac
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,43 +59,83 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.bettercast.receiver.input.TouchHandler
+import com.bettercast.receiver.ui.components.BCBadge
+import com.bettercast.receiver.ui.components.DisclosureRow
+import com.bettercast.receiver.ui.components.RowDivider
+import com.bettercast.receiver.ui.components.BCHeader
+import com.bettercast.receiver.ui.components.GlassButton
+import com.bettercast.receiver.ui.components.GlassCard
+import com.bettercast.receiver.ui.components.GradientButton
+import com.bettercast.receiver.ui.components.IconTile
+import com.bettercast.receiver.ui.components.StepCard
+import com.bettercast.receiver.ui.theme.BC
+import com.bettercast.receiver.ui.theme.BCType
 import com.bettercast.receiver.viewmodel.ReceiverState
 import com.bettercast.receiver.viewmodel.ReceiverViewModel
 import kotlinx.coroutines.delay
 
 @Composable
-fun ReceiverScreen(viewModel: ReceiverViewModel) {
+fun ReceiverScreen(
+    viewModel: ReceiverViewModel,
+    navVisible: Boolean = true,
+    onToggleNav: () -> Unit = {},
+    onShowSetup: () -> Unit = {}
+) {
     val state by viewModel.state.collectAsState()
+
+    // Portrait while waiting — the setup text, hotspot details and QR all read
+    // better upright, and the QR gets far more room. Landscape only once a stream
+    // is live, which is when the phone is actually acting as a display.
+    val context = LocalContext.current
+    LaunchedEffect(state) {
+        (context as? Activity)?.requestedOrientation = when (state) {
+            ReceiverState.CONNECTED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
     val statusMessage by viewModel.statusMessage.collectAsState()
     val deviceIp by viewModel.deviceIp.collectAsState()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(BC.background)
     ) {
         when (state) {
             ReceiverState.WAITING -> {
                 WaitingView(
                     statusMessage = statusMessage,
                     deviceIp = deviceIp,
-                    port = viewModel.tcpServer.listeningPort
+                    port = viewModel.tcpServer.listeningPort,
+                    viewModel = viewModel
                 )
             }
 
             ReceiverState.RECONNECTING -> {
-                ReconnectingView(statusMessage = statusMessage)
+                ReconnectingView(
+                    statusMessage = statusMessage,
+                    onBack = { viewModel.backToDevices() }
+                )
             }
 
             ReceiverState.CONNECTED -> {
-                ConnectedView(viewModel = viewModel, statusMessage = statusMessage)
+                ConnectedView(
+                    viewModel = viewModel,
+                    statusMessage = statusMessage,
+                    navVisible = navVisible,
+                    onToggleNav = onToggleNav,
+                    onShowSetup = onShowSetup
+                )
             }
 
             ReceiverState.ERROR -> {
@@ -79,175 +149,363 @@ fun ReceiverScreen(viewModel: ReceiverViewModel) {
 }
 
 @Composable
-private fun WaitingView(statusMessage: String, deviceIp: String?, port: Int) {
+private fun WaitingView(
+    statusMessage: String,
+    deviceIp: String?,
+    port: Int,
+    viewModel: ReceiverViewModel
+) {
+    val hotspot by viewModel.hotspot.collectAsState()
+    val hotspotError by viewModel.hotspotError.collectAsState()
+    val senders by viewModel.discoveredSenders.collectAsState()
+    val inviting by viewModel.invitingSender.collectAsState()
+    val inviteError by viewModel.inviteError.collectAsState()
+
+    // startLocalOnlyHotspot is gated on nearby-devices from Android 13, and on fine
+    // location before that. Ask for whichever applies, then start on the grant.
+    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.NEARBY_WIFI_DEVICES
+    } else {
+        Manifest.permission.ACCESS_FINE_LOCATION
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.startHotspot()
+    }
+
+    // Scrolls, and starts at the top rather than centring. Centred content that
+    // outgrows the screen is clipped at both ends with no way to reach it — which
+    // is exactly what happened once the hotspot QR joined this column.
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = BC.screenPadding)
     ) {
+        BCHeader(Icons.Filled.PlayCircle)
+
+        Text("Ready to receive", style = BCType.display, color = BC.onSurface)
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = "BetterCast",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White
+            "Open BetterCast on your Mac and pick this device.",
+            style = BCType.bodySmall,
+            color = BC.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(20.dp))
 
-        Text(
-            text = "Android Receiver",
-            fontSize = 16.sp,
-            color = Color.Gray
-        )
+        // Status card: the live state of the receiver, and the address to type if
+        // discovery does not find it.
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PulsingDot(BC.accentGold)
+                    Spacer(Modifier.width(10.dp))
+                    Text(statusMessage, style = BCType.bodySmall, color = BC.onSurface)
+                }
 
-        Spacer(modifier = Modifier.height(32.dp))
+                if (deviceIp != null && port > 0) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("ADDRESS", style = BCType.badge, color = BC.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "$deviceIp:$port",
+                        style = BCType.title,
+                        color = BC.primaryDim
+                    )
+                }
+            }
+        }
 
-        CircularProgressIndicator(
-            modifier = Modifier.size(48.dp),
-            color = MaterialTheme.colorScheme.primary,
-            strokeWidth = 3.dp
-        )
+        Spacer(Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Macs advertising on this network. Tapping one asks it to stream here, which
+        // saves walking over to the Mac to start the session from that end.
+        if (senders.isNotEmpty()) {
+            Text("MACS ON THIS NETWORK", style = BCType.badge, color = BC.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                senders.forEachIndexed { index, sender ->
+                    if (index > 0) RowDivider()
+                    DisclosureRow(
+                        icon = Icons.Filled.DesktopMac,
+                        iconColor = BC.primaryDim,
+                        title = sender.name,
+                        subtitle = if (inviting == sender.name) "Inviting..." else "${sender.host}:${sender.port}",
+                        onClick = { viewModel.inviteSender(sender) }
+                    )
+                }
+            }
+            inviteError?.let { error ->
+                Spacer(Modifier.height(8.dp))
+                Text(error, style = BCType.bodySmall, color = BC.accentOrange)
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
-        Text(
-            text = statusMessage,
-            fontSize = 14.sp,
-            color = Color.Gray,
-            textAlign = TextAlign.Center
-        )
-
-        if (deviceIp != null && port > 0) {
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Connect manually:",
-                fontSize = 12.sp,
-                color = Color.Gray
+        // Hotspot — the only way to pair when there is no shared network at all.
+        if (hotspot == null) {
+            StepCard(
+                icon = Icons.Filled.WifiTethering,
+                iconColor = BC.accentGold,
+                title = "No network?",
+                description = "Host one from this phone and join it from your Mac.",
+                actionText = "Create Hotspot",
+                onAction = { permissionLauncher.launch(permission) }
             )
+        } else {
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Hotspot active", style = BCType.cardTitle, color = BC.onSurface)
+                        Spacer(Modifier.weight(1f))
+                        BCBadge("SCAN ME", BC.success)
+                    }
 
-            Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(Modifier.height(14.dp))
 
+                    // The Mac reads this with its camera. Credentials are regenerated
+                    // on every start, so typing them each session is not workable.
+                    WifiQrImage(
+                        ssid = hotspot!!.ssid,
+                        passphrase = hotspot!!.passphrase,
+                        modifier = Modifier.size(240.dp)
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "On the Mac: Join Hotspot › Scan QR from phone",
+                        style = BCType.bodySmall,
+                        color = BC.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+                    CredentialRow("Network", hotspot!!.ssid)
+                    Spacer(Modifier.height(4.dp))
+                    CredentialRow("Password", hotspot!!.passphrase)
+
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Neither device has internet while this is on.",
+                        style = BCType.bodySmall,
+                        color = BC.onSurfaceVariant.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(Modifier.height(14.dp))
+                    GlassButton("Stop Hotspot", onClick = { viewModel.stopHotspot() }, tint = BC.danger)
+                }
+            }
+        }
+
+        hotspotError?.let { error ->
+            Spacer(Modifier.height(12.dp))
             Text(
-                text = "$deviceIp:$port",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF64B5F6),
-                textAlign = TextAlign.Center
+                text = error,
+                style = BCType.bodySmall,
+                color = BC.accentOrange,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // ADB Setup Instructions
-        Text(
-            text = "ADB Setup (USB or Wireless)",
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFFAAAAAA)
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "1. Enable Developer Options:\n" +
-                    "    Settings > About Phone > tap Build Number 7x\n" +
-                    "2. Enable USB Debugging:\n" +
-                    "    Settings > Developer Options > USB Debugging\n" +
-                    "3. Connect USB and tap \"Allow\" on the prompt\n" +
-                    "4. Use ADB USB or ADB Wireless in the sender app",
-            fontSize = 11.sp,
-            color = Color(0xFF777777),
-            textAlign = TextAlign.Start,
-            lineHeight = 16.sp,
-            modifier = Modifier.padding(horizontal = 32.dp)
-        )
+        Spacer(Modifier.height(BC.navClearance))
     }
 }
 
 @Composable
-private fun ReconnectingView(statusMessage: String) {
+private fun CredentialRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label.uppercase(), style = BCType.badge, color = BC.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
+        Text(value, style = BCType.body, color = BC.onSurface)
+    }
+}
+
+/** Classic arrow pointer, outlined so it stays visible over light and dark content. */
+@Composable
+private fun VirtualCursor(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        val arrow = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(0f, h * 0.76f)
+            lineTo(w * 0.25f, h * 0.57f)
+            lineTo(w * 0.43f, h * 0.97f)
+            lineTo(w * 0.61f, h * 0.89f)
+            lineTo(w * 0.43f, h * 0.51f)
+            lineTo(w * 0.72f, h * 0.49f)
+            close()
+        }
+        drawPath(arrow, Color.Black.copy(alpha = 0.65f), style = Stroke(width = 4f))
+        drawPath(arrow, Color.White)
+    }
+}
+
+/** Slow breathing dot — the iOS onboarding uses the same idle signal. */
+@Composable
+private fun PulsingDot(color: Color) {
+    val transition = rememberInfiniteTransition(label = "pulse")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .size(9.dp)
+            .background(color.copy(alpha = alpha), CircleShape)
+    )
+}
+
+@Composable
+private fun ReconnectingView(statusMessage: String, onBack: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(BC.screenPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         CircularProgressIndicator(
-            modifier = Modifier.size(48.dp),
-            color = Color(0xFF64B5F6),
+            modifier = Modifier.size(40.dp),
+            color = BC.primary,
             strokeWidth = 3.dp
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        Text(
-            text = statusMessage,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White,
-            textAlign = TextAlign.Center
-        )
+        Text(statusMessage, style = BCType.cardTitle, color = BC.onSurface, textAlign = TextAlign.Center)
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Please wait while the sender reconnects...",
-            fontSize = 13.sp,
-            color = Color.Gray,
+            "Holding the display while the sender comes back.",
+            style = BCType.bodySmall,
+            color = BC.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Escape hatch. This screen gives up on its own after a few seconds, but waiting
+        // out a timer is a poor experience when you already know the sender is not coming.
+        GlassButton("Back to devices", onClick = onBack, modifier = Modifier.fillMaxWidth(0.7f))
     }
 }
 
 @Composable
-private fun ConnectedView(viewModel: ReceiverViewModel, statusMessage: String) {
-    var showOverlay by remember { mutableStateOf(true) }
+private fun ConnectedView(
+    viewModel: ReceiverViewModel,
+    statusMessage: String,
+    navVisible: Boolean,
+    onToggleNav: () -> Unit,
+    onShowSetup: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var controlsHidden by remember { mutableStateOf(false) }
+    val aspectFill by viewModel.settings.aspectFill.collectAsState()
+    val cursorMode by viewModel.settings.cursorMode.collectAsState()
+    var cursorPos by remember { mutableStateOf(0.5f to 0.5f) }
+    // The factory runs once, so keep a handle to push later setting changes into it.
+    val touchHandlerRef = remember { mutableStateOf<TouchHandler?>(null) }
+    var showStatus by remember { mutableStateOf(true) }
+    // Bumped by the three-finger reveal, which re-runs the auto-hide timer.
+    var revealTick by remember { mutableStateOf(0) }
 
-    // Auto-hide overlay after 3 seconds
-    LaunchedEffect(Unit) {
+    val videoSize by viewModel.videoDecoder.videoSize.collectAsState()
+
+    LaunchedEffect(revealTick) {
+        showStatus = true
         delay(3000)
-        showOverlay = false
+        showStatus = false
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // SurfaceView for video rendering
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BC.background)
+            .clipToBounds()
+    ) {
+        // Shape the surface to the stream, rather than letting MediaCodec stretch the
+        // picture to whatever shape the phone is. Fit letterboxes; fill crops the
+        // overflowing edges, which is why the surface is allowed to exceed the box.
+        val ratio = videoSize?.let { (w, h) ->
+            if (w > 0 && h > 0) w.toFloat() / h.toFloat() else null
+        }
+        val videoSizeDp = if (ratio == null) {
+            maxWidth to maxHeight
+        } else {
+            val boxRatio = maxWidth / maxHeight
+            val matchWidth = if (aspectFill) ratio < boxRatio else ratio > boxRatio
+            if (matchWidth) maxWidth to (maxWidth / ratio) else (maxHeight * ratio) to maxHeight
+        }
+        val (videoW, videoH) = videoSizeDp
+        val videoModifier = Modifier.size(videoW, videoH)
+
         AndroidView(
             factory = { context ->
                 SurfaceView(context).apply {
+                    // Touches map to the surface, and the surface is now exactly the
+                    // video rect, so the normalised coordinates are correct in both
+                    // fit and fill without any extra letterbox arithmetic.
+                    val touchHandler = TouchHandler(this) { event ->
+                        viewModel.sendInputEvent(event)
+                    }
+                    touchHandler.onThreeFingerTap = {
+                        controlsHidden = false
+                        revealTick++
+                    }
+                    touchHandler.onCursorMoved = { x, y -> cursorPos = x to y }
+                    touchHandler.cursorMode = cursorMode
+                    touchHandlerRef.value = touchHandler
+
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) {
                             viewModel.videoDecoder.setSurface(holder.surface)
                         }
 
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            touchHandler.updateVideoRect(0f, 0f, width.toFloat(), height.toFloat())
                         }
 
                         override fun surfaceDestroyed(holder: SurfaceHolder) {
                             viewModel.videoDecoder.setSurface(null)
                         }
                     })
-
-                    // Attach touch handler
-                    val touchHandler = TouchHandler(this) { event ->
-                        viewModel.sendInputEvent(event)
-                    }
-
-                    // Set video rect to full surface initially
-                    post {
-                        touchHandler.updateVideoRect(0f, 0f, width.toFloat(), height.toFloat())
-                    }
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            update = { touchHandlerRef.value?.cursorMode = cursorMode },
+            modifier = videoModifier.align(Alignment.Center)
         )
+
+        // Trackpad pointer. Drawn over the video rather than moved on the Mac, because
+        // the Mac's own cursor is only visible once it has been told where to go — and
+        // in trackpad mode the finger is nowhere near the target.
+        if (cursorMode) {
+            Box(modifier = videoModifier.align(Alignment.Center)) {
+                VirtualCursor(
+                    modifier = Modifier.offset(
+                        x = videoW * cursorPos.first - 2.dp,
+                        y = videoH * cursorPos.second - 2.dp
+                    )
+                )
+            }
+        }
 
         // Status overlay
         AnimatedVisibility(
-            visible = showOverlay,
+            visible = showStatus,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)
@@ -269,23 +527,60 @@ private fun ConnectedView(viewModel: ReceiverViewModel, statusMessage: String) {
             }
         }
 
-        // Disconnect button (top-right, subtle)
-        AnimatedVisibility(
-            visible = showOverlay,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-        ) {
-            Button(
-                onClick = { viewModel.disconnect() },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0x66FF0000)
-                ),
-                shape = RoundedCornerShape(8.dp)
+        // Settings button, mirroring the iOS receiver's floating gear. It stays put
+        // rather than fading with the status pill: every touch on the video belongs
+        // to the Mac, so a control that disappears on a timer would be unreachable.
+        if (!controlsHidden) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
             ) {
-                Text("Disconnect", fontSize = 12.sp)
+                IconButton(
+                    onClick = { menuOpen = true },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0x66000000), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Display options",
+                        tint = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false }
+                ) {
+                    DropdownMenuItem(
+                        // Labelled by what the tap does. iOS labels these by current
+                        // state instead, but it draws a checkmark next to them; a bare
+                        // menu row with no checkmark has to name the action.
+                        text = { Text(if (aspectFill) "Fit Screen" else "Fill Screen") },
+                        onClick = { viewModel.settings.setAspectFill(!aspectFill); menuOpen = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (cursorMode) "Touch Mode" else "Cursor Mode") },
+                        onClick = { viewModel.settings.setCursorMode(!cursorMode); menuOpen = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (navVisible) "Hide Navigation" else "Show Navigation") },
+                        onClick = { onToggleNav(); menuOpen = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Setup Guide") },
+                        onClick = { menuOpen = false; onShowSetup() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Hide Controls") },
+                        onClick = { menuOpen = false; controlsHidden = true }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Disconnect", color = Color(0xFFFF5252)) },
+                        onClick = { menuOpen = false; viewModel.disconnect() }
+                    )
+                }
             }
         }
     }
@@ -297,37 +592,28 @@ private fun ErrorView(
     onRetry: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(BC.screenPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "Error",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFFFF5252)
-        )
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(Icons.Filled.WarningAmber, BC.danger)
+                    Spacer(Modifier.width(14.dp))
+                    Text("Something went wrong", style = BCType.cardTitle, color = BC.onSurface)
+                }
 
-        Spacer(modifier = Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
-        Text(
-            text = statusMessage,
-            fontSize = 14.sp,
-            color = Color.Gray,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 32.dp)
-        )
+                Text(statusMessage, style = BCType.bodySmall, color = BC.onSurfaceVariant)
 
-        Spacer(modifier = Modifier.height(24.dp))
+                Spacer(Modifier.height(18.dp))
 
-        Button(
-            onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            ),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Text("Retry", fontSize = 16.sp)
+                GradientButton("Try Again", onClick = onRetry)
+            }
         }
     }
 }
