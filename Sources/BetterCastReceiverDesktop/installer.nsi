@@ -197,7 +197,9 @@ Section "-VirtualDisplayDriver" SecVDD
     ${EndIf}
 
     ; Install the driver via pnputil (Microsoft-supported on Win10+).
-    ; devcon is legacy and inconsistently available; we don't fall back to it.
+    ; devcon is not used for *this* step — pnputil is the supported way to stage a
+    ; driver package. It IS used below for the separate job of creating the device
+    ; node, which pnputil cannot do.
     DetailPrint "Installing Virtual Display Driver..."
     nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\${VDD_SUBDIR}\${VDD_INF}" /install'
     Pop $0
@@ -215,6 +217,28 @@ Section "-VirtualDisplayDriver" SecVDD
             IDOK vdd_install_continue
         Abort
         vdd_install_continue:
+    ${EndIf}
+
+    ; Staging the driver is only half of it: a root-enumerated IddCx driver needs a
+    ; device node under ROOT\MttVDD before Windows surfaces a virtual monitor, and
+    ; pnputil /add-driver does not create one. Creating a root node requires
+    ; administrator rights — which this installer has and the app does not.
+    ;
+    ; That asymmetry is the whole bug behind "extend doesn't work": the app tried
+    ; `devcon install` at runtime, unelevated, and got a bare "devcon.exe failed" every
+    ; time, then reported "driver files exist but the driver isn't installed".
+    ; Doing it here, once, with elevation, means the app only ever has to select the
+    ; monitor it finds.
+    ${If} ${FileExists} "$INSTDIR\${VDD_SUBDIR}\devcon.exe"
+        DetailPrint "Creating virtual display device node..."
+        nsExec::ExecToLog '"$INSTDIR\${VDD_SUBDIR}\devcon.exe" install "$INSTDIR\${VDD_SUBDIR}\${VDD_INF}" Root\MttVDD'
+        Pop $0
+        DetailPrint "devcon install exit code: $0"
+        ${If} $0 != 0
+            DetailPrint "Device node creation failed. Screen extension will be unavailable until 'VDD Control.exe' is run as administrator."
+        ${EndIf}
+    ${Else}
+        DetailPrint "devcon.exe missing from the VDD package — cannot create the device node."
     ${EndIf}
 
     ; Capture the published OEM*.inf name so the uninstaller can remove the
@@ -288,6 +312,16 @@ Section "Uninstall"
     ; Remove VDD driver using the published OEM name we stored at install time.
     ; Falling back to the original INF filename does not work — pnputil only
     ; accepts the published name (oemNN.inf).
+    ; Remove the device node first. Deleting the driver package while a node still
+    ; references it leaves a phantom monitor behind until reboot.
+    ReadRegStr $9 HKLM "${PRODUCT_SETTINGS_KEY}" "VDDInstallPath"
+    ${If} ${FileExists} "$9\devcon.exe"
+        DetailPrint "Removing virtual display device node..."
+        nsExec::ExecToLog '"$9\devcon.exe" remove Root\MttVDD'
+        Pop $8
+        DetailPrint "devcon remove exit code: $8"
+    ${EndIf}
+
     ReadRegStr $0 HKLM "${PRODUCT_SETTINGS_KEY}" "VDDOemInf"
     ${If} $0 != ""
         DetailPrint "Removing Virtual Display Driver ($0)..."
