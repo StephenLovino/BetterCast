@@ -2,8 +2,10 @@ package com.bettercast.receiver.viewmodel
 
 import android.app.Application
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.bettercast.receiver.R
 import com.bettercast.receiver.audio.AudioPlayer
 import com.bettercast.receiver.data.SettingsStore
 import com.bettercast.receiver.input.InputEvent
@@ -48,7 +50,8 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
     private val _state = MutableStateFlow(ReceiverState.WAITING)
     val state: StateFlow<ReceiverState> = _state.asStateFlow()
 
-    private val _statusMessage = MutableStateFlow("Starting...")
+    // application, not str(): this initialiser runs before the rest of the class is set up.
+    private val _statusMessage = MutableStateFlow(application.getString(R.string.status_starting))
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
     private val _connectedSenderName = MutableStateFlow<String?>(null)
@@ -70,6 +73,14 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
 
     private val _inviteError = MutableStateFlow<String?>(null)
     val inviteError: StateFlow<String?> = _inviteError.asStateFlow()
+
+    /**
+     * Status messages reach the UI as plain strings, so they are resolved here rather
+     * than at the call site — `stringResource` is composable-only and these are set
+     * from network callbacks.
+     */
+    private fun str(@StringRes id: Int, vararg args: Any): String =
+        getApplication<Application>().getString(id, *args)
 
     val settings = SettingsStore(application)
 
@@ -97,7 +108,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
                         reconnectWatchdog?.cancel()
                         wasConnected = true
                         _state.value = ReceiverState.CONNECTED
-                        _statusMessage.value = "Connected to sender (TCP)"
+                        _statusMessage.value = str(R.string.status_connected_tcp)
                         _connectedSenderName.value = tcpServer.connectedSenderName.value
                     }
                     ConnectionState.LISTENING -> {
@@ -110,11 +121,11 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
                                 // indefinitely strands the user: the only escape was to
                                 // start the session from the Mac instead.
                                 _state.value = ReceiverState.RECONNECTING
-                                _statusMessage.value = "Switching connection..."
+                                _statusMessage.value = str(R.string.status_switching)
                                 startReconnectWatchdog()
                             } else {
                                 _state.value = ReceiverState.WAITING
-                                _statusMessage.value = "Waiting for sender to connect..."
+                                _statusMessage.value = str(R.string.status_waiting_connect)
                             }
                             _connectedSenderName.value = null
                             videoDecoder.stop()
@@ -122,12 +133,13 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
                     }
                     ConnectionState.ERROR -> {
                         _state.value = ReceiverState.ERROR
-                        _statusMessage.value = tcpServer.errorMessage.value ?: "Connection error"
+                        _statusMessage.value = tcpServer.errorMessage.value
+                            ?: str(R.string.status_connection_error)
                     }
                     ConnectionState.IDLE -> {
                         wasConnected = false
                         _state.value = ReceiverState.WAITING
-                        _statusMessage.value = "Starting..."
+                        _statusMessage.value = str(R.string.status_starting)
                     }
                 }
             }
@@ -175,7 +187,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         if (port > 0) {
             val ip = _deviceIp.value ?: "unknown"
             Log.d(TAG, "TCP server listening on $ip:$port")
-            _statusMessage.value = "Waiting for sender..."
+            _statusMessage.value = str(R.string.status_waiting)
 
             // Advertise via mDNS/Bonjour so the sender can find us
             serviceAdvertiser.startAdvertising(port, settings.deviceName.value)
@@ -191,7 +203,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
             udp.onSenderConnected = {
                 viewModelScope.launch {
                     _state.value = ReceiverState.CONNECTED
-                    _statusMessage.value = "Connected to sender (UDP)"
+                    _statusMessage.value = str(R.string.status_connected_udp)
                     _connectedSenderName.value = "Sender (UDP)"
                 }
             }
@@ -199,7 +211,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
             udpClient = udp
         } else {
             _state.value = ReceiverState.ERROR
-            _statusMessage.value = "Failed to start server"
+            _statusMessage.value = str(R.string.status_failed_start)
         }
     }
 
@@ -218,7 +230,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         reconnectWatchdog?.cancel()
         wasConnected = false
         _state.value = ReceiverState.WAITING
-        _statusMessage.value = "Waiting for sender to connect..."
+        _statusMessage.value = str(R.string.status_waiting_connect)
     }
 
     fun disconnect() {
@@ -228,7 +240,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         audioPlayer.stop()
         _connectedSenderName.value = null
         _state.value = ReceiverState.WAITING
-        _statusMessage.value = "Waiting for sender to connect..."
+        _statusMessage.value = str(R.string.status_waiting_connect)
 
         // Restart UDP listener
         val port = tcpServer.listeningPort
@@ -243,7 +255,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
             udp.onSenderConnected = {
                 viewModelScope.launch {
                     _state.value = ReceiverState.CONNECTED
-                    _statusMessage.value = "Connected to sender (UDP)"
+                    _statusMessage.value = str(R.string.status_connected_udp)
                     _connectedSenderName.value = "Sender (UDP)"
                 }
             }
@@ -265,7 +277,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
             viewModelScope.launch {
                 _invitingSender.value = null
                 _inviteError.value = failure
-                if (failure == null) _statusMessage.value = "Invited ${sender.name}, waiting for it to connect..."
+                if (failure == null) _statusMessage.value = str(R.string.status_invited, sender.name)
             }
         }
     }
@@ -322,7 +334,7 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         videoDecoder.stop()
         audioPlayer.stop()
         _state.value = ReceiverState.WAITING
-        _statusMessage.value = "Stopped"
+        _statusMessage.value = str(R.string.status_stopped)
     }
 
     fun retry() {

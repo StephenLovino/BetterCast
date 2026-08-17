@@ -1,4 +1,132 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Source of truth for every user-facing string in the Android receiver.
+
+    Translations live in values-<code>/strings.xml and must use these exact keys.
+    Adding a string here without translating it is fine — Android falls back to
+    this file per key, so a partial translation degrades to English rather than
+    crashing. See localization/README.md for the contribution flow (the macOS app
+    uses .lproj/Localizable.strings for the same set of languages).
+-->
 <resources>
     <string name="app_name">BetterCast Receiver</string>
+    <string name="brand_bettercast">BetterCast</string>
+
+    <!-- Bottom navigation -->
+    <string name="tab_connect">Connect</string>
+    <string name="tab_setup">Setup</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Mode toggle -->
+    <string name="mode_receive">Receive</string>
+    <string name="mode_send">Send</string>
+
+    <!-- Connect / waiting -->
+    <string name="waiting_title">Ready to receive</string>
+    <string name="waiting_subtitle">Open BetterCast on your Mac and pick this device.</string>
+    <string name="label_address">ADDRESS</string>
+    <string name="label_macs_on_network">MACS ON THIS NETWORK</string>
+    <string name="inviting">Inviting…</string>
+
+    <!-- Hotspot -->
+    <string name="hotspot_prompt_title">No network?</string>
+    <string name="hotspot_prompt_desc">Host one from this phone and join it from your Mac.</string>
+    <string name="action_create_hotspot">Create Hotspot</string>
+    <string name="hotspot_active">Hotspot active</string>
+    <string name="badge_scan_me">SCAN ME</string>
+    <string name="hotspot_scan_hint">On the Mac: Join Hotspot › Scan QR from phone</string>
+    <string name="label_network">Network</string>
+    <string name="label_password">Password</string>
+    <string name="hotspot_no_internet">Neither device has internet while this is on.</string>
+    <string name="action_stop_hotspot">Stop Hotspot</string>
+
+    <!-- Reconnecting -->
+    <string name="reconnecting_desc">Holding the display while the sender comes back.</string>
+    <string name="action_back_to_devices">Back to devices</string>
+
+    <!-- In-stream menu -->
+    <string name="cd_display_options">Display options</string>
+    <string name="menu_fit_screen">Fit Screen</string>
+    <string name="menu_fill_screen">Fill Screen</string>
+    <string name="menu_touch_mode">Touch Mode</string>
+    <string name="menu_cursor_mode">Cursor Mode</string>
+    <string name="menu_hide_nav">Hide Navigation</string>
+    <string name="menu_show_nav">Show Navigation</string>
+    <string name="menu_hide_controls">Hide Controls</string>
+
+    <!-- Error -->
+    <string name="error_title">Something went wrong</string>
+    <string name="action_try_again">Try Again</string>
+
+    <!-- Setup guide -->
+    <string name="setup_title">Setup Guide</string>
+    <string name="setup_subtitle">Three ways to reach your Mac. Best quality first.</string>
+    <string name="badge_best">BEST</string>
+    <string name="setup_usb_title">USB</string>
+    <string name="setup_usb_desc">Highest quality, lowest latency, and it works with no network at all.</string>
+    <string name="setup_usb_step1">Settings › About phone › tap Build number seven times</string>
+    <string name="setup_usb_step2">Settings › Developer options › turn on USB debugging</string>
+    <string name="setup_usb_step3">Plug into the Mac and tap Allow on the prompt</string>
+    <string name="setup_usb_step4">In BetterCast on the Mac, pick Android (USB)</string>
+    <string name="setup_wifi_title">Wi-Fi, no cable</string>
+    <string name="setup_wifi_desc">Matches USB once paired, but both devices must be on the same network.</string>
+    <string name="setup_wifi_step1">Settings › Developer options › Wireless debugging › turn on</string>
+    <string name="setup_wifi_step2">Tap \"Pair device with QR code\"</string>
+    <string name="setup_wifi_step3">In BetterCast on the Mac, choose Pair with QR and scan it</string>
+    <string name="setup_wifi_callout">Use the Wireless debugging scanner, not the Camera app. The camera will offer to join a Wi-Fi network that does not exist.</string>
+    <string name="setup_hotspot_title">No network at all</string>
+    <string name="setup_hotspot_desc">This phone hosts the network itself and the Mac joins it.</string>
+    <string name="setup_hotspot_step1">On the Connect tab, tap Create Hotspot</string>
+    <string name="setup_hotspot_step2">On the Mac, choose Join Hotspot › Scan QR from phone</string>
+    <string name="setup_hotspot_step3">Hold this screen up to the Mac\'s camera</string>
+    <string name="setup_hotspot_callout">Neither device has internet while the hotspot is on.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Configure how this device receives streams and interacts with your Mac.</string>
+    <string name="section_device">DEVICE</string>
+    <string name="setting_device_name">Device Name</string>
+    <string name="setting_device_name_desc">This is the name your Mac lists. Restart the app to advertise a new one.</string>
+    <string name="action_save_name">Save Name</string>
+    <string name="section_display">DISPLAY</string>
+    <string name="setting_aspect">Aspect</string>
+    <string name="setting_aspect_desc">How the Mac display fits this screen.</string>
+    <string name="aspect_fill">Fill</string>
+    <string name="aspect_fit">Fit</string>
+    <string name="setting_appearance">Appearance</string>
+    <string name="setting_appearance_desc">Streaming always uses a black background, whichever you pick.</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="section_input">INPUT</string>
+    <string name="setting_mode">Mode</string>
+    <string name="setting_mode_desc">Touch maps taps directly. Cursor moves a trackpad-style pointer.</string>
+    <string name="mode_touch">Touch</string>
+    <string name="mode_cursor">Cursor</string>
+    <string name="section_audio">AUDIO</string>
+    <string name="setting_audio">Enable Audio</string>
+    <string name="setting_audio_desc">Play Mac audio through this device.</string>
+    <string name="section_connection">CONNECTION</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_disconnect_desc">End the current stream and go back to waiting.</string>
+    <string name="section_help">HELP</string>
+    <string name="help_setup_guide">Setup Guide</string>
+    <string name="help_setup_guide_desc">Walk through pairing and streaming.</string>
+    <string name="help_about">About BetterCast</string>
+    <string name="help_about_desc">bettercast.online</string>
+    <string name="help_report">Report an Issue</string>
+    <string name="help_report_desc">Send feedback on GitHub.</string>
+    <string name="version_format">VERSION %1$s (BUILD %2$d)</string>
+
+    <!-- Status messages -->
+    <string name="status_starting">Starting…</string>
+    <string name="status_waiting">Waiting for sender…</string>
+    <string name="status_waiting_connect">Waiting for sender to connect…</string>
+    <string name="status_switching">Switching connection…</string>
+    <string name="status_connected_tcp">Connected to sender (TCP)</string>
+    <string name="status_connected_udp">Connected to sender (UDP)</string>
+    <string name="status_failed_start">Failed to start server</string>
+    <string name="status_invited">Invited %1$s, waiting for it to connect…</string>
+    <string name="status_connection_error">Connection error</string>
+    <string name="status_stopped">Stopped</string>
 </resources>

@@ -151,7 +151,11 @@ fun BCHeader(icon: ImageVector, modifier: Modifier = Modifier) {
     ) {
         Icon(icon, contentDescription = null, tint = BC.primary, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(8.dp))
-        Text("BetterCast", style = BCType.title, color = BC.onSurface)
+        Text(
+            androidx.compose.ui.res.stringResource(com.bettercast.receiver.R.string.brand_bettercast),
+            style = BCType.title,
+            color = BC.onSurface
+        )
     }
 }
 

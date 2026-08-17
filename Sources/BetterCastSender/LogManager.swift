@@ -96,7 +96,11 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
-        Entry(version: "v17", date: "2026-08-16", highlights: [
+        Entry(version: "v17", date: "2026-08-18", highlights: [
+            // Listed under v16 until now, but the v16 build never actually contained the
+            // .lproj resources — they landed after that tag. This is the first release
+            // that ships them, so this is where the line belongs.
+            "App now follows your system language — Chinese, Japanese, Korean, German, French",
             "Much sharper picture over Wi-Fi — fixes the blur on faces and scene changes",
             "Wi-Fi streams now run at 30 FPS by default: fewer dropped frames means the detail survives (force 60 in Frame Rate if you prefer)",
             "Fixed stuttering when an iPhone and an Android stream at the same time",
@@ -106,7 +110,6 @@ struct Changelog {
             "Wireless ADB is now a fallback — connecting directly is faster",
         ]),
         Entry(version: "v16", date: "2026-07-09", highlights: [
-            "App now follows your system language — Chinese, Japanese, Korean, German, French",
             "Retina mode fixed: displays now come up at the resolution you picked (was half-size, e.g. 1280x800)",
             "USB / Thunderbolt Cable mode now actually carries the stream to Mac receivers (was WiFi-only)",
             "Faster typing and cursor response on Android USB",

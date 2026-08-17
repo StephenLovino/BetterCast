@@ -57,9 +57,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.annotation.StringRes
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.bettercast.receiver.BuildConfig
+import com.bettercast.receiver.R
 import com.bettercast.receiver.data.ThemeMode
 import com.bettercast.receiver.ui.components.DisclosureRow
 import com.bettercast.receiver.ui.components.RowDivider
@@ -79,10 +82,10 @@ import com.bettercast.receiver.viewmodel.ReceiverViewModel
  * and slider.horizontal.3 have no exact match in Material, so these are the nearest
  * equivalents rather than a like-for-like port.
  */
-enum class ReceiverTab(val label: String, val icon: ImageVector) {
-    CONNECT("Connect", Icons.Filled.PlayCircle),
-    SETUP("Setup", Icons.Outlined.HelpOutline),
-    SETTINGS("Settings", Icons.Filled.Tune)
+enum class ReceiverTab(@StringRes val labelRes: Int, val icon: ImageVector) {
+    CONNECT(R.string.tab_connect, Icons.Filled.PlayCircle),
+    SETUP(R.string.tab_setup, Icons.Outlined.HelpOutline),
+    SETTINGS(R.string.tab_settings, Icons.Filled.Tune)
 }
 
 @Composable
@@ -158,9 +161,10 @@ private fun FloatingNav(selected: ReceiverTab, onSelect: (ReceiverTab) -> Unit) 
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val label = stringResource(entry.labelRes)
                 Icon(
                     entry.icon,
-                    contentDescription = entry.label,
+                    contentDescription = label,
                     tint = if (isSelected) BC.primary else BC.onSurfaceVariant.copy(alpha = 0.75f),
                     modifier = Modifier.size(20.dp)
                 )
@@ -168,7 +172,7 @@ private fun FloatingNav(selected: ReceiverTab, onSelect: (ReceiverTab) -> Unit) 
                 // as wide as the screen, which defeats the point of floating it.
                 if (isSelected) {
                     Spacer(Modifier.width(6.dp))
-                    Text(entry.label, style = BCType.label, color = BC.primary)
+                    Text(label, style = BCType.label, color = BC.primary)
                 }
             }
         }
@@ -187,10 +191,10 @@ private fun SetupGuideTab() {
     ) {
         BCHeader(Icons.Filled.PlayCircle)
 
-        Text("Setup Guide", style = BCType.display, color = BC.onSurface)
+        Text(stringResource(R.string.setup_title), style = BCType.display, color = BC.onSurface)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Three ways to reach your Mac. Best quality first.",
+            stringResource(R.string.setup_subtitle),
             style = BCType.bodySmall,
             color = BC.onSurfaceVariant
         )
@@ -200,15 +204,15 @@ private fun SetupGuideTab() {
         StepCard(
             icon = Icons.Filled.Cable,
             iconColor = BC.primaryDim,
-            title = "USB",
-            description = "Highest quality, lowest latency, and it works with no network at all.",
-            badge = "BEST" to BC.success,
+            title = stringResource(R.string.setup_usb_title),
+            description = stringResource(R.string.setup_usb_desc),
+            badge = stringResource(R.string.badge_best) to BC.success,
             extra = {
                 NumberedSteps(
-                    "Settings › About phone › tap Build number seven times",
-                    "Settings › Developer options › turn on USB debugging",
-                    "Plug into the Mac and tap Allow on the prompt",
-                    "In BetterCast on the Mac, pick Android (USB)"
+                    stringResource(R.string.setup_usb_step1),
+                    stringResource(R.string.setup_usb_step2),
+                    stringResource(R.string.setup_usb_step3),
+                    stringResource(R.string.setup_usb_step4)
                 )
             }
         )
@@ -218,19 +222,16 @@ private fun SetupGuideTab() {
         StepCard(
             icon = Icons.Filled.QrCodeScanner,
             iconColor = BC.secondaryDim,
-            title = "Wi-Fi, no cable",
-            description = "Matches USB once paired, but both devices must be on the same network.",
+            title = stringResource(R.string.setup_wifi_title),
+            description = stringResource(R.string.setup_wifi_desc),
             extra = {
                 NumberedSteps(
-                    "Settings › Developer options › Wireless debugging › turn on",
-                    "Tap \"Pair device with QR code\"",
-                    "In BetterCast on the Mac, choose Pair with QR and scan it"
+                    stringResource(R.string.setup_wifi_step1),
+                    stringResource(R.string.setup_wifi_step2),
+                    stringResource(R.string.setup_wifi_step3)
                 )
                 Spacer(Modifier.height(12.dp))
-                Callout(
-                    "Use the Wireless debugging scanner, not the Camera app. The camera " +
-                        "will offer to join a Wi-Fi network that does not exist."
-                )
+                Callout(stringResource(R.string.setup_wifi_callout))
             }
         )
 
@@ -239,16 +240,16 @@ private fun SetupGuideTab() {
         StepCard(
             icon = Icons.Filled.WifiTethering,
             iconColor = BC.accentGold,
-            title = "No network at all",
-            description = "This phone hosts the network itself and the Mac joins it.",
+            title = stringResource(R.string.setup_hotspot_title),
+            description = stringResource(R.string.setup_hotspot_desc),
             extra = {
                 NumberedSteps(
-                    "On the Connect tab, tap Create Hotspot",
-                    "On the Mac, choose Join Hotspot › Scan QR from phone",
-                    "Hold this screen up to the Mac's camera"
+                    stringResource(R.string.setup_hotspot_step1),
+                    stringResource(R.string.setup_hotspot_step2),
+                    stringResource(R.string.setup_hotspot_step3)
                 )
                 Spacer(Modifier.height(12.dp))
-                Callout("Neither device has internet while the hotspot is on.")
+                Callout(stringResource(R.string.setup_hotspot_callout))
             }
         )
 
@@ -324,19 +325,19 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
     ) {
         BCHeader(Icons.Filled.PlayCircle)
 
-        Text("Settings", style = BCType.display, color = BC.onSurface)
+        Text(stringResource(R.string.settings_title), style = BCType.display, color = BC.onSurface)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Configure how this device receives streams and interacts with your Mac.",
+            stringResource(R.string.settings_subtitle),
             style = BCType.bodySmall,
             color = BC.onSurfaceVariant
         )
 
         Spacer(Modifier.height(22.dp))
 
-        SettingsSection("DEVICE", Icons.Filled.Devices) {
+        SettingsSection(stringResource(R.string.section_device), Icons.Filled.Devices) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Device Name", style = BCType.rowTitle, color = BC.onSurface)
+                Text(stringResource(R.string.setting_device_name), style = BCType.rowTitle, color = BC.onSurface)
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = nameDraft,
@@ -354,14 +355,14 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "This is the name your Mac lists. Restart the app to advertise a new one.",
+                    stringResource(R.string.setting_device_name_desc),
                     style = BCType.bodySmall,
                     color = BC.onSurfaceVariant
                 )
                 if (nameDraft.trim() != deviceName) {
                     Spacer(Modifier.height(12.dp))
                     com.bettercast.receiver.ui.components.GradientButton(
-                        text = "Save Name",
+                        text = stringResource(R.string.action_save_name),
                         onClick = { settings.setDeviceName(nameDraft) }
                     )
                 }
@@ -370,13 +371,16 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
-        SettingsSection("DISPLAY", Icons.Filled.AspectRatio) {
+        SettingsSection(stringResource(R.string.section_display), Icons.Filled.AspectRatio) {
             SegmentedRow(
                 icon = Icons.Filled.AspectRatio,
                 iconColor = BC.primaryDim,
-                title = "Aspect",
-                description = "How the Mac display fits this screen.",
-                options = listOf("Fill", "Fit"),
+                title = stringResource(R.string.setting_aspect),
+                description = stringResource(R.string.setting_aspect_desc),
+                options = listOf(
+                    stringResource(R.string.aspect_fill),
+                    stringResource(R.string.aspect_fit)
+                ),
                 selectedIndex = if (aspectFill) 0 else 1,
                 onSelect = { settings.setAspectFill(it == 0) }
             )
@@ -384,9 +388,13 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
             SegmentedRow(
                 icon = Icons.Filled.Contrast,
                 iconColor = BC.secondaryDim,
-                title = "Appearance",
-                description = "Streaming always uses a black background, whichever you pick.",
-                options = listOf("System", "Light", "Dark"),
+                title = stringResource(R.string.setting_appearance),
+                description = stringResource(R.string.setting_appearance_desc),
+                options = listOf(
+                    stringResource(R.string.theme_system),
+                    stringResource(R.string.theme_light),
+                    stringResource(R.string.theme_dark)
+                ),
                 selectedIndex = when (themeMode) {
                     ThemeMode.SYSTEM -> 0
                     ThemeMode.LIGHT -> 1
@@ -406,13 +414,16 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
-        SettingsSection("INPUT", Icons.Filled.TouchApp) {
+        SettingsSection(stringResource(R.string.section_input), Icons.Filled.TouchApp) {
             SegmentedRow(
                 icon = Icons.Filled.TouchApp,
                 iconColor = BC.secondaryDim,
-                title = "Mode",
-                description = "Touch maps taps directly. Cursor moves a trackpad-style pointer.",
-                options = listOf("Touch", "Cursor"),
+                title = stringResource(R.string.setting_mode),
+                description = stringResource(R.string.setting_mode_desc),
+                options = listOf(
+                    stringResource(R.string.mode_touch),
+                    stringResource(R.string.mode_cursor)
+                ),
                 selectedIndex = if (cursorMode) 1 else 0,
                 onSelect = { settings.setCursorMode(it == 1) }
             )
@@ -420,12 +431,12 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
-        SettingsSection("AUDIO", Icons.Filled.VolumeUp) {
+        SettingsSection(stringResource(R.string.section_audio), Icons.Filled.VolumeUp) {
             ToggleRow(
                 icon = Icons.Filled.VolumeUp,
                 iconColor = BC.primaryDim,
-                title = "Enable Audio",
-                description = "Play Mac audio through this device.",
+                title = stringResource(R.string.setting_audio),
+                description = stringResource(R.string.setting_audio_desc),
                 checked = audioEnabled,
                 onCheckedChange = { settings.setAudioEnabled(it) }
             )
@@ -434,40 +445,40 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
         Spacer(Modifier.height(20.dp))
 
         if (state == ReceiverState.CONNECTED) {
-            SettingsSection("CONNECTION", Icons.Filled.Cable) {
+            SettingsSection(stringResource(R.string.section_connection), Icons.Filled.Cable) {
                 DisclosureRow(
                     icon = Icons.Filled.ErrorOutline,
                     iconColor = BC.accentOrange,
-                    title = "Disconnect",
-                    subtitle = "End the current stream and go back to waiting.",
+                    title = stringResource(R.string.action_disconnect),
+                    subtitle = stringResource(R.string.action_disconnect_desc),
                     onClick = { viewModel.disconnect() }
                 )
             }
             Spacer(Modifier.height(20.dp))
         }
 
-        SettingsSection("HELP", Icons.Outlined.HelpOutline) {
+        SettingsSection(stringResource(R.string.section_help), Icons.Outlined.HelpOutline) {
             DisclosureRow(
                 icon = Icons.Outlined.HelpOutline,
                 iconColor = BC.primaryDim,
-                title = "Setup Guide",
-                subtitle = "Walk through pairing and streaming.",
+                title = stringResource(R.string.help_setup_guide),
+                subtitle = stringResource(R.string.help_setup_guide_desc),
                 onClick = onShowSetup
             )
             RowDivider()
             DisclosureRow(
                 icon = Icons.Filled.Info,
                 iconColor = BC.secondaryDim,
-                title = "About BetterCast",
-                subtitle = "bettercast.online",
+                title = stringResource(R.string.help_about),
+                subtitle = stringResource(R.string.help_about_desc),
                 onClick = { open("https://bettercast.online") }
             )
             RowDivider()
             DisclosureRow(
                 icon = Icons.Filled.ErrorOutline,
                 iconColor = BC.accentOrange,
-                title = "Report an Issue",
-                subtitle = "Send feedback on GitHub.",
+                title = stringResource(R.string.help_report),
+                subtitle = stringResource(R.string.help_report_desc),
                 onClick = { open("https://github.com/StephenLovino/BetterCast/issues") }
             )
         }
@@ -479,10 +490,14 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("BetterCast Receiver", style = BCType.label, color = BC.onSurface)
+                Text(stringResource(R.string.app_name), style = BCType.label, color = BC.onSurface)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "VERSION ${BuildConfig.VERSION_NAME} (BUILD ${BuildConfig.VERSION_CODE})",
+                    stringResource(
+                        R.string.version_format,
+                        BuildConfig.VERSION_NAME,
+                        BuildConfig.VERSION_CODE
+                    ),
                     style = BCType.badge,
                     color = BC.onSurfaceVariant
                 )

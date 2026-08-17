@@ -63,11 +63,13 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.bettercast.receiver.R
 import com.bettercast.receiver.input.TouchHandler
 import com.bettercast.receiver.ui.components.BCBadge
 import com.bettercast.receiver.ui.components.DisclosureRow
@@ -185,10 +187,10 @@ private fun WaitingView(
     ) {
         BCHeader(Icons.Filled.PlayCircle)
 
-        Text("Ready to receive", style = BCType.display, color = BC.onSurface)
+        Text(stringResource(R.string.waiting_title), style = BCType.display, color = BC.onSurface)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Open BetterCast on your Mac and pick this device.",
+            stringResource(R.string.waiting_subtitle),
             style = BCType.bodySmall,
             color = BC.onSurfaceVariant
         )
@@ -207,7 +209,7 @@ private fun WaitingView(
 
                 if (deviceIp != null && port > 0) {
                     Spacer(Modifier.height(14.dp))
-                    Text("ADDRESS", style = BCType.badge, color = BC.onSurfaceVariant)
+                    Text(stringResource(R.string.label_address), style = BCType.badge, color = BC.onSurfaceVariant)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "$deviceIp:$port",
@@ -223,7 +225,7 @@ private fun WaitingView(
         // Macs advertising on this network. Tapping one asks it to stream here, which
         // saves walking over to the Mac to start the session from that end.
         if (senders.isNotEmpty()) {
-            Text("MACS ON THIS NETWORK", style = BCType.badge, color = BC.onSurfaceVariant)
+            Text(stringResource(R.string.label_macs_on_network), style = BCType.badge, color = BC.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 senders.forEachIndexed { index, sender ->
@@ -232,7 +234,8 @@ private fun WaitingView(
                         icon = Icons.Filled.DesktopMac,
                         iconColor = BC.primaryDim,
                         title = sender.name,
-                        subtitle = if (inviting == sender.name) "Inviting..." else "${sender.host}:${sender.port}",
+                        subtitle = if (inviting == sender.name) stringResource(R.string.inviting)
+                                   else "${sender.host}:${sender.port}",
                         onClick = { viewModel.inviteSender(sender) }
                     )
                 }
@@ -249,9 +252,9 @@ private fun WaitingView(
             StepCard(
                 icon = Icons.Filled.WifiTethering,
                 iconColor = BC.accentGold,
-                title = "No network?",
-                description = "Host one from this phone and join it from your Mac.",
-                actionText = "Create Hotspot",
+                title = stringResource(R.string.hotspot_prompt_title),
+                description = stringResource(R.string.hotspot_prompt_desc),
+                actionText = stringResource(R.string.action_create_hotspot),
                 onAction = { permissionLauncher.launch(permission) }
             )
         } else {
@@ -261,9 +264,9 @@ private fun WaitingView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Hotspot active", style = BCType.cardTitle, color = BC.onSurface)
+                        Text(stringResource(R.string.hotspot_active), style = BCType.cardTitle, color = BC.onSurface)
                         Spacer(Modifier.weight(1f))
-                        BCBadge("SCAN ME", BC.success)
+                        BCBadge(stringResource(R.string.badge_scan_me), BC.success)
                     }
 
                     Spacer(Modifier.height(14.dp))
@@ -278,27 +281,31 @@ private fun WaitingView(
 
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        "On the Mac: Join Hotspot › Scan QR from phone",
+                        stringResource(R.string.hotspot_scan_hint),
                         style = BCType.bodySmall,
                         color = BC.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
 
                     Spacer(Modifier.height(14.dp))
-                    CredentialRow("Network", hotspot!!.ssid)
+                    CredentialRow(stringResource(R.string.label_network), hotspot!!.ssid)
                     Spacer(Modifier.height(4.dp))
-                    CredentialRow("Password", hotspot!!.passphrase)
+                    CredentialRow(stringResource(R.string.label_password), hotspot!!.passphrase)
 
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "Neither device has internet while this is on.",
+                        stringResource(R.string.hotspot_no_internet),
                         style = BCType.bodySmall,
                         color = BC.onSurfaceVariant.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center
                     )
 
                     Spacer(Modifier.height(14.dp))
-                    GlassButton("Stop Hotspot", onClick = { viewModel.stopHotspot() }, tint = BC.danger)
+                    GlassButton(
+                        stringResource(R.string.action_stop_hotspot),
+                        onClick = { viewModel.stopHotspot() },
+                        tint = BC.danger
+                    )
                 }
             }
         }
@@ -390,7 +397,7 @@ private fun ReconnectingView(statusMessage: String, onBack: () -> Unit) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            "Holding the display while the sender comes back.",
+            stringResource(R.string.reconnecting_desc),
             style = BCType.bodySmall,
             color = BC.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -400,7 +407,11 @@ private fun ReconnectingView(statusMessage: String, onBack: () -> Unit) {
 
         // Escape hatch. This screen gives up on its own after a few seconds, but waiting
         // out a timer is a poor experience when you already know the sender is not coming.
-        GlassButton("Back to devices", onClick = onBack, modifier = Modifier.fillMaxWidth(0.7f))
+        GlassButton(
+            stringResource(R.string.action_back_to_devices),
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth(0.7f)
+        )
     }
 }
 
@@ -544,7 +555,7 @@ private fun ConnectedView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Display options",
+                        contentDescription = stringResource(R.string.cd_display_options),
                         tint = Color.White.copy(alpha = 0.85f)
                     )
                 }
@@ -557,27 +568,39 @@ private fun ConnectedView(
                         // Labelled by what the tap does. iOS labels these by current
                         // state instead, but it draws a checkmark next to them; a bare
                         // menu row with no checkmark has to name the action.
-                        text = { Text(if (aspectFill) "Fit Screen" else "Fill Screen") },
+                        text = {
+                            Text(stringResource(
+                                if (aspectFill) R.string.menu_fit_screen else R.string.menu_fill_screen
+                            ))
+                        },
                         onClick = { viewModel.settings.setAspectFill(!aspectFill); menuOpen = false }
                     )
                     DropdownMenuItem(
-                        text = { Text(if (cursorMode) "Touch Mode" else "Cursor Mode") },
+                        text = {
+                            Text(stringResource(
+                                if (cursorMode) R.string.menu_touch_mode else R.string.menu_cursor_mode
+                            ))
+                        },
                         onClick = { viewModel.settings.setCursorMode(!cursorMode); menuOpen = false }
                     )
                     DropdownMenuItem(
-                        text = { Text(if (navVisible) "Hide Navigation" else "Show Navigation") },
+                        text = {
+                            Text(stringResource(
+                                if (navVisible) R.string.menu_hide_nav else R.string.menu_show_nav
+                            ))
+                        },
                         onClick = { onToggleNav(); menuOpen = false }
                     )
                     DropdownMenuItem(
-                        text = { Text("Setup Guide") },
+                        text = { Text(stringResource(R.string.help_setup_guide)) },
                         onClick = { menuOpen = false; onShowSetup() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Hide Controls") },
+                        text = { Text(stringResource(R.string.menu_hide_controls)) },
                         onClick = { menuOpen = false; controlsHidden = true }
                     )
                     DropdownMenuItem(
-                        text = { Text("Disconnect", color = Color(0xFFFF5252)) },
+                        text = { Text(stringResource(R.string.action_disconnect), color = Color(0xFFFF5252)) },
                         onClick = { menuOpen = false; viewModel.disconnect() }
                     )
                 }
@@ -603,7 +626,7 @@ private fun ErrorView(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconTile(Icons.Filled.WarningAmber, BC.danger)
                     Spacer(Modifier.width(14.dp))
-                    Text("Something went wrong", style = BCType.cardTitle, color = BC.onSurface)
+                    Text(stringResource(R.string.error_title), style = BCType.cardTitle, color = BC.onSurface)
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -612,7 +635,7 @@ private fun ErrorView(
 
                 Spacer(Modifier.height(18.dp))
 
-                GradientButton("Try Again", onClick = onRetry)
+                GradientButton(stringResource(R.string.action_try_again), onClick = onRetry)
             }
         }
     }

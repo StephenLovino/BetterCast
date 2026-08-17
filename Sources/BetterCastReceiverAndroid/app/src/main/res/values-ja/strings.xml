@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 日本語 (Japanese). Keys must match values/strings.xml exactly. -->
+<resources>
+    <string name="app_name">BetterCast レシーバー</string>
+    <string name="brand_bettercast">BetterCast</string>
+
+    <string name="tab_connect">接続</string>
+    <string name="tab_setup">セットアップ</string>
+    <string name="tab_settings">設定</string>
+
+    <string name="mode_receive">受信</string>
+    <string name="mode_send">送信</string>
+
+    <string name="waiting_title">受信の準備完了</string>
+    <string name="waiting_subtitle">Mac で BetterCast を開き、このデバイスを選択してください。</string>
+    <string name="label_address">アドレス</string>
+    <string name="label_macs_on_network">このネットワーク上の MAC</string>
+    <string name="inviting">招待中…</string>
+
+    <string name="hotspot_prompt_title">ネットワークがない場合</string>
+    <string name="hotspot_prompt_desc">この端末でホストし、Mac から参加できます。</string>
+    <string name="action_create_hotspot">ホットスポットを作成</string>
+    <string name="hotspot_active">ホットスポット有効</string>
+    <string name="badge_scan_me">スキャンしてください</string>
+    <string name="hotspot_scan_hint">Mac で: ホットスポットに参加 › スマホの QR をスキャン</string>
+    <string name="label_network">ネットワーク</string>
+    <string name="label_password">パスワード</string>
+    <string name="hotspot_no_internet">有効な間はどちらの端末もインターネットに接続できません。</string>
+    <string name="action_stop_hotspot">ホットスポットを停止</string>
+
+    <string name="reconnecting_desc">送信側の復帰を待つ間、画面を保持しています。</string>
+    <string name="action_back_to_devices">デバイス一覧に戻る</string>
+
+    <string name="cd_display_options">表示オプション</string>
+    <string name="menu_fit_screen">画面に合わせる</string>
+    <string name="menu_fill_screen">画面いっぱいに表示</string>
+    <string name="menu_touch_mode">タッチモード</string>
+    <string name="menu_cursor_mode">カーソルモード</string>
+    <string name="menu_hide_nav">ナビゲーションを隠す</string>
+    <string name="menu_show_nav">ナビゲーションを表示</string>
+    <string name="menu_hide_controls">コントロールを隠す</string>
+
+    <string name="error_title">問題が発生しました</string>
+    <string name="action_try_again">再試行</string>
+
+    <string name="setup_title">セットアップガイド</string>
+    <string name="setup_subtitle">Mac に接続する 3 つの方法。画質の良い順に並んでいます。</string>
+    <string name="badge_best">最適</string>
+    <string name="setup_usb_title">USB</string>
+    <string name="setup_usb_desc">最高画質・最小遅延で、ネットワークがまったくなくても動作します。</string>
+    <string name="setup_usb_step1">設定 › デバイス情報 › ビルド番号を 7 回タップ</string>
+    <string name="setup_usb_step2">設定 › 開発者向けオプション › USB デバッグをオン</string>
+    <string name="setup_usb_step3">Mac に接続し、表示されるダイアログで「許可」をタップ</string>
+    <string name="setup_usb_step4">Mac の BetterCast で Android (USB) を選択</string>
+    <string name="setup_wifi_title">Wi-Fi（ケーブル不要）</string>
+    <string name="setup_wifi_desc">ペアリング後は USB と同等ですが、両方の端末が同じネットワークに接続されている必要があります。</string>
+    <string name="setup_wifi_step1">設定 › 開発者向けオプション › ワイヤレスデバッグ › オン</string>
+    <string name="setup_wifi_step2">「QR コードによるデバイスのペア設定」をタップ</string>
+    <string name="setup_wifi_step3">Mac の BetterCast で「QR でペアリング」を選んでスキャン</string>
+    <string name="setup_wifi_callout">カメラアプリではなく、ワイヤレスデバッグのスキャナーを使ってください。カメラでは存在しない Wi-Fi ネットワークへの接続を促されます。</string>
+    <string name="setup_hotspot_title">ネットワークがまったくない場合</string>
+    <string name="setup_hotspot_desc">この端末自身がネットワークをホストし、Mac がそこに参加します。</string>
+    <string name="setup_hotspot_step1">「接続」タブで「ホットスポットを作成」をタップ</string>
+    <string name="setup_hotspot_step2">Mac で「ホットスポットに参加 › スマホの QR をスキャン」を選択</string>
+    <string name="setup_hotspot_step3">この画面を Mac のカメラにかざす</string>
+    <string name="setup_hotspot_callout">ホットスポットが有効な間はどちらの端末もインターネットに接続できません。</string>
+
+    <string name="settings_title">設定</string>
+    <string name="settings_subtitle">このデバイスがストリームを受信する方法と、Mac との連携を設定します。</string>
+    <string name="section_device">デバイス</string>
+    <string name="setting_device_name">デバイス名</string>
+    <string name="setting_device_name_desc">Mac の一覧に表示される名前です。変更を反映するにはアプリを再起動してください。</string>
+    <string name="action_save_name">名前を保存</string>
+    <string name="section_display">ディスプレイ</string>
+    <string name="setting_aspect">アスペクト</string>
+    <string name="setting_aspect_desc">Mac の画面をこの画面にどう収めるか。</string>
+    <string name="aspect_fill">全画面</string>
+    <string name="aspect_fit">全体表示</string>
+    <string name="setting_appearance">外観</string>
+    <string name="setting_appearance_desc">どれを選んでも、ストリーミング中の背景は常に黒になります。</string>
+    <string name="theme_system">システムに従う</string>
+    <string name="theme_light">ライト</string>
+    <string name="theme_dark">ダーク</string>
+    <string name="section_input">入力</string>
+    <string name="setting_mode">モード</string>
+    <string name="setting_mode_desc">タッチはタップ位置をそのまま反映し、カーソルはトラックパッドのようにポインタを動かします。</string>
+    <string name="mode_touch">タッチ</string>
+    <string name="mode_cursor">カーソル</string>
+    <string name="section_audio">オーディオ</string>
+    <string name="setting_audio">オーディオを有効にする</string>
+    <string name="setting_audio_desc">Mac の音声をこのデバイスで再生します。</string>
+    <string name="section_connection">接続</string>
+    <string name="action_disconnect">切断</string>
+    <string name="action_disconnect_desc">現在のストリームを終了し、待機状態に戻ります。</string>
+    <string name="section_help">ヘルプ</string>
+    <string name="help_setup_guide">セットアップガイド</string>
+    <string name="help_setup_guide_desc">ペアリングとストリーミングの手順を確認します。</string>
+    <string name="help_about">BetterCast について</string>
+    <string name="help_about_desc">bettercast.online</string>
+    <string name="help_report">問題を報告</string>
+    <string name="help_report_desc">GitHub でフィードバックを送信します。</string>
+    <string name="version_format">バージョン %1$s（ビルド %2$d）</string>
+
+    <string name="status_starting">起動中…</string>
+    <string name="status_waiting">送信側を待機中…</string>
+    <string name="status_waiting_connect">送信側の接続を待機中…</string>
+    <string name="status_switching">接続を切り替え中…</string>
+    <string name="status_connected_tcp">送信側に接続しました (TCP)</string>
+    <string name="status_connected_udp">送信側に接続しました (UDP)</string>
+    <string name="status_failed_start">サーバーを開始できませんでした</string>
+    <string name="status_invited">%1$s を招待しました。接続を待っています…</string>
+    <string name="status_connection_error">接続エラー</string>
+    <string name="status_stopped">停止しました</string>
+</resources>

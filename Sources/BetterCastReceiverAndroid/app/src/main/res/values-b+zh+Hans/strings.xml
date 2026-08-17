@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 简体中文 (Simplified Chinese). Keys must match values/strings.xml exactly. -->
+<resources>
+    <string name="app_name">BetterCast 接收端</string>
+    <string name="brand_bettercast">BetterCast</string>
+
+    <string name="tab_connect">连接</string>
+    <string name="tab_setup">设置向导</string>
+    <string name="tab_settings">设置</string>
+
+    <string name="mode_receive">接收</string>
+    <string name="mode_send">发送</string>
+
+    <string name="waiting_title">准备接收</string>
+    <string name="waiting_subtitle">在 Mac 上打开 BetterCast 并选择本设备。</string>
+    <string name="label_address">地址</string>
+    <string name="label_macs_on_network">此网络中的 MAC</string>
+    <string name="inviting">正在邀请…</string>
+
+    <string name="hotspot_prompt_title">没有网络？</string>
+    <string name="hotspot_prompt_desc">用这部手机建立热点，再用 Mac 加入。</string>
+    <string name="action_create_hotspot">创建热点</string>
+    <string name="hotspot_active">热点已开启</string>
+    <string name="badge_scan_me">扫我</string>
+    <string name="hotspot_scan_hint">在 Mac 上：加入热点 › 扫描手机二维码</string>
+    <string name="label_network">网络</string>
+    <string name="label_password">密码</string>
+    <string name="hotspot_no_internet">开启期间两台设备都无法上网。</string>
+    <string name="action_stop_hotspot">停止热点</string>
+
+    <string name="reconnecting_desc">正在保持画面，等待发送端恢复。</string>
+    <string name="action_back_to_devices">返回设备列表</string>
+
+    <string name="cd_display_options">显示选项</string>
+    <string name="menu_fit_screen">适应屏幕</string>
+    <string name="menu_fill_screen">填满屏幕</string>
+    <string name="menu_touch_mode">触控模式</string>
+    <string name="menu_cursor_mode">指针模式</string>
+    <string name="menu_hide_nav">隐藏导航栏</string>
+    <string name="menu_show_nav">显示导航栏</string>
+    <string name="menu_hide_controls">隐藏控件</string>
+
+    <string name="error_title">出现问题</string>
+    <string name="action_try_again">重试</string>
+
+    <string name="setup_title">设置向导</string>
+    <string name="setup_subtitle">连接 Mac 的三种方式，按画质从高到低排列。</string>
+    <string name="badge_best">最佳</string>
+    <string name="setup_usb_title">USB</string>
+    <string name="setup_usb_desc">画质最高、延迟最低，而且完全不需要网络。</string>
+    <string name="setup_usb_step1">设置 › 关于手机 › 连点七次版本号</string>
+    <string name="setup_usb_step2">设置 › 开发者选项 › 开启 USB 调试</string>
+    <string name="setup_usb_step3">连接到 Mac，并在提示中点按“允许”</string>
+    <string name="setup_usb_step4">在 Mac 的 BetterCast 中选择 Android (USB)</string>
+    <string name="setup_wifi_title">Wi-Fi，无需数据线</string>
+    <string name="setup_wifi_desc">配对后效果与 USB 相当，但两台设备必须在同一网络中。</string>
+    <string name="setup_wifi_step1">设置 › 开发者选项 › 无线调试 › 开启</string>
+    <string name="setup_wifi_step2">点按“使用二维码配对设备”</string>
+    <string name="setup_wifi_step3">在 Mac 的 BetterCast 中选择“二维码配对”并扫描</string>
+    <string name="setup_wifi_callout">请使用无线调试自带的扫描器，不要用相机应用。相机会提示加入一个并不存在的 Wi-Fi 网络。</string>
+    <string name="setup_hotspot_title">完全没有网络</string>
+    <string name="setup_hotspot_desc">由这部手机建立网络，Mac 加入即可。</string>
+    <string name="setup_hotspot_step1">在“连接”标签页点按“创建热点”</string>
+    <string name="setup_hotspot_step2">在 Mac 上选择：加入热点 › 扫描手机二维码</string>
+    <string name="setup_hotspot_step3">把这个屏幕对准 Mac 的摄像头</string>
+    <string name="setup_hotspot_callout">热点开启期间两台设备都无法上网。</string>
+
+    <string name="settings_title">设置</string>
+    <string name="settings_subtitle">配置本设备如何接收串流以及如何与 Mac 交互。</string>
+    <string name="section_device">设备</string>
+    <string name="setting_device_name">设备名称</string>
+    <string name="setting_device_name_desc">这是 Mac 上显示的名称。重启应用后新名称才会生效。</string>
+    <string name="action_save_name">保存名称</string>
+    <string name="section_display">显示</string>
+    <string name="setting_aspect">画面比例</string>
+    <string name="setting_aspect_desc">Mac 画面如何适配此屏幕。</string>
+    <string name="aspect_fill">填满</string>
+    <string name="aspect_fit">适应</string>
+    <string name="setting_appearance">外观</string>
+    <string name="setting_appearance_desc">无论选哪一项，串流时始终使用黑色背景。</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="section_input">输入</string>
+    <string name="setting_mode">模式</string>
+    <string name="setting_mode_desc">触控直接映射点按位置，指针则像触控板一样移动光标。</string>
+    <string name="mode_touch">触控</string>
+    <string name="mode_cursor">指针</string>
+    <string name="section_audio">音频</string>
+    <string name="setting_audio">启用音频</string>
+    <string name="setting_audio_desc">通过本设备播放 Mac 的声音。</string>
+    <string name="section_connection">连接</string>
+    <string name="action_disconnect">断开连接</string>
+    <string name="action_disconnect_desc">结束当前串流并返回等待状态。</string>
+    <string name="section_help">帮助</string>
+    <string name="help_setup_guide">设置向导</string>
+    <string name="help_setup_guide_desc">了解配对与串流的完整步骤。</string>
+    <string name="help_about">关于 BetterCast</string>
+    <string name="help_about_desc">bettercast.online</string>
+    <string name="help_report">反馈问题</string>
+    <string name="help_report_desc">在 GitHub 上提交反馈。</string>
+    <string name="version_format">版本 %1$s（构建 %2$d）</string>
+
+    <string name="status_starting">正在启动…</string>
+    <string name="status_waiting">等待发送端…</string>
+    <string name="status_waiting_connect">等待发送端连接…</string>
+    <string name="status_switching">正在切换连接…</string>
+    <string name="status_connected_tcp">已连接到发送端 (TCP)</string>
+    <string name="status_connected_udp">已连接到发送端 (UDP)</string>
+    <string name="status_failed_start">无法启动服务</string>
+    <string name="status_invited">已邀请 %1$s，等待其连接…</string>
+    <string name="status_connection_error">连接错误</string>
+    <string name="status_stopped">已停止</string>
+</resources>

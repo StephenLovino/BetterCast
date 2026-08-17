@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Français (French). Keys must match values/strings.xml exactly. -->
+<resources>
+    <string name="app_name">Récepteur BetterCast</string>
+    <string name="brand_bettercast">BetterCast</string>
+
+    <string name="tab_connect">Connexion</string>
+    <string name="tab_setup">Configuration</string>
+    <string name="tab_settings">Réglages</string>
+
+    <string name="mode_receive">Recevoir</string>
+    <string name="mode_send">Envoyer</string>
+
+    <string name="waiting_title">Prêt à recevoir</string>
+    <string name="waiting_subtitle">Ouvrez BetterCast sur votre Mac et sélectionnez cet appareil.</string>
+    <string name="label_address">ADRESSE</string>
+    <string name="label_macs_on_network">MACS SUR CE RÉSEAU</string>
+    <string name="inviting">Invitation en cours…</string>
+
+    <string name="hotspot_prompt_title">Pas de réseau ?</string>
+    <string name="hotspot_prompt_desc">Créez-en un depuis ce téléphone et rejoignez-le depuis votre Mac.</string>
+    <string name="action_create_hotspot">Créer un point d\'accès</string>
+    <string name="hotspot_active">Point d\'accès actif</string>
+    <string name="badge_scan_me">SCANNEZ-MOI</string>
+    <string name="hotspot_scan_hint">Sur le Mac : Rejoindre le point d\'accès › Scanner le QR du téléphone</string>
+    <string name="label_network">Réseau</string>
+    <string name="label_password">Mot de passe</string>
+    <string name="hotspot_no_internet">Aucun des deux appareils n\'a Internet tant que c\'est activé.</string>
+    <string name="action_stop_hotspot">Arrêter le point d\'accès</string>
+
+    <string name="reconnecting_desc">L\'image est conservée en attendant le retour de l\'émetteur.</string>
+    <string name="action_back_to_devices">Retour aux appareils</string>
+
+    <string name="cd_display_options">Options d\'affichage</string>
+    <string name="menu_fit_screen">Ajuster à l\'écran</string>
+    <string name="menu_fill_screen">Remplir l\'écran</string>
+    <string name="menu_touch_mode">Mode tactile</string>
+    <string name="menu_cursor_mode">Mode curseur</string>
+    <string name="menu_hide_nav">Masquer la navigation</string>
+    <string name="menu_show_nav">Afficher la navigation</string>
+    <string name="menu_hide_controls">Masquer les commandes</string>
+
+    <string name="error_title">Un problème est survenu</string>
+    <string name="action_try_again">Réessayer</string>
+
+    <string name="setup_title">Guide de configuration</string>
+    <string name="setup_subtitle">Trois façons d\'atteindre votre Mac, de la meilleure qualité à la moins bonne.</string>
+    <string name="badge_best">MEILLEUR</string>
+    <string name="setup_usb_title">USB</string>
+    <string name="setup_usb_desc">Qualité maximale, latence minimale, et cela fonctionne sans aucun réseau.</string>
+    <string name="setup_usb_step1">Réglages › À propos du téléphone › appuyez sept fois sur le numéro de build</string>
+    <string name="setup_usb_step2">Réglages › Options pour les développeurs › activez le débogage USB</string>
+    <string name="setup_usb_step3">Branchez sur le Mac et appuyez sur « Autoriser » dans la fenêtre</string>
+    <string name="setup_usb_step4">Dans BetterCast sur le Mac, choisissez Android (USB)</string>
+    <string name="setup_wifi_title">Wi-Fi, sans câble</string>
+    <string name="setup_wifi_desc">Équivalent à l\'USB une fois appairé, mais les deux appareils doivent être sur le même réseau.</string>
+    <string name="setup_wifi_step1">Réglages › Options pour les développeurs › Débogage sans fil › activez</string>
+    <string name="setup_wifi_step2">Appuyez sur « Associer l\'appareil à l\'aide d\'un QR code »</string>
+    <string name="setup_wifi_step3">Dans BetterCast sur le Mac, choisissez « Appairer par QR » et scannez</string>
+    <string name="setup_wifi_callout">Utilisez le scanner du débogage sans fil, pas l\'app Appareil photo. Celle-ci proposera de rejoindre un réseau Wi-Fi qui n\'existe pas.</string>
+    <string name="setup_hotspot_title">Aucun réseau</string>
+    <string name="setup_hotspot_desc">Ce téléphone héberge lui-même le réseau et le Mac le rejoint.</string>
+    <string name="setup_hotspot_step1">Dans l\'onglet Connexion, appuyez sur « Créer un point d\'accès »</string>
+    <string name="setup_hotspot_step2">Sur le Mac, choisissez « Rejoindre le point d\'accès › Scanner le QR du téléphone »</string>
+    <string name="setup_hotspot_step3">Présentez cet écran devant la caméra du Mac</string>
+    <string name="setup_hotspot_callout">Aucun des deux appareils n\'a Internet tant que le point d\'accès est actif.</string>
+
+    <string name="settings_title">Réglages</string>
+    <string name="settings_subtitle">Configurez la façon dont cet appareil reçoit les flux et interagit avec votre Mac.</string>
+    <string name="section_device">APPAREIL</string>
+    <string name="setting_device_name">Nom de l\'appareil</string>
+    <string name="setting_device_name_desc">C\'est le nom affiché par votre Mac. Redémarrez l\'app pour en annoncer un nouveau.</string>
+    <string name="action_save_name">Enregistrer le nom</string>
+    <string name="section_display">AFFICHAGE</string>
+    <string name="setting_aspect">Proportions</string>
+    <string name="setting_aspect_desc">Comment l\'écran du Mac s\'adapte à cet écran.</string>
+    <string name="aspect_fill">Remplir</string>
+    <string name="aspect_fit">Ajuster</string>
+    <string name="setting_appearance">Apparence</string>
+    <string name="setting_appearance_desc">Le fond reste toujours noir pendant la diffusion, quel que soit votre choix.</string>
+    <string name="theme_system">Système</string>
+    <string name="theme_light">Clair</string>
+    <string name="theme_dark">Sombre</string>
+    <string name="section_input">SAISIE</string>
+    <string name="setting_mode">Mode</string>
+    <string name="setting_mode_desc">Le mode tactile reproduit les appuis directement. Le mode curseur déplace un pointeur comme un trackpad.</string>
+    <string name="mode_touch">Tactile</string>
+    <string name="mode_cursor">Curseur</string>
+    <string name="section_audio">AUDIO</string>
+    <string name="setting_audio">Activer l\'audio</string>
+    <string name="setting_audio_desc">Diffuser le son du Mac sur cet appareil.</string>
+    <string name="section_connection">CONNEXION</string>
+    <string name="action_disconnect">Déconnecter</string>
+    <string name="action_disconnect_desc">Met fin au flux en cours et revient en attente.</string>
+    <string name="section_help">AIDE</string>
+    <string name="help_setup_guide">Guide de configuration</string>
+    <string name="help_setup_guide_desc">Découvrez l\'appairage et la diffusion pas à pas.</string>
+    <string name="help_about">À propos de BetterCast</string>
+    <string name="help_about_desc">bettercast.online</string>
+    <string name="help_report">Signaler un problème</string>
+    <string name="help_report_desc">Envoyer un retour sur GitHub.</string>
+    <string name="version_format">VERSION %1$s (BUILD %2$d)</string>
+
+    <string name="status_starting">Démarrage…</string>
+    <string name="status_waiting">En attente de l\'émetteur…</string>
+    <string name="status_waiting_connect">En attente de la connexion de l\'émetteur…</string>
+    <string name="status_switching">Changement de connexion…</string>
+    <string name="status_connected_tcp">Connecté à l\'émetteur (TCP)</string>
+    <string name="status_connected_udp">Connecté à l\'émetteur (UDP)</string>
+    <string name="status_failed_start">Impossible de démarrer le serveur</string>
+    <string name="status_invited">%1$s invité, en attente de sa connexion…</string>
+    <string name="status_connection_error">Erreur de connexion</string>
+    <string name="status_stopped">Arrêté</string>
+</resources>

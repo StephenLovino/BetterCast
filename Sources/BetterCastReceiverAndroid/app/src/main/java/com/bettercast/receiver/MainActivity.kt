@@ -241,13 +241,13 @@ fun ModeToggleBar(currentMode: AppMode, onModeChange: (AppMode) -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         ModeButton(
-            text = "Receive",
+            text = androidx.compose.ui.res.stringResource(R.string.mode_receive),
             isSelected = currentMode == AppMode.RECEIVER,
             onClick = { onModeChange(AppMode.RECEIVER) },
             modifier = Modifier.weight(1f)
         )
         ModeButton(
-            text = "Send",
+            text = androidx.compose.ui.res.stringResource(R.string.mode_send),
             isSelected = currentMode == AppMode.SENDER,
             onClick = { onModeChange(AppMode.SENDER) },
             modifier = Modifier.weight(1f)
