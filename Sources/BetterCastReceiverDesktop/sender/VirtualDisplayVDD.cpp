@@ -283,6 +283,21 @@ bool VirtualDisplayVDD::isDriverLoaded() const {
         CloseHandle(pipe);
         return true;
     }
+
+    // Last, and the only direct evidence: does a virtual display actually exist?
+    //
+    // Both checks above are proxies and both can be false while the driver is plainly
+    // working. The service key depends on the name the INF happens to register, which
+    // has changed across VDD releases, and the pipe only exists while VDD Control.exe
+    // is running — which it usually is not. Reported logs show a monitor enumerated as
+    // "Virtual Display Driver" on DISPLAY8 and, on the very next line, "driver not
+    // loaded in Windows", followed by a doomed unelevated install attempt. Asking
+    // Windows what displays are present settles it without guessing at names.
+    for (const auto& mon : enumerateMonitors()) {
+        if (mon.isVirtual) {
+            return true;
+        }
+    }
 #endif
     return false;
 }
