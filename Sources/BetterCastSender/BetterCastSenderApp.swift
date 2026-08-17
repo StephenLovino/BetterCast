@@ -12,20 +12,22 @@ struct BetterCastSenderApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hasCompletedTour") private var hasCompletedTour = false
 
-    /// Whether the donation nudge is on screen right now. Decided once, on first render,
-    /// so it does not reappear when SwiftUI re-evaluates the scene mid-session.
-    @State private var showDonatePrompt = false
-    @State private var donatePromptDecided = false
+    /// Whether the donation nudge is on screen right now.
+    ///
+    /// Decided in `init`, not in a `.task` on the root view: the scene's content is
+    /// behind an `if`, and the task attached there never fired — the launch counter
+    /// stayed unset and the sheet never appeared. `init` runs exactly once per process,
+    /// which is the definition of "per launch" anyway.
+    @State private var showDonatePrompt: Bool
+
+    init() {
+        _showDonatePrompt = State(initialValue: DonatePromptState.shouldPresentOnLaunch())
+    }
 
     var body: some Scene {
         WindowGroup {
             if hasCompletedOnboarding {
                 mainView
-                    .task {
-                        guard !donatePromptDecided else { return }
-                        donatePromptDecided = true
-                        showDonatePrompt = DonatePromptState.shouldPresentOnLaunch()
-                    }
                     .sheet(isPresented: $showDonatePrompt) {
                         DonatePromptView(
                             onLater: { showDonatePrompt = false },
