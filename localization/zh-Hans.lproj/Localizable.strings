@@ -240,3 +240,10 @@
 "Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality." = "无线 ADB 隧道。先通过 USB 连接一次以配对，之后即可拔线并以全画质无线串流。";
 "Connects directly over WiFi without ADB. Lower FPS but no USB setup required." = "无需 ADB，直接通过 WiFi 连接。FPS 较低，但无需 USB 设置。";
 "Connects over your local network. Apple devices use AWDL peer-to-peer when available for best performance." = "通过本地网络连接。Apple 设备在可用时会使用 AWDL 点对点连接以获得最佳性能。";
+
+/* Donation prompt */
+"Want me to keep building free stuff?" = "想让我继续做免费的东西吗？";
+"BetterCast is free, has no ads, and does not track you. If it saved you the price of a second monitor, a coffee goes a long way." = "BetterCast 完全免费，没有广告，也不会追踪你。如果它帮你省下了一台显示器的钱，请我喝杯咖啡就很有帮助。";
+"Buy me a coffee" = "请我喝杯咖啡";
+"Maybe later" = "以后再说";
+"I already donated — stop asking" = "我已经赞助过了，不用再提醒";

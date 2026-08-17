@@ -239,3 +239,10 @@
 "Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality." = "무선 ADB 터널입니다. USB를 한 번 연결해 페어링한 후, 케이블을 뽑고 최상의 품질로 무선 스트리밍하세요.";
 "Connects directly over WiFi without ADB. Lower FPS but no USB setup required." = "ADB 없이 WiFi로 직접 연결합니다. FPS는 낮지만 USB 설정이 필요 없습니다.";
 "Connects over your local network. Apple devices use AWDL peer-to-peer when available for best performance." = "로컬 네트워크를 통해 연결합니다. Apple 기기는 최상의 성능을 위해 가능한 경우 AWDL P2P를 사용합니다.";
+
+/* Donation prompt */
+"Want me to keep building free stuff?" = "무료 도구를 계속 만들까요?";
+"BetterCast is free, has no ads, and does not track you. If it saved you the price of a second monitor, a coffee goes a long way." = "BetterCast는 무료이며 광고도 없고 사용자를 추적하지도 않습니다. 모니터 한 대 값을 아끼셨다면 커피 한 잔이 큰 힘이 됩니다.";
+"Buy me a coffee" = "커피 한 잔 사주기";
+"Maybe later" = "나중에";
+"I already donated — stop asking" = "이미 후원했습니다 — 그만 물어보기";

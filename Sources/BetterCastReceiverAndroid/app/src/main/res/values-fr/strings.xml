@@ -111,4 +111,11 @@
     <string name="status_invited">%1$s invité, en attente de sa connexion…</string>
     <string name="status_connection_error">Erreur de connexion</string>
     <string name="status_stopped">Arrêté</string>
+
+    <!-- Donation prompt -->
+    <string name="donate_title">Envie que je continue à créer des outils gratuits ?</string>
+    <string name="donate_body">BetterCast est gratuit, sans publicité et ne vous piste pas. S\'il vous a évité l\'achat d\'un second écran, un café fait déjà beaucoup.</string>
+    <string name="donate_action">Offrir un café</string>
+    <string name="donate_later">Plus tard</string>
+    <string name="donate_already">J\'ai déjà fait un don</string>
 </resources>

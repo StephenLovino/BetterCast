@@ -129,4 +129,11 @@
     <string name="status_invited">Invited %1$s, waiting for it to connect…</string>
     <string name="status_connection_error">Connection error</string>
     <string name="status_stopped">Stopped</string>
+
+    <!-- Donation prompt -->
+    <string name="donate_title">Want me to keep building free stuff?</string>
+    <string name="donate_body">BetterCast is free, has no ads, and does not track you. If it saved you the price of a second monitor, a coffee goes a long way.</string>
+    <string name="donate_action">Buy me a coffee</string>
+    <string name="donate_later">Maybe later</string>
+    <string name="donate_already">I already donated</string>
 </resources>

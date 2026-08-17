@@ -241,3 +241,10 @@
 "Wireless ADB tunnel. Connect USB once to pair, then unplug and stream wirelessly at full quality." = "Drahtloser ADB-Tunnel. Verbinde einmal per USB zum Koppeln, dann Kabel abziehen und drahtlos in voller Qualität streamen.";
 "Connects directly over WiFi without ADB. Lower FPS but no USB setup required." = "Verbindet direkt über WLAN ohne ADB. Niedrigere FPS, aber keine USB-Einrichtung erforderlich.";
 "Connects over your local network. Apple devices use AWDL peer-to-peer when available for best performance." = "Verbindet über dein lokales Netzwerk. Apple-Geräte nutzen wenn verfügbar AWDL-Peer-to-Peer für die beste Leistung.";
+
+/* Donation prompt */
+"Want me to keep building free stuff?" = "Soll ich weiter kostenlose Software bauen?";
+"BetterCast is free, has no ads, and does not track you. If it saved you the price of a second monitor, a coffee goes a long way." = "BetterCast ist kostenlos, werbefrei und trackt dich nicht. Wenn es dir einen zweiten Monitor erspart hat, hilft ein Kaffee schon sehr.";
+"Buy me a coffee" = "Spendier mir einen Kaffee";
+"Maybe later" = "Vielleicht später";
+"I already donated — stop asking" = "Ich habe bereits gespendet — nicht mehr fragen";

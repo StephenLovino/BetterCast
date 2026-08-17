@@ -24,6 +24,11 @@ class SettingsStore(context: Context) {
         private const val KEY_AUDIO_ENABLED = "audioEnabled"
         private const val KEY_CURSOR_MODE = "cursorMode"
         private const val KEY_THEME = "themeMode"
+        private const val KEY_DONATE_SILENCED = "donatePromptSilenced"
+        private const val KEY_LAUNCH_COUNT = "donatePromptLaunchCount"
+
+        /** Where the donation prompt and the settings row both send people. */
+        const val DONATE_URL = "https://whop.com/bettercast/bettercast-donate/"
 
         /** Falls back to the phone's model, the way iOS falls back to UIDevice.name. */
         fun defaultDeviceName(): String = "${Build.MANUFACTURER} ${Build.MODEL}"
@@ -77,5 +82,29 @@ class SettingsStore(context: Context) {
     fun setThemeMode(value: ThemeMode) {
         _themeMode.value = value
         prefs.edit().putString(KEY_THEME, value.name).apply()
+    }
+
+    // ---- donation prompt ------------------------------------------------------
+
+    /**
+     * Whether the launch nudge should appear this time.
+     *
+     * There is no way to verify a donation from inside the app, so "stop asking" is an
+     * honour-system flag rather than a checked entitlement — see DonatePrompt on the Mac
+     * side for the same reasoning. Skips the very first launch: asking before the user
+     * has seen the app work is how you get uninstalled instead of paid.
+     *
+     * Call once per process start; it increments the launch counter as a side effect.
+     */
+    fun shouldShowDonatePromptOnLaunch(): Boolean {
+        val count = prefs.getInt(KEY_LAUNCH_COUNT, 0) + 1
+        prefs.edit().putInt(KEY_LAUNCH_COUNT, count).apply()
+        if (prefs.getBoolean(KEY_DONATE_SILENCED, false)) return false
+        return count > 1
+    }
+
+    /** Set only by "I already donated". Never cleared by the app. */
+    fun silenceDonatePrompt() {
+        prefs.edit().putBoolean(KEY_DONATE_SILENCED, true).apply()
     }
 }

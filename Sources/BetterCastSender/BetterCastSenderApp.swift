@@ -12,10 +12,29 @@ struct BetterCastSenderApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hasCompletedTour") private var hasCompletedTour = false
 
+    /// Whether the donation nudge is on screen right now. Decided once, on first render,
+    /// so it does not reappear when SwiftUI re-evaluates the scene mid-session.
+    @State private var showDonatePrompt = false
+    @State private var donatePromptDecided = false
+
     var body: some Scene {
         WindowGroup {
             if hasCompletedOnboarding {
                 mainView
+                    .task {
+                        guard !donatePromptDecided else { return }
+                        donatePromptDecided = true
+                        showDonatePrompt = DonatePromptState.shouldPresentOnLaunch()
+                    }
+                    .sheet(isPresented: $showDonatePrompt) {
+                        DonatePromptView(
+                            onLater: { showDonatePrompt = false },
+                            onAlreadyDonated: {
+                                DonatePromptState.silenced = true
+                                showDonatePrompt = false
+                            }
+                        )
+                    }
             } else {
                 OnboardingView(onComplete: {
                     hasCompletedOnboarding = true

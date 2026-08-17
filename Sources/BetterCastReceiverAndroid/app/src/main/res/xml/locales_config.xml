@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Declares the languages this app ships, which is what makes the per-app language
+    picker appear under Settings › Apps › BetterCast Receiver › Language on Android 13
+    and later. Without it the app silently follows the system language with no way to
+    override it for this app alone — the equivalent of macOS's
+    System Settings › General › Language & Region › Applications list.
+
+    Keep in step with the values-<code> folders and with localization/*.lproj on the Mac.
+-->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="zh-Hans" />
+    <locale android:name="ja" />
+    <locale android:name="ko" />
+    <locale android:name="de" />
+    <locale android:name="fr" />
+</locale-config>

@@ -111,4 +111,11 @@
     <string name="status_invited">已邀请 %1$s，等待其连接…</string>
     <string name="status_connection_error">连接错误</string>
     <string name="status_stopped">已停止</string>
+
+    <!-- Donation prompt -->
+    <string name="donate_title">想让我继续做免费的东西吗？</string>
+    <string name="donate_body">BetterCast 完全免费，没有广告，也不会追踪你。如果它帮你省下了一台显示器的钱，请我喝杯咖啡就很有帮助。</string>
+    <string name="donate_action">请我喝杯咖啡</string>
+    <string name="donate_later">以后再说</string>
+    <string name="donate_already">我已经赞助过了</string>
 </resources>

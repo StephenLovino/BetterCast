@@ -45,6 +45,8 @@ import androidx.lifecycle.ViewModelProvider
 import com.bettercast.receiver.sender.SenderScreen
 import com.bettercast.receiver.sender.SenderState
 import com.bettercast.receiver.sender.SenderViewModel
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.bettercast.receiver.ui.DonatePromptDialog
 import com.bettercast.receiver.ui.ReceiverShell
 import com.bettercast.receiver.ui.theme.BC
 import com.bettercast.receiver.ui.theme.BetterCastReceiverTheme
@@ -158,6 +160,26 @@ fun AppContent(
 
     val receiverState by receiverViewModel.state.collectAsState()
     val senderState by senderViewModel.state.collectAsState()
+
+    // Decided once per process, not per recomposition, so rotating the phone or
+    // switching modes does not bring the nudge back mid-session.
+    var showDonatePrompt by rememberSaveable { mutableStateOf(false) }
+    var donateDecided by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!donateDecided) {
+            donateDecided = true
+            showDonatePrompt = receiverViewModel.settings.shouldShowDonatePromptOnLaunch()
+        }
+    }
+    if (showDonatePrompt) {
+        DonatePromptDialog(
+            onLater = { showDonatePrompt = false },
+            onAlreadyDonated = {
+                receiverViewModel.settings.silenceDonatePrompt()
+                showDonatePrompt = false
+            }
+        )
+    }
 
     // Hide mode toggle when actively connected/casting
     val showModeToggle = when (mode) {

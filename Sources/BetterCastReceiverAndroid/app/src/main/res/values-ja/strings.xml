@@ -111,4 +111,11 @@
     <string name="status_invited">%1$s を招待しました。接続を待っています…</string>
     <string name="status_connection_error">接続エラー</string>
     <string name="status_stopped">停止しました</string>
+
+    <!-- Donation prompt -->
+    <string name="donate_title">無料で作り続けてほしいですか？</string>
+    <string name="donate_body">BetterCast は無料で、広告もなく、追跡もしません。モニターを 1 台買わずに済んだなら、コーヒー 1 杯の支援がとても励みになります。</string>
+    <string name="donate_action">コーヒーをおごる</string>
+    <string name="donate_later">あとで</string>
+    <string name="donate_already">寄付済みです</string>
 </resources>

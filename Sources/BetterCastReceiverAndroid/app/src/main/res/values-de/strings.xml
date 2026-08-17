@@ -111,4 +111,11 @@
     <string name="status_invited">%1$s eingeladen, warte auf die Verbindung…</string>
     <string name="status_connection_error">Verbindungsfehler</string>
     <string name="status_stopped">Gestoppt</string>
+
+    <!-- Donation prompt -->
+    <string name="donate_title">Soll ich weiter kostenlose Software bauen?</string>
+    <string name="donate_body">BetterCast ist kostenlos, werbefrei und trackt dich nicht. Wenn es dir einen zweiten Monitor erspart hat, hilft ein Kaffee schon sehr.</string>
+    <string name="donate_action">Kaffee spendieren</string>
+    <string name="donate_later">Später</string>
+    <string name="donate_already">Habe schon gespendet</string>
 </resources>
