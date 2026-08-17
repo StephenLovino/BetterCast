@@ -13,6 +13,7 @@
 #ifdef ENABLE_SENDER
 #include "sender/SenderController.h"
 #include "sender/VirtualDisplayVDD.h"
+#include "sender/InviteListener.h"
 #endif
 
 #include <QVBoxLayout>
@@ -255,6 +256,11 @@ MainWindow::MainWindow(QWidget* parent)
     // mDNS browsing for receiver discovery
     connect(m_discovery, &ServiceDiscovery::serviceFound,
             this, &MainWindow::onReceiverDiscovered);
+
+    // Let receivers invite us, the same way they invite a Mac.
+    m_inviteListener = new InviteListener(this);
+    connect(m_inviteListener, &InviteListener::inviteReceived,
+            this, &MainWindow::onInviteReceived);
 #endif
 
     // Wire up core components
@@ -315,6 +321,13 @@ MainWindow::MainWindow(QWidget* parent)
     m_discovery->startAdvertising(actualPort);
 #ifdef ENABLE_SENDER
     m_discovery->startBrowsing();
+
+    // Announce that this machine can send, so phones and tablets can invite it.
+    // Without this the Windows box was only ever visible as a receiver, and never
+    // appeared in the Android or iOS "choose a sender" list.
+    if (uint16_t invitePort = m_inviteListener->start()) {
+        m_discovery->advertiseSenderService(invitePort);
+    }
 #endif
     LogManager::instance().log(QString("BetterCast started — listening on port %1").arg(actualPort));
 #ifdef _WIN32
@@ -1420,6 +1433,53 @@ void MainWindow::onReceiverSelected(int index) {
         m_sendHostEdit->setText(host);
         m_selectedReceiverPort = static_cast<uint16_t>(data.value("port", 51820).toUInt());
     }
+}
+
+void MainWindow::onInviteReceived(const QString& deviceName, const QString& peerAddress) {
+    if (!m_sender || !m_sendHostEdit) return;
+
+    // Already streaming — an invite is not a reason to tear down the current session.
+    if (m_sendBtn && !m_sendBtn->isEnabled()) {
+        LogManager::instance().log(
+            QString("Invite from '%1' ignored — already sending").arg(deviceName));
+        return;
+    }
+
+    // Prefer the address the invite arrived from. The Mac looks the name up in its
+    // browse list because it wants an AWDL route; there is no AWDL here, and the peer
+    // address is by definition reachable — it just reached us.
+    QString host = peerAddress;
+    uint16_t port = 51820;
+
+    // An IPv6 peer address is still worth swapping for the IPv4 the receiver
+    // advertised, since that is the address the stream socket expects.
+    for (const auto& svc : m_discovery->discoveredServices()) {
+        if (svc.name.compare(deviceName, Qt::CaseInsensitive) == 0) {
+            host = svc.host;
+            break;
+        }
+    }
+
+    if (host.startsWith("::ffff:")) host = host.mid(7);  // IPv4-mapped IPv6
+    if (host.isEmpty()) {
+        LogManager::instance().log(
+            QString("Invite from '%1' had no usable address").arg(deviceName));
+        return;
+    }
+
+    LogManager::instance().log(
+        QString("Accepting invite from '%1' — sending to %2:%3")
+            .arg(deviceName, host).arg(port));
+
+    m_sendHostEdit->setText(host);
+    m_selectedReceiverPort = port;
+
+    // Show the user what just happened rather than starting a stream invisibly.
+    if (m_sidebarList && m_pageSend >= 0) {
+        m_sidebarList->setCurrentRow(m_pageSend);
+    }
+
+    onSendScreenClicked();
 }
 #endif
 

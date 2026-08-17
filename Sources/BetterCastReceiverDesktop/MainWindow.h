@@ -98,6 +98,7 @@ class VideoWindow;
 #ifdef ENABLE_SENDER
 class SenderController;
 class VirtualDisplayVDD;
+class InviteListener;
 #endif
 
 class MainWindow : public QMainWindow {
@@ -129,6 +130,7 @@ private slots:
     void onRemoveVirtualDisplay();
     void onRefreshMonitors();
     void onMonitorSelected(int index);
+    void onInviteReceived(const QString& deviceName, const QString& peerAddress);
 #endif
 
 private:
@@ -158,6 +160,7 @@ private:
     bool m_wirelessAdbEnabled = false;
 #ifdef ENABLE_SENDER
     SenderController* m_sender = nullptr;
+    InviteListener* m_inviteListener = nullptr;
 #endif
 
     // Layout

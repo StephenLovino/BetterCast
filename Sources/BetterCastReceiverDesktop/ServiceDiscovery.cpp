@@ -3,8 +3,10 @@
 #include <QDebug>
 #include <QNetworkInterface>
 #include <QHostInfo>
+#include <QStringList>
 #include <QtEndian>
 #include <QVariant>
+#include <cstring>
 
 // Log to both qDebug and the app's visible log viewer
 #define MDNS_LOG(msg) do { \
@@ -29,6 +31,7 @@ static const uint16_t kTypePTR = 12;
 static const uint16_t kTypeSRV = 33;
 static const uint16_t kTypeTXT = 16;
 static const uint16_t kTypeA   = 1;
+static const uint16_t kTypeAAAA = 28;
 static const uint16_t kClassIN = 1;
 static const uint16_t kClassFlush = 0x8001; // Cache flush + IN
 
@@ -167,6 +170,8 @@ void ServiceDiscovery::stopBrowsing() {
         m_browseTimer = nullptr;
     }
     m_discovered.clear();
+    m_pending.clear();
+    m_hostAddrs.clear();
 
 #ifdef HAS_MDNS
     if (m_browseRef) {
@@ -317,15 +322,15 @@ void ServiceDiscovery::handleMdnsResponse(const QByteArray& packet) {
         offset += 4; // skip qtype + qclass
     }
 
-    // Parse answer records — collect PTR, SRV, A records
-    QString instanceName;
-    QString srvHost;
-    uint16_t srvPort = 0;
-    QHostAddress aAddr;
-
+    // Fold every record in the packet into the pending table. Nothing is required to
+    // arrive together: a PTR on its own is enough to start tracking an instance, and
+    // the SRV or address record that completes it may come in a later datagram or in
+    // reply to the targeted query we send below.
     int totalRecords = anCount +
         qFromBigEndian<uint16_t>(d + 8) +  // authority
         qFromBigEndian<uint16_t>(d + 10);   // additional
+
+    QStringList touched;
 
     for (int i = 0; i < totalRecords && offset + 10 < packet.size(); i++) {
         QString rrName = decodeDnsName(packet, offset);
@@ -342,74 +347,143 @@ void ServiceDiscovery::handleMdnsResponse(const QByteArray& packet) {
         if (rdEnd > packet.size()) break;
 
         if (rrType == kTypePTR && rrName.contains("_bettercast._tcp")) {
-            instanceName = decodeDnsName(packet, offset);
-            // Strip service type suffix to get the display name
-            int idx = instanceName.indexOf("._bettercast._tcp");
-            if (idx > 0) instanceName = instanceName.left(idx);
-        } else if (rrType == kTypeSRV) {
+            int p = offset;
+            QString full = decodeDnsName(packet, p);
+            if (!full.isEmpty()) {
+                QString key = full.toLower();
+                PendingService& svc = m_pending[key];
+                if (svc.display.isEmpty()) {
+                    QString display = full;
+                    int idx = display.indexOf("._bettercast._tcp");
+                    if (idx > 0) display = display.left(idx);
+                    svc.display = display;
+                }
+                touched.append(key);
+            }
+        } else if (rrType == kTypeSRV && rrName.contains("_bettercast._tcp")) {
+            // Key the SRV to its own owner name. The old code took whatever SRV came
+            // last in the packet, so a device advertising more than one instance (the
+            // iPhone advertises a P2P variant alongside the plain one) could be paired
+            // with the wrong port.
             if (rdLen >= 6) {
-                offset += 2; // priority
-                offset += 2; // weight
-                srvPort = qFromBigEndian<uint16_t>(d + offset);
-                offset += 2;
-                srvHost = decodeDnsName(packet, offset);
+                int p = offset + 4;  // skip priority + weight
+                uint16_t port = qFromBigEndian<uint16_t>(d + p);
+                p += 2;
+                QString target = decodeDnsName(packet, p);
+
+                QString key = rrName.toLower();
+                PendingService& svc = m_pending[key];
+                svc.port = port;
+                svc.hostTarget = target;
+                if (svc.display.isEmpty()) {
+                    QString display = rrName;
+                    int idx = display.indexOf("._bettercast._tcp");
+                    if (idx > 0) display = display.left(idx);
+                    svc.display = display;
+                }
+                touched.append(key);
             }
         } else if (rrType == kTypeA && rdLen == 4) {
             quint32 ip = qFromBigEndian<quint32>(d + offset);
-            aAddr = QHostAddress(ip);
+            m_hostAddrs.insert(rrName.toLower(), QHostAddress(ip));
+        } else if (rrType == kTypeAAAA && rdLen == 16) {
+            // Keep IPv6 only as a fallback. Link-local addresses need a scope id we do
+            // not have here, so an IPv4 record for the same host always wins.
+            QString key = rrName.toLower();
+            Q_IPV6ADDR raw;
+            memcpy(&raw, d + offset, 16);
+            QHostAddress v6(raw);
+            auto existing = m_hostAddrs.constFind(key);
+            bool haveV4 = existing != m_hostAddrs.constEnd() &&
+                          existing->protocol() == QAbstractSocket::IPv4Protocol;
+            if (!haveV4 && !v6.isLinkLocal()) m_hostAddrs.insert(key, v6);
         }
 
         offset = rdEnd;
     }
 
-    // If we got enough info, emit the discovered service
-    if (!instanceName.isEmpty() && srvPort == 0) {
-        // Got PTR but no SRV in this packet — send a targeted query for the SRV
-        MDNS_LOG(QString("mDNS: Got PTR for '%1' but no SRV/A — sending follow-up query").arg(instanceName));
+    // Every instance this packet mentioned may now be complete — or may need chasing.
+    touched.removeDuplicates();
+    for (const QString& key : touched) {
+        tryCompleteService(key);
     }
-    if (!instanceName.isEmpty() && srvPort > 0) {
-        // Use A record IP if available, otherwise try to resolve SRV host
-        QString host;
-        if (!aAddr.isNull()) {
-            host = aAddr.toString();
-        } else if (!srvHost.isEmpty()) {
-            host = srvHost;
-            if (host.endsWith(".local")) host.chop(1); // remove trailing dot if present
-        }
+}
 
-        if (host.isEmpty()) return;
+/// Emit [instanceKey] if we now know its port and address, or ask for what is missing.
+void ServiceDiscovery::tryCompleteService(const QString& instanceKey) {
+    auto it = m_pending.find(instanceKey);
+    if (it == m_pending.end()) return;
+    PendingService& svc = it.value();
 
-        // Skip our own service
-        if (isOwnAddress(QHostAddress(host)) && srvPort == m_advertisedPort) return;
+    if (svc.port == 0) {
+        // A PTR with no SRV yet. The old code logged that it was sending a follow-up
+        // query and then did not send one, so anything that answered in two packets was
+        // simply never discovered.
+        MDNS_LOG(QString("mDNS: Got PTR for '%1' but no SRV yet — querying").arg(svc.display));
+        sendTargetedQuery(instanceKey, kTypeSRV);
+        return;
+    }
 
-        DiscoveredService svc;
-        svc.name = instanceName;
-        svc.host = host;
-        svc.port = srvPort;
+    QString hostKey = svc.hostTarget.toLower();
+    QHostAddress addr = m_hostAddrs.value(hostKey);
+    if (addr.isNull()) {
+        MDNS_LOG(QString("mDNS: '%1' resolves to %2 but no address record yet — querying")
+                     .arg(svc.display, svc.hostTarget));
+        sendTargetedQuery(svc.hostTarget, kTypeA);
+        return;
+    }
 
-        // Check if already discovered
-        bool found = false;
-        for (auto& existing : m_discovered) {
-            if (existing.name == svc.name) {
-                existing.host = svc.host;
-                existing.port = svc.port;
-                found = true;
-                break;
-            }
-        }
+    // Skip our own service
+    if (isOwnAddress(addr) && svc.port == m_advertisedPort) return;
 
-        if (!found) {
-            m_discovered.append(svc);
-            MDNS_LOG(QString("Discovered receiver: %1 at %2:%3 (from mDNS SRV record)")
-                         .arg(svc.name, svc.host).arg(svc.port));
-            if (svc.port != 51820) {
-                MDNS_LOG(QString("NOTE: Receiver port %1 differs from default 51820 — "
-                                 "verify receiver is actually listening on this port")
-                             .arg(svc.port));
-            }
-            emit serviceFound(svc);
+    DiscoveredService found;
+    found.name = svc.display;
+    found.host = addr.toString();
+    found.port = svc.port;
+
+    for (auto& existing : m_discovered) {
+        if (existing.name == found.name) {
+            if (existing.host == found.host && existing.port == found.port) return;
+            existing.host = found.host;
+            existing.port = found.port;
+            return;
         }
     }
+
+    m_discovered.append(found);
+    MDNS_LOG(QString("Discovered receiver: %1 at %2:%3 (from mDNS SRV record)")
+                 .arg(found.name, found.host).arg(found.port));
+    if (found.port != 51820) {
+        MDNS_LOG(QString("NOTE: Receiver port %1 differs from default 51820 — "
+                         "verify receiver is actually listening on this port")
+                     .arg(found.port));
+    }
+    emit serviceFound(found);
+}
+
+QByteArray ServiceDiscovery::buildTargetedQuery(const QString& name, uint16_t qtype) {
+    QByteArray pkt;
+    uint16_t zero = 0;
+    uint16_t qdCount = qToBigEndian(static_cast<uint16_t>(1));
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);
+    pkt.append(reinterpret_cast<const char*>(&qdCount), 2);
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);
+    pkt.append(reinterpret_cast<const char*>(&zero), 2);
+
+    pkt.append(encodeDnsName(name));
+    uint16_t t = qToBigEndian(qtype);
+    uint16_t c = qToBigEndian(kClassIN);
+    pkt.append(reinterpret_cast<const char*>(&t), 2);
+    pkt.append(reinterpret_cast<const char*>(&c), 2);
+    return pkt;
+}
+
+void ServiceDiscovery::sendTargetedQuery(const QString& name, uint16_t qtype) {
+    if (!m_mdnsSocket || name.isEmpty()) return;
+    QByteArray q = buildTargetedQuery(name, qtype);
+    m_mdnsSocket->writeDatagram(q, kMdnsAddress, kMdnsPort);
 }
 
 void ServiceDiscovery::onMdnsReadyRead() {
@@ -485,23 +559,46 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
         uint16_t qtype = qFromBigEndian<uint16_t>(d + offset);
         offset += 4; // skip qtype + qclass
 
-        // Check if this query is for our service type or a general service browse
-        if (qname.contains("_bettercast._tcp") ||
-            (qtype == kTypePTR && qname.contains("_services._dns-sd")) ||
-            (qtype == kTypePTR && qname.contains("_tcp.local"))) {
+        // Work out which of our services this question is actually about. Answering a
+        // `_bettercast-sender._tcp` browse with the receiver's records — which is what
+        // the old catch-all did — tells the phone nothing it can use, so the Windows
+        // machine stayed absent from its sender list.
+        const bool asksSender = qname.contains("_bettercast-sender._tcp");
+        const bool asksReceiver = !asksSender && qname.contains("_bettercast._tcp");
+        const bool asksGeneric = qtype == kTypePTR &&
+                                 (qname.contains("_services._dns-sd") ||
+                                  qname.contains("_tcp.local"));
+
+        if (asksSender || asksReceiver || asksGeneric) {
             auto addrs = getLocalAddresses();
             // Only log BetterCast-specific queries; skip noisy general browse traffic
-            if (qname.contains("_bettercast._tcp")) {
+            if (asksSender || asksReceiver) {
                 MDNS_LOG(QString("mDNS: Query for %1 from %2:%3 — responding")
                          .arg(qname, sender.toString()).arg(senderPort));
             }
+
+            const bool sendReceiverRecords = asksReceiver || asksGeneric;
+            const bool sendSenderRecords =
+                (asksSender || asksGeneric) && m_senderInvitePort != 0;
+
             for (const auto& addr : addrs) {
-                QByteArray response = buildMdnsResponse(txId, addr);
-                // Send to multicast (standard mDNS)
-                m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
-                // Also send unicast directly to the querier — this works even if
-                // multicast is blocked by Windows Firewall on the return path
-                m_mdnsSocket->writeDatagram(response, sender, senderPort);
+                if (sendReceiverRecords) {
+                    QByteArray response = buildMdnsResponse(txId, addr,
+                                                            "_bettercast._tcp.local",
+                                                            m_advertisedPort);
+                    // Send to multicast (standard mDNS)
+                    m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+                    // Also send unicast directly to the querier — this works even if
+                    // multicast is blocked by Windows Firewall on the return path
+                    m_mdnsSocket->writeDatagram(response, sender, senderPort);
+                }
+                if (sendSenderRecords) {
+                    QByteArray response = buildMdnsResponse(txId, addr,
+                                                            "_bettercast-sender._tcp.local",
+                                                            m_senderInvitePort);
+                    m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+                    m_mdnsSocket->writeDatagram(response, sender, senderPort);
+                }
             }
             return;
         }
@@ -521,13 +618,32 @@ void ServiceDiscovery::sendAnnouncement() {
 
     auto addrs = getLocalAddresses();
     for (const auto& addr : addrs) {
-        QByteArray response = buildMdnsResponse(0, addr);
+        QByteArray response = buildMdnsResponse(0, addr, "_bettercast._tcp.local",
+                                                m_advertisedPort);
         qint64 sent = m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
         if (m_announceCount <= 3) {
             qDebug() << "mDNS: Announcement" << m_announceCount
                       << "sent" << sent << "bytes for" << addr.toString();
         }
+
+        if (m_senderInvitePort != 0) {
+            QByteArray senderResp = buildMdnsResponse(0, addr, "_bettercast-sender._tcp.local",
+                                                      m_senderInvitePort);
+            m_mdnsSocket->writeDatagram(senderResp, kMdnsAddress, kMdnsPort);
+        }
     }
+}
+
+void ServiceDiscovery::advertiseSenderService(uint16_t invitePort) {
+    if (m_senderInvitePort == invitePort) return;
+    m_senderInvitePort = invitePort;
+    ensureMdnsSocket();
+    MDNS_LOG(QString("mDNS: Advertising as _bettercast-sender._tcp on port %1").arg(invitePort));
+    sendAnnouncement();
+}
+
+void ServiceDiscovery::stopAdvertisingSenderService() {
+    m_senderInvitePort = 0;
 }
 
 QByteArray ServiceDiscovery::encodeDnsName(const QString& name) {
@@ -543,11 +659,12 @@ QByteArray ServiceDiscovery::encodeDnsName(const QString& name) {
 }
 
 QByteArray ServiceDiscovery::buildMdnsResponse(uint16_t transactionId,
-                                                const QHostAddress& targetAddr) {
+                                                const QHostAddress& targetAddr,
+                                                const QString& serviceType,
+                                                uint16_t port) {
     QByteArray pkt;
     QString hostname = getHostname();
     QString instanceName = m_serviceName;    // "BetterCast Receiver"
-    QString serviceType = "_bettercast._tcp.local";
     QString fullName = instanceName + "." + serviceType;
     QString hostTarget = hostname + ".local";
 
@@ -597,7 +714,7 @@ QByteArray ServiceDiscovery::buildMdnsResponse(uint16_t transactionId,
     appendU16(srvRdataLen);
     appendU16(0);   // priority
     appendU16(0);   // weight
-    appendU16(m_advertisedPort); // port
+    appendU16(port);
     pkt.append(srvTarget);
 
     // 3. TXT record: empty (required by mDNS spec)

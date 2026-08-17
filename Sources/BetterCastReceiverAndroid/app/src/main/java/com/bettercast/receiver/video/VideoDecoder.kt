@@ -194,7 +194,19 @@ class VideoDecoder {
 
         var decoder: MediaCodec? = null
         try {
-            val format = MediaFormat.createVideoFormat(MIME_TYPE, 1920, 1080)
+            // Size the format from the stream's own SPS. A fixed 1920x1080 here is what
+            // made anything larger fail to come up at all — the Windows sender captures
+            // the monitor or virtual display at its native size, so 1440p and 4K are
+            // routine, while the Mac sender happened to stay at or below 1080p.
+            val dims = SpsParser.parse(sps)
+            val codedWidth = dims?.width ?: 1920
+            val codedHeight = dims?.height ?: 1080
+            if (dims == null) {
+                Log.w(TAG, "Could not read size from SPS; assuming ${codedWidth}x$codedHeight")
+            } else {
+                Log.i(TAG, "SPS reports ${codedWidth}x$codedHeight")
+            }
+            val format = MediaFormat.createVideoFormat(MIME_TYPE, codedWidth, codedHeight)
 
             val startCode = byteArrayOf(0x00, 0x00, 0x00, 0x01)
             val csd0 = ByteBuffer.allocate(4 + sps.size)
@@ -205,7 +217,14 @@ class VideoDecoder {
             csd1.put(startCode); csd1.put(pps); csd1.flip()
             format.setByteBuffer("csd-1", csd1)
 
-            format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 1_000_000)
+            // Keyframes scale with resolution, and a frame larger than the input buffer
+            // is dropped outright in feedDataToDecoder — at 1440p/4K a fixed 1MB ceiling
+            // throws away exactly the IDR the decoder is waiting for, so the picture
+            // never starts. Half a luma plane is comfortably above any real keyframe.
+            format.setInteger(
+                MediaFormat.KEY_MAX_INPUT_SIZE,
+                maxOf(1_000_000, codedWidth * codedHeight / 2)
+            )
             format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             format.setInteger("vendor.low-latency.enable", 1)

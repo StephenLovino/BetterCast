@@ -140,12 +140,14 @@ if(ENABLE_SENDER)
         sender/VideoEncoderFF.cpp
         sender/NetworkSender.cpp
         sender/SenderController.cpp
+        sender/InviteListener.cpp
     )
     list(APPEND HEADERS
         sender/ScreenCapture.h
         sender/VideoEncoderFF.h
         sender/NetworkSender.h
         sender/SenderController.h
+        sender/InviteListener.h
     )
     if(WIN32)
         list(APPEND SOURCES
