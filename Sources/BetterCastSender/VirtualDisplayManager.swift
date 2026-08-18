@@ -21,6 +21,11 @@ class VirtualDisplayManager {
         Resolution(width: 2560, height: 1440, ppi: 109, hiDPI: false, name: "2560 x 1440 (2K)"),
         Resolution(width: 2560, height: 1600, ppi: 227, hiDPI: true, name: "2560 x 1600 (16:10)"),
         Resolution(width: 3840, height: 2160, ppi: 163, hiDPI: false, name: "3840 x 2160 (4K)"),
+        // The TargetBridge use case: a 5K iMac panel as the receiver. 218 ppi is the
+        // panel's native density; hiDPI renders the desktop at a 2560x1440 Retina
+        // look, which is what makes text native-sharp on that glass. Streams this
+        // size exceed H.264 encoder limits and are promoted to HEVC automatically.
+        Resolution(width: 5120, height: 2880, ppi: 218, hiDPI: true, name: "5120 x 2880 (5K Retina)"),
         Resolution(width: 1440, height: 900, ppi: 127, hiDPI: false, name: "1440 x 900 (16:10)"),
     ]
     

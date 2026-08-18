@@ -138,10 +138,15 @@ class VideoDecoder {
         var detected: Boolean? = null
         for (n in nalus) {
             if (n.isEmpty()) continue
-            val hevcType = (n[0].toInt() shr 1) and 0x3F
-            val avcType = n[0].toInt() and 0x1F
-            if (hevcType in 32..34) { detected = true; break }
-            if (avcType == 7 || avcType == 8) { detected = false; break }
+            val header = n[0].toInt() and 0xFF
+            val hevcType = (header shr 1) and 0x3F
+            val avcType = header and 0x1F
+            // Key on bytes that exist in only one codec. 0x40 is an HEVC VPS and means
+            // nothing in H.264. Do NOT treat HEVC types 33/34 as proof by themselves:
+            // an ordinary H.264 P-slice with header 0x41 reads as HEVC type 32 under
+            // the HEVC rule, and detecting on it would flap the codec mid-stream.
+            if (header == 0x40) { detected = true; break }
+            if (avcType == 7 && hevcType !in 32..34) { detected = false; break }
         }
         if (detected != null && detected != streamIsHevc) {
             if (streamIsHevc == null) {

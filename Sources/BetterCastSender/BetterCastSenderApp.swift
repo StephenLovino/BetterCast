@@ -1380,7 +1380,7 @@ struct DetailPanelView: View {
                         Text("H.264").tag(StreamCodec.h264)
                         Text("H.265 (HEVC)").tag(StreamCodec.hevc)
                     }
-                    InfoTip(text: "Default for devices without their own override. H.265 carries noticeably more detail for the same bitrate, but today only the updated Android receiver can decode it — iPhone, Mac, Windows and Linux receivers show a black screen. Safer to leave this on H.264 and enable H.265 per device in each device's settings.")
+                    InfoTip(text: "Default for devices without their own override. H.265 carries noticeably more detail for the same bitrate, but needs an updated receiver: Android 1.2+ and Mac receivers from v18 decode it; current iOS, Windows and Linux receivers show a black screen. Safer to leave this on H.264 and enable H.265 per device in each device's settings.")
                 }
 
                 HStack {
@@ -2190,7 +2190,7 @@ struct DeviceDetailView: View {
                         Text(verbatim: "H.264").tag("h264")
                         Text(verbatim: "H.265 (HEVC)").tag("hevc")
                     }
-                    InfoTip(text: "Overrides the app-wide codec for this device only. H.265 looks much better for the same bitrate, but today only the updated Android receiver can decode it — other receivers show a black screen. Applies immediately; streams blink once while pipelines restart.")
+                    InfoTip(text: "Overrides the app-wide codec for this device only. H.265 looks much better for the same bitrate, but needs an updated receiver — Android 1.2+ and Mac receivers from v18; others show a black screen. Applies immediately; streams blink once while pipelines restart.")
                 }
             }
 
@@ -5176,7 +5176,16 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil
-        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, \(codecFor(serviceName: serviceName).displayName), P2P: \(isP2P)]")
+        // Apple's H.264 hardware encoders top out around 4096 pixels on the long edge;
+        // a 5K session either fails to create or silently downscales. HEVC is specified
+        // to 8K, so oversized pipelines are promoted rather than left to fail — which is
+        // also why TargetBridge-class 5K streaming effectively requires HEVC.
+        var resolvedCodec = codecFor(serviceName: serviceName)
+        if resolvedCodec == .h264 && max(captureWidth, captureHeight) > 4096 {
+            resolvedCodec = .hevc
+            LogManager.shared.log("Sender: \(serviceName) at \(captureWidth)x\(captureHeight) exceeds H.264 encoder limits — using H.265")
+        }
+        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, \(resolvedCodec.displayName), P2P: \(isP2P)]")
 
         // P2P: tight 0.1s rate limit window prevents AWDL buffer bloat.
         // Loopback (ADB tunnel): USB has ~280Mbps headroom — a tight window made VideoToolbox
@@ -5187,7 +5196,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Infrastructure: loose 1.0s window lets the encoder handle burst scenes naturally.
         let isWiFiADBPath = pipelines[connectionId]?.isWiFiADB ?? false
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
-        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: codecFor(serviceName: serviceName))
+        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: resolvedCodec)
         encoder.delegate = self
         // Per-receiver burst ceiling. Only ever loosened by explicit opt-in, so P2P and
         // every untouched connection keep the 1.5x behaviour they shipped with.

@@ -26,6 +26,13 @@ class ReceiverVideoDecoder: ObservableObject {
 
     private var sps: Data?
     private var pps: Data?
+    /// HEVC only — H.264 has no equivalent parameter set.
+    private var vps: Data?
+    /// Which codec the sender is using, sniffed from the stream's parameter sets.
+    /// nil until the first one arrives; re-evaluated whenever one appears, because
+    /// caching it for the life of the process is the bug that blanked the Android
+    /// receiver when the sender switched codec mid-session.
+    private var streamIsHevc: Bool?
 
     private var timeOffset: Double = 0
     private var consecutiveErrors: Int = 0
@@ -55,13 +62,30 @@ class ReceiverVideoDecoder: ObservableObject {
             if offset + 4 + naluLen > totalLen { break }
 
             let naluHeader = videoData[offset + 4]
-            let naluType = naluHeader & 0x1F
+            let h264Type = naluHeader & 0x1F
+            let hevcType = (naluHeader >> 1) & 0x3F
 
-            if naluType == 7 {
-                sps = videoData.subdata(in: offset+4 ..< offset+4+naluLen)
-            } else if naluType == 8 {
-                pps = videoData.subdata(in: offset+4 ..< offset+4+naluLen)
-            } else {
+            // Codec sniffing keyed on bytes that exist in only one codec. 0x40 is an
+            // HEVC VPS and means nothing in H.264; an H.264 SPS (type 7) never collides
+            // with an HEVC parameter set. Do NOT key on HEVC types 33/34 alone: an
+            // ordinary H.264 P-slice with header 0x41 decodes as HEVC type 32 under the
+            // HEVC rule, and switching on it would flap the codec mid-stream.
+            if naluHeader == 0x40 {
+                if streamIsHevc != true { switchCodec(hevc: true) }
+            } else if h264Type == 7 && !(32...34).contains(hevcType) {
+                if streamIsHevc != false { switchCodec(hevc: false) }
+            }
+
+            var isParameterSet = false
+            if streamIsHevc == true {
+                if hevcType == 32 { vps = videoData.subdata(in: offset+4 ..< offset+4+naluLen); isParameterSet = true }
+                else if hevcType == 33 { sps = videoData.subdata(in: offset+4 ..< offset+4+naluLen); isParameterSet = true }
+                else if hevcType == 34 { pps = videoData.subdata(in: offset+4 ..< offset+4+naluLen); isParameterSet = true }
+            } else if streamIsHevc == false {
+                if h264Type == 7 { sps = videoData.subdata(in: offset+4 ..< offset+4+naluLen); isParameterSet = true }
+                else if h264Type == 8 { pps = videoData.subdata(in: offset+4 ..< offset+4+naluLen); isParameterSet = true }
+            }
+            if !isParameterSet {
                 // Keep non-parameter-set NALUs for decoding
                 frameOnlyData.append(videoData.subdata(in: offset ..< offset+4+naluLen))
             }
@@ -84,6 +108,8 @@ class ReceiverVideoDecoder: ObservableObject {
         formatDescription = nil
         sps = nil
         pps = nil
+        vps = nil
+        streamIsHevc = nil
         timeOffset = 0
         DispatchQueue.main.async {
             self.decoderState = "Waiting for Data..."
@@ -99,22 +125,52 @@ class ReceiverVideoDecoder: ObservableObject {
         delegate?.decoderNeedsKeyframe()
     }
 
-    private func createDecompressionSessionIfReady() {
-        guard let sps = sps, let pps = pps else { return }
+    /// Tear everything down for a codec change so the new stream configures cleanly.
+    private func switchCodec(hevc: Bool) {
+        if streamIsHevc != nil {
+            LogManager.shared.log("VideoDecoder: Stream codec changed to \(hevc ? "H.265" : "H.264") — reconfiguring")
+        }
+        streamIsHevc = hevc
+        if let session = decompressionSession { VTDecompressionSessionInvalidate(session) }
+        decompressionSession = nil
+        formatDescription = nil
+        vps = nil
+        sps = nil
+        pps = nil
+    }
 
-        let parameterSets = [sps, pps]
+        private func createDecompressionSessionIfReady() {
+        guard let sps = sps, let pps = pps else { return }
+        let hevc = streamIsHevc == true
+        // HEVC cannot configure without its VPS; H.264 has no such set.
+        if hevc && vps == nil { return }
+
+        let parameterSets = hevc ? [vps!, sps, pps] : [sps, pps]
         let parameterSetPointers = parameterSets.map { ($0 as NSData).bytes.bindMemory(to: UInt8.self, capacity: $0.count) }
         let parameterSetSizes = parameterSets.map { $0.count }
 
         var _formatDescription: CMFormatDescription?
-        let status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
-            allocator: kCFAllocatorDefault,
-            parameterSetCount: 2,
-            parameterSetPointers: parameterSetPointers,
-            parameterSetSizes: parameterSetSizes,
-            nalUnitHeaderLength: 4,
-            formatDescriptionOut: &_formatDescription
-        )
+        let status: OSStatus
+        if hevc {
+            status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                allocator: kCFAllocatorDefault,
+                parameterSetCount: 3,
+                parameterSetPointers: parameterSetPointers,
+                parameterSetSizes: parameterSetSizes,
+                nalUnitHeaderLength: 4,
+                extensions: nil,
+                formatDescriptionOut: &_formatDescription
+            )
+        } else {
+            status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                allocator: kCFAllocatorDefault,
+                parameterSetCount: 2,
+                parameterSetPointers: parameterSetPointers,
+                parameterSetSizes: parameterSetSizes,
+                nalUnitHeaderLength: 4,
+                formatDescriptionOut: &_formatDescription
+            )
+        }
 
         guard status == noErr, let formatDesc = _formatDescription else {
             LogManager.shared.log("ReceiverVideoDecoder: Failed to create format description \(status)")
