@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Build, sign, and notarize the standalone "BetterCast Receiver" app for older macOS
 # (10.15 Catalina / 11 Big Sur / 12 Monterey) — see LegacyMacReceiver/ and issues #33, #34.
 # Receiver-only, universal (Intel + Apple Silicon). Set APPLE_ID + APP_PASSWORD to notarize.
@@ -16,7 +17,16 @@ echo "============================================"
 echo "  Building BetterCast Receiver (universal, macOS 10.15+)"
 echo "============================================"
 ( cd LegacyMacReceiver && swift build -c release --arch arm64 --arch x86_64 )
+# Xcode 27's SwiftPM moved universal products from .build/apple/... to .build/out/...
+# (same relocation make_app.sh already handles). Probe both, and refuse to package
+# anything if neither exists — before this check, a failed copy fell through silently
+# and the DMG shipped whatever stale binary was still lying at the old path.
 BIN="LegacyMacReceiver/.build/apple/Products/Release/LegacyMacReceiver"
+[ -f "$BIN" ] || BIN="LegacyMacReceiver/.build/out/Products/Release/LegacyMacReceiver"
+if [ ! -f "$BIN" ]; then
+    echo "ERROR: built binary not found in .build/apple or .build/out — refusing to package a stale app" >&2
+    exit 1
+fi
 
 # Clean old artifacts
 rm -rf "$APP_NAME" "$DMG_NAME" "$DMG_STAGING"
