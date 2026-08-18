@@ -129,16 +129,33 @@ class VideoDecoder {
         val nalus = parseNalus(data)
         if (nalus.isEmpty()) return
 
-        if (streamIsHevc == null) {
-            for (n in nalus) {
-                if (n.isEmpty()) continue
-                val hevcType = (n[0].toInt() shr 1) and 0x3F
-                val avcType = n[0].toInt() and 0x1F
-                if (hevcType in 32..34) { streamIsHevc = true; break }
-                if (avcType == 7 || avcType == 8) { streamIsHevc = false; break }
-            }
-            streamIsHevc?.let { Log.i(TAG, "Stream codec detected: ${if (it) "H.265" else "H.264"}") }
+        // Sniff the codec from any parameter set in this frame — every time, not once.
+        // This decision used to be cached for the life of the process, so a receiver that
+        // had already shown an H.264 session kept parsing a later H.265 one with H.264
+        // rules: NAL types misread, nothing recognised as a parameter set, garbage fed to
+        // an AVC decoder. It presents as a black screen with "fed=1093 rendered=0" — the
+        // decoder accepting input and emitting nothing.
+        var detected: Boolean? = null
+        for (n in nalus) {
+            if (n.isEmpty()) continue
+            val hevcType = (n[0].toInt() shr 1) and 0x3F
+            val avcType = n[0].toInt() and 0x1F
+            if (hevcType in 32..34) { detected = true; break }
+            if (avcType == 7 || avcType == 8) { detected = false; break }
         }
+        if (detected != null && detected != streamIsHevc) {
+            if (streamIsHevc == null) {
+                Log.i(TAG, "Stream codec detected: ${if (detected) "H.265" else "H.264"}")
+            } else {
+                Log.i(TAG, "Stream codec changed to ${if (detected) "H.265" else "H.264"} — reconfiguring")
+                stop()
+                cachedVps = null
+                cachedSps = null
+                cachedPps = null
+            }
+            streamIsHevc = detected
+        }
+
         // Nothing decodable until a parameter set has identified the codec.
         val hevc = streamIsHevc ?: return
 
