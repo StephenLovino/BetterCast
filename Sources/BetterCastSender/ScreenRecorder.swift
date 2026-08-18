@@ -209,7 +209,26 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // Written from the SCK callback thread and the pump queue, so guard with a lock.
     private var lastEncodeHostTime: CFTimeInterval = 0
     private let encodeTimeLock = NSLock()
-    private static let pumpFloorInterval: CFTimeInterval = 0.015   // ~66fps floor of encodes
+    // Floor interval, derived from the pipeline's target frame rate rather than fixed.
+    //
+    // This was hardcoded to 0.015 — a 66fps floor — no matter what the user chose. At a
+    // 60fps setting, real capture runs around 50fps during motion (20ms apart), which is
+    // slower than a 15ms floor, so the pump fired *between* real frames instead of only
+    // when idle: measured 71-81fps of encodes against a 60fps setting. Three costs, all
+    // paid exactly when the picture is moving. VideoToolbox is told ExpectedFrameRate=60
+    // and then handed 78, so its bit allocation is wrong; the stream overshoots its
+    // ceiling (20.4-21.5 Mbps against a 20 Mbps target); and the budget is divided across
+    // ~30% more frames, so every real frame gets fewer bits. That reads as pixelation and
+    // blur on scroll.
+    //
+    // The value now matches this pump's own documented intent, three lines above: repeat
+    // "at ~30fps while capture is idle". 30fps is plenty to keep a decoder flushed, and it
+    // sits far enough below any real capture rate that motion never triggers it. Never
+    // faster than the target rate either, so a 30fps pipeline does not get 30fps of
+    // repeats on top of 30fps of real frames.
+    private var pumpFloorInterval: CFTimeInterval {
+        max(1.0 / Double(max(captureFPS, 1)), 1.0 / 30.0)
+    }
 
     /// Copy the latest captured frame into a buffer we own, so the pump always has a valid
     /// frame to repeat even after ScreenCaptureKit goes idle and recycles its pool. Reuses
@@ -267,7 +286,7 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
             self.encodeTimeLock.lock()
             let gap = now - self.lastEncodeHostTime
             self.encodeTimeLock.unlock()
-            guard gap >= ScreenRecorder.pumpFloorInterval else { return }
+            guard gap >= self.pumpFloorInterval else { return }
             self.pumpBufferLock.lock()
             let pb = self.pumpFrameBuffer
             self.pumpBufferLock.unlock()
