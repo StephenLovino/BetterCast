@@ -262,3 +262,7 @@
 "Codexing…" = "Codexing…";
 "Carving your desktop into packets…" = "Carving your desktop into packets…";
 "Almost there…" = "Almost there…";
+
+/* Per-device codec picker */
+"Codec" = "Codec";
+"Default" = "Default";

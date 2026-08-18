@@ -1380,7 +1380,7 @@ struct DetailPanelView: View {
                         Text("H.264").tag(StreamCodec.h264)
                         Text("H.265 (HEVC)").tag(StreamCodec.hevc)
                     }
-                    InfoTip(text: "H.265 carries noticeably more detail for the same bitrate, which shows up most during motion and scene changes. Needs a receiver that can decode it — Android 8+, iOS, and Macs all can. Reconnect to apply.")
+                    InfoTip(text: "Default for devices without their own override. H.265 carries noticeably more detail for the same bitrate, but today only the updated Android receiver can decode it — iPhone, Mac, Windows and Linux receivers show a black screen. Safer to leave this on H.264 and enable H.265 per device in each device's settings.")
                 }
 
                 HStack {
@@ -2178,6 +2178,20 @@ struct DeviceDetailView: View {
                     ))
                     InfoTip(text: "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately.")
                 }
+
+                HStack {
+                    Picker(tr("Codec"), selection: Binding(
+                        get: { client.codecOverrides[display.name] ?? "auto" },
+                        set: { raw in
+                            client.setCodecOverride(raw == "auto" ? nil : StreamCodec(rawValue: raw), for: display.name)
+                        }
+                    )) {
+                        Text("\(tr("Default")) (\(client.selectedCodec.displayName))").tag("auto")
+                        Text(verbatim: "H.264").tag("h264")
+                        Text(verbatim: "H.265 (HEVC)").tag("hevc")
+                    }
+                    InfoTip(text: "Overrides the app-wide codec for this device only. H.265 looks much better for the same bitrate, but today only the updated Android receiver can decode it — other receivers show a black screen. Applies immediately; streams blink once while pipelines restart.")
+                }
             }
 
             // Connection transport — switch without disconnecting first (Android only)
@@ -2797,6 +2811,29 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     @Published var selectedCodec: StreamCodec =
         StreamCodec(rawValue: UserDefaults.standard.string(forKey: "streamCodec") ?? "") ?? .h264 {
         didSet { UserDefaults.standard.set(selectedCodec.rawValue, forKey: "streamCodec") }
+    }
+
+    /// Per-device codec overrides, keyed by service name. Absent = follow the global
+    /// picker. Exists because the global setting is a foot-gun: only the updated Android
+    /// receiver decodes H.265 today, and a global switch silently blanked the iPhone and
+    /// Mac receivers — the sender streams happily while the receiver discards everything.
+    @Published var codecOverrides: [String: String] =
+        UserDefaults.standard.dictionary(forKey: "codecOverrides") as? [String: String] ?? [:] {
+        didSet { UserDefaults.standard.set(codecOverrides, forKey: "codecOverrides") }
+    }
+
+    func codecFor(serviceName: String) -> StreamCodec {
+        if let raw = codecOverrides[serviceName], let c = StreamCodec(rawValue: raw) { return c }
+        return selectedCodec
+    }
+
+    /// nil clears the override (follow the global default). Applies live through the
+    /// same seamless pipeline restart the settings Apply uses.
+    func setCodecOverride(_ codec: StreamCodec?, for serviceName: String) {
+        if let codec { codecOverrides[serviceName] = codec.rawValue }
+        else { codecOverrides.removeValue(forKey: serviceName) }
+        LogManager.shared.log("Sender: Codec for \(serviceName): \(codec?.displayName ?? "default (\(selectedCodec.displayName))")")
+        updateStreamResolution()
     }
 
     @Published var selectedQuality: StreamQuality = NetworkClient.loadQuality() {
@@ -5124,7 +5161,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil
-        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, \(selectedCodec.displayName), P2P: \(isP2P)]")
+        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, \(codecFor(serviceName: serviceName).displayName), P2P: \(isP2P)]")
 
         // P2P: tight 0.1s rate limit window prevents AWDL buffer bloat.
         // Loopback (ADB tunnel): USB has ~280Mbps headroom — a tight window made VideoToolbox
@@ -5135,7 +5172,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Infrastructure: loose 1.0s window lets the encoder handle burst scenes naturally.
         let isWiFiADBPath = pipelines[connectionId]?.isWiFiADB ?? false
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
-        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: selectedCodec)
+        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: codecFor(serviceName: serviceName))
         encoder.delegate = self
         // Per-receiver burst ceiling. Only ever loosened by explicit opt-in, so P2P and
         // every untouched connection keep the 1.5x behaviour they shipped with.

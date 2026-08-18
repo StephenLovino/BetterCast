@@ -261,3 +261,7 @@
 "Codexing…" = "Codexing…";
 "Carving your desktop into packets…" = "Découpage du bureau en paquets…";
 "Almost there…" = "Presque fini…";
+
+/* Per-device codec picker */
+"Codec" = "Codec";
+"Default" = "Par défaut";

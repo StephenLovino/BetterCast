@@ -260,3 +260,7 @@
 "Codexing…" = "Codexing…";
 "Carving your desktop into packets…" = "デスクトップをパケットに刻んでいます…";
 "Almost there…" = "もうすぐです…";
+
+/* Per-device codec picker */
+"Codec" = "コーデック";
+"Default" = "デフォルト";

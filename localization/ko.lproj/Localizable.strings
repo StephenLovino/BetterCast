@@ -260,3 +260,7 @@
 "Codexing…" = "Codexing…";
 "Carving your desktop into packets…" = "데스크톱을 패킷으로 조각내는 중…";
 "Almost there…" = "거의 다 됐습니다…";
+
+/* Per-device codec picker */
+"Codec" = "코덱";
+"Default" = "기본값";

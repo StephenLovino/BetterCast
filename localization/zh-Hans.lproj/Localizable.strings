@@ -261,3 +261,7 @@
 "Codexing…" = "Codexing…";
 "Carving your desktop into packets…" = "正在把桌面切成数据包…";
 "Almost there…" = "马上就好…";
+
+/* Per-device codec picker */
+"Codec" = "编解码器";
+"Default" = "默认";
