@@ -26,7 +26,8 @@ class VideoDecoder {
 
     companion object {
         private const val TAG = "VideoDecoder"
-        private const val MIME_TYPE = "video/avc"
+        private const val MIME_AVC = "video/avc"
+        private const val MIME_HEVC = "video/hevc"
         private const val INPUT_DEQUEUE_TIMEOUT_US = 8_000L
     }
 
@@ -39,6 +40,18 @@ class VideoDecoder {
 
     private var cachedSps: ByteArray? = null
     private var cachedPps: ByteArray? = null
+    /// HEVC only — no H.264 equivalent.
+    private var cachedVps: ByteArray? = null
+
+    /**
+     * Which codec the sender is using, sniffed from the stream.
+     *
+     * Deliberately detected rather than negotiated, so an older sender keeps working and
+     * no handshake change is needed. HEVC's VPS (type 32) has no H.264 counterpart, and
+     * the two type encodings — (b >> 1) & 0x3F for HEVC, b & 0x1F for H.264 — do not
+     * collide across the parameter-set values we test.
+     */
+    private var streamIsHevc: Boolean? = null
 
     private var framesDecoded: Long = 0
     private var framesRendered: Long = 0
@@ -116,29 +129,51 @@ class VideoDecoder {
         val nalus = parseNalus(data)
         if (nalus.isEmpty()) return
 
+        if (streamIsHevc == null) {
+            for (n in nalus) {
+                if (n.isEmpty()) continue
+                val hevcType = (n[0].toInt() shr 1) and 0x3F
+                val avcType = n[0].toInt() and 0x1F
+                if (hevcType in 32..34) { streamIsHevc = true; break }
+                if (avcType == 7 || avcType == 8) { streamIsHevc = false; break }
+            }
+            streamIsHevc?.let { Log.i(TAG, "Stream codec detected: ${if (it) "H.265" else "H.264"}") }
+        }
+        // Nothing decodable until a parameter set has identified the codec.
+        val hevc = streamIsHevc ?: return
+
         var sps: ByteArray? = null
         var pps: ByteArray? = null
+        var vps: ByteArray? = null
         val frameNalus = mutableListOf<ByteArray>()
 
         for (nalu in nalus) {
             if (nalu.isEmpty()) continue
-            val naluType = nalu[0].toInt() and 0x1F
-
-            when (naluType) {
-                7 -> { sps = nalu; cachedSps = nalu }
-                8 -> { pps = nalu; cachedPps = nalu }
-                5 -> { frameNalus.add(nalu) }
-                in 1..3 -> { frameNalus.add(nalu) }
+            if (hevc) {
+                when (val t = (nalu[0].toInt() shr 1) and 0x3F) {
+                    32 -> { vps = nalu; cachedVps = nalu }
+                    33 -> { sps = nalu; cachedSps = nalu }
+                    34 -> { pps = nalu; cachedPps = nalu }
+                    else -> if (t <= 31) frameNalus.add(nalu)   // VCL NAL units
+                }
+            } else {
+                when (nalu[0].toInt() and 0x1F) {
+                    7 -> { sps = nalu; cachedSps = nalu }
+                    8 -> { pps = nalu; cachedPps = nalu }
+                    5 -> frameNalus.add(nalu)
+                    in 1..3 -> frameNalus.add(nalu)
+                }
             }
         }
 
-        if (!isConfigured && cachedSps != null && cachedPps != null && surface != null) {
+        val haveParams = cachedSps != null && cachedPps != null && (!hevc || cachedVps != null)
+        if (!isConfigured && haveParams && surface != null) {
             configureCodec(cachedSps!!, cachedPps!!)
         }
 
         if (isStarted && frameNalus.isNotEmpty()) {
-            val annexBData = toAnnexB(sps, pps, frameNalus)
-            frameQueue.put(FrameData(annexBData, ptsUs))
+            val prefix = listOfNotNull(vps, sps, pps)
+            frameQueue.put(FrameData(toAnnexB(prefix, frameNalus), ptsUs))
         }
     }
 
@@ -158,30 +193,19 @@ class VideoDecoder {
         return nalus
     }
 
-    private fun toAnnexB(sps: ByteArray?, pps: ByteArray?, frameNalus: List<ByteArray>): ByteArray {
+    /** Prefix NALs (parameter sets, when present on this frame) then the picture NALs. */
+    private fun toAnnexB(prefix: List<ByteArray>, frameNalus: List<ByteArray>): ByteArray {
         val startCode = byteArrayOf(0x00, 0x00, 0x00, 0x01)
         var totalSize = 0
-
-        if (sps != null) totalSize += 4 + sps.size
-        if (pps != null) totalSize += 4 + pps.size
-        for (nalu in frameNalus) totalSize += 4 + nalu.size
+        for (n in prefix) totalSize += 4 + n.size
+        for (n in frameNalus) totalSize += 4 + n.size
 
         val result = ByteArray(totalSize)
         var offset = 0
-
-        if (sps != null) {
+        for (n in prefix + frameNalus) {
             System.arraycopy(startCode, 0, result, offset, 4); offset += 4
-            System.arraycopy(sps, 0, result, offset, sps.size); offset += sps.size
+            System.arraycopy(n, 0, result, offset, n.size); offset += n.size
         }
-        if (pps != null) {
-            System.arraycopy(startCode, 0, result, offset, 4); offset += 4
-            System.arraycopy(pps, 0, result, offset, pps.size); offset += pps.size
-        }
-        for (nalu in frameNalus) {
-            System.arraycopy(startCode, 0, result, offset, 4); offset += 4
-            System.arraycopy(nalu, 0, result, offset, nalu.size); offset += nalu.size
-        }
-
         return result
     }
 
@@ -198,7 +222,17 @@ class VideoDecoder {
             // made anything larger fail to come up at all — the Windows sender captures
             // the monitor or virtual display at its native size, so 1440p and 4K are
             // routine, while the Mac sender happened to stay at or below 1080p.
-            val dims = SpsParser.parse(sps)
+            val hevc = streamIsHevc == true
+            val mime = if (hevc) MIME_HEVC else MIME_AVC
+            // SpsParser reads H.264 only. HEVC's SPS is a different structure, so fall
+            // back to the last known picture size (or 1080p) and let the codec correct
+            // itself from csd-0 — MediaCodec reports the real size in its output format,
+            // which publishVideoSize already picks up.
+            val dims = if (hevc) {
+                _videoSize.value?.let { SpsParser.Dimensions(it.first, it.second) }
+            } else {
+                SpsParser.parse(sps)
+            }
             val codedWidth = dims?.width ?: 1920
             val codedHeight = dims?.height ?: 1080
             if (dims == null) {
@@ -206,16 +240,29 @@ class VideoDecoder {
             } else {
                 Log.i(TAG, "SPS reports ${codedWidth}x$codedHeight")
             }
-            val format = MediaFormat.createVideoFormat(MIME_TYPE, codedWidth, codedHeight)
+            val format = MediaFormat.createVideoFormat(mime, codedWidth, codedHeight)
 
             val startCode = byteArrayOf(0x00, 0x00, 0x00, 0x01)
-            val csd0 = ByteBuffer.allocate(4 + sps.size)
-            csd0.put(startCode); csd0.put(sps); csd0.flip()
-            format.setByteBuffer("csd-0", csd0)
+            if (hevc) {
+                // HEVC wants one csd-0 holding VPS, SPS and PPS back to back — not the
+                // csd-0/csd-1 split H.264 uses. Getting this wrong is a silent failure:
+                // configure() succeeds and no picture ever appears.
+                val vps = cachedVps ?: ByteArray(0)
+                val csd = ByteBuffer.allocate(12 + vps.size + sps.size + pps.size)
+                if (vps.isNotEmpty()) { csd.put(startCode); csd.put(vps) }
+                csd.put(startCode); csd.put(sps)
+                csd.put(startCode); csd.put(pps)
+                csd.flip()
+                format.setByteBuffer("csd-0", csd)
+            } else {
+                val csd0 = ByteBuffer.allocate(4 + sps.size)
+                csd0.put(startCode); csd0.put(sps); csd0.flip()
+                format.setByteBuffer("csd-0", csd0)
 
-            val csd1 = ByteBuffer.allocate(4 + pps.size)
-            csd1.put(startCode); csd1.put(pps); csd1.flip()
-            format.setByteBuffer("csd-1", csd1)
+                val csd1 = ByteBuffer.allocate(4 + pps.size)
+                csd1.put(startCode); csd1.put(pps); csd1.flip()
+                format.setByteBuffer("csd-1", csd1)
+            }
 
             // Keyframes scale with resolution, and a frame larger than the input buffer
             // is dropped outright in feedDataToDecoder — at 1440p/4K a fixed 1MB ceiling
@@ -246,15 +293,15 @@ class VideoDecoder {
             val lowLatencyName = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
                 !it.isEncoder &&
                 it.name.endsWith(".low_latency") && !it.name.contains(".secure") &&
-                it.supportedTypes.any { t -> t.equals(MIME_TYPE, ignoreCase = true) }
+                it.supportedTypes.any { t -> t.equals(mime, ignoreCase = true) }
             }?.name
 
             decoder = if (lowLatencyName != null) {
                 Log.i(TAG, "Using low-latency decoder: $lowLatencyName")
                 MediaCodec.createByCodecName(lowLatencyName)
             } else {
-                Log.i(TAG, "No low-latency decoder variant; using default for $MIME_TYPE")
-                MediaCodec.createDecoderByType(MIME_TYPE)
+                Log.i(TAG, "No low-latency decoder variant; using default for $mime")
+                MediaCodec.createDecoderByType(mime)
             }
             decoder.configure(format, surface, null, 0)
             decoder.start()
@@ -419,6 +466,8 @@ class VideoDecoder {
         isConfigured = false
         cachedSps = null
         cachedPps = null
+        cachedVps = null
+        streamIsHevc = null
         onKeyframeNeeded?.invoke()
     }
 

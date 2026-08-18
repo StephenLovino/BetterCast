@@ -2,6 +2,14 @@ import Foundation
 import VideoToolbox
 import CoreMedia
 
+/// Which video codec a pipeline encodes with.
+enum StreamCodec: String, CaseIterable, Identifiable {
+    case h264
+    case hevc
+    var id: String { rawValue }
+    var displayName: String { self == .hevc ? "H.265 (HEVC)" : "H.264" }
+}
+
 protocol VideoEncoderDelegate: AnyObject {
     func videoEncoder(_ encoder: VideoEncoder, didEncode data: Data, for connectionId: UUID, isKeyframe: Bool)
 }
@@ -46,6 +54,16 @@ class VideoEncoder {
     // Cache for headers so we can re-send them if needed
     private var cachedSPS: Data?
     private var cachedPPS: Data?
+    /// HEVC only: the video parameter set, which H.264 has no equivalent of.
+    private var cachedVPS: Data?
+
+    /// Which codec this session encodes with.
+    ///
+    /// HEVC carries roughly 30-50% more picture per bit than H.264, which is the single
+    /// largest difference between us and SideScreen — they default to it, we never had
+    /// the option. The container is unchanged: HVCC is length-prefixed exactly like AVCC,
+    /// so framing, the PTS header and the receiver's NALU walk all work as they are.
+    var codec: StreamCodec = .h264
 
     private var pendingKeyFrameRequest = false
     private var pendingKeyFrameSilent = false
@@ -76,7 +94,7 @@ class VideoEncoder {
             allocator: nil,
             width: Int32(width),
             height: Int32(height),
-            codecType: kCMVideoCodecType_H264,
+            codecType: codec == .hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
             encoderSpecification: nil,
             imageBufferAttributes: nil,
             compressedDataAllocator: nil,
@@ -98,7 +116,9 @@ class VideoEncoder {
         
         // Configuration for Low-Latency Real-Time Encoding
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_AutoLevel)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel,
+                             value: codec == .hevc ? kVTProfileLevel_HEVC_Main_AutoLevel
+                                                   : kVTProfileLevel_H264_High_AutoLevel)
         
         let bitrateCF = bitrate as CFNumber
         // DataRateLimits uses BYTES per period. Shorter windows = tighter per-frame control.
@@ -107,7 +127,14 @@ class VideoEncoder {
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
 
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateCF)
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
+        // Only where it earns its keep. On AWDL a tight window is what stops peer-to-peer
+        // buffer bloat, and on the WiFi-ADB tunnel it stops kernel buffer growth. On plain
+        // infrastructure it is a burst ceiling and nothing else, and a burst is exactly
+        // what a moving picture needs — SideScreen deleted the same property outright,
+        // noting it "was causing bursty traffic and buffer stalls".
+        if rateLimitWindow < 1.0 {
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
+        }
         
         // Keyframe Control — shorter interval = faster error recovery at cost of bandwidth
         let maxKeyFrameInterval = Int(keyframeIntervalSeconds * Double(expectedFPS))
@@ -144,6 +171,7 @@ class VideoEncoder {
         guard let session = compressionSession, newBitrate != currentBitrate else { return }
         currentBitrate = newBitrate
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: newBitrate as CFNumber)
+        guard rateLimitWindow < 1.0 else { return }   // infrastructure runs uncapped
         let bytesPerWindow = Int(Double(newBitrate / 8) * burstMultiplier * rateLimitWindow)
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
@@ -153,6 +181,7 @@ class VideoEncoder {
     func setBurstMultiplier(_ value: Double) {
         guard let session = compressionSession, value != burstMultiplier else { return }
         burstMultiplier = value
+        guard rateLimitWindow < 1.0 else { return }   // infrastructure runs uncapped
         let bytesPerWindow = Int(Double(currentBitrate / 8) * burstMultiplier * rateLimitWindow)
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
@@ -281,14 +310,16 @@ class VideoEncoder {
             
             if let description = CMSampleBufferGetFormatDescription(sampleBuffer) {
                 var pCount: size_t = 0
-                CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil, parameterSetCountOut: &pCount, nalUnitHeaderLengthOut: nil)
-                
-                if pCount >= 2 {
+                parameterSet(description, 0, nil, nil, &pCount)
+
+                // HEVC ships three parameter sets (VPS, SPS, PPS); H.264 ships two.
+                let requiredSets = codec == .hevc ? 3 : 2
+                if pCount >= requiredSets {
                     // Extract from description
                      for i in 0..<pCount {
                         var pointer: UnsafePointer<UInt8>?
                         var size: Int = 0
-                        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: i, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
+                        parameterSet(description, i, &pointer, &size, nil)
                         if let pointer = pointer {
                             var len = UInt32(size).bigEndian
                             coalescedData.append(Data(bytes: &len, count: 4))
@@ -296,7 +327,12 @@ class VideoEncoder {
                         }
                     }
                 } else if let sps = cachedSPS, let pps = cachedPPS {
-                    // Inject from cache
+                    // Inject from cache. Order matters: a decoder needs VPS before SPS.
+                    if codec == .hevc, let vps = cachedVPS {
+                        var lenVPS = UInt32(vps.count).bigEndian
+                        coalescedData.append(Data(bytes: &lenVPS, count: 4))
+                        coalescedData.append(vps)
+                    }
                     var lenSPS = UInt32(sps.count).bigEndian
                     coalescedData.append(Data(bytes: &lenSPS, count: 4))
                     coalescedData.append(sps)
@@ -352,21 +388,46 @@ class VideoEncoder {
         }
     }
     
+    /// Count/fetch parameter sets for whichever codec this session uses.
+    /// HEVC exposes three (VPS, SPS, PPS) where H.264 exposes two.
+    private func parameterSet(_ description: CMVideoFormatDescription, _ index: Int,
+                              _ pointer: UnsafeMutablePointer<UnsafePointer<UInt8>?>?,
+                              _ size: UnsafeMutablePointer<Int>?,
+                              _ count: UnsafeMutablePointer<Int>?) {
+        if codec == .hevc {
+            CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(description, parameterSetIndex: index,
+                parameterSetPointerOut: pointer, parameterSetSizeOut: size,
+                parameterSetCountOut: count, nalUnitHeaderLengthOut: nil)
+        } else {
+            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: index,
+                parameterSetPointerOut: pointer, parameterSetSizeOut: size,
+                parameterSetCountOut: count, nalUnitHeaderLengthOut: nil)
+        }
+    }
+
     private func extractAndCacheParameterSets(from description: CMVideoFormatDescription) {
         var parameterSetCount: size_t = 0
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil, parameterSetCountOut: &parameterSetCount, nalUnitHeaderLengthOut: nil)
-        
-        if parameterSetCount < 2 { return }
-        
-        // Extract SPS (Index 0)
+        parameterSet(description, 0, nil, nil, &parameterSetCount)
+
+        // HEVC: [0]=VPS, [1]=SPS, [2]=PPS. H.264: [0]=SPS, [1]=PPS.
+        let spsIndex = codec == .hevc ? 1 : 0
+        let ppsIndex = codec == .hevc ? 2 : 1
+        if parameterSetCount < (codec == .hevc ? 3 : 2) { return }
+
+        if codec == .hevc {
+            var vpsPointer: UnsafePointer<UInt8>?
+            var vpsSize: Int = 0
+            parameterSet(description, 0, &vpsPointer, &vpsSize, nil)
+            if let p = vpsPointer { cachedVPS = Data(bytes: p, count: vpsSize) }
+        }
+
         var spsPointer: UnsafePointer<UInt8>?
         var spsSize: Int = 0
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 0, parameterSetPointerOut: &spsPointer, parameterSetSizeOut: &spsSize, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
-        
-        // Extract PPS (Index 1)
+        parameterSet(description, spsIndex, &spsPointer, &spsSize, nil)
+
         var ppsPointer: UnsafePointer<UInt8>?
         var ppsSize: Int = 0
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 1, parameterSetPointerOut: &ppsPointer, parameterSetSizeOut: &ppsSize, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
+        parameterSet(description, ppsIndex, &ppsPointer, &ppsSize, nil)
         
         if let spsP = spsPointer, let ppsP = ppsPointer {
             let spsData = Data(bytes: spsP, count: spsSize)

@@ -1373,6 +1373,14 @@ struct DetailPanelView: View {
                 }
 
                 HStack {
+                    Picker("Codec", selection: $client.selectedCodec) {
+                        Text("H.264").tag(StreamCodec.h264)
+                        Text("H.265 (HEVC)").tag(StreamCodec.hevc)
+                    }
+                    InfoTip(text: "H.265 carries noticeably more detail for the same bitrate, which shows up most during motion and scene changes. Needs a receiver that can decode it — Android 8+, iOS, and Macs all can. Reconnect to apply.")
+                }
+
+                HStack {
                     Picker("Frame Rate", selection: $client.selectedFPS) {
                         Text("Auto (60)").tag(0)
                         Text("30 FPS").tag(30)
@@ -2714,6 +2722,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             browser?.cancel()
             startBrowsing()
         }
+    }
+
+    /// Codec for new pipelines. Reconnect to apply — the session is built at pipeline start.
+    @Published var selectedCodec: StreamCodec =
+        StreamCodec(rawValue: UserDefaults.standard.string(forKey: "streamCodec") ?? "") ?? .h264 {
+        didSet { UserDefaults.standard.set(selectedCodec.rawValue, forKey: "streamCodec") }
     }
 
     @Published var selectedQuality: StreamQuality = NetworkClient.loadQuality() {
@@ -5041,7 +5055,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         let hasReportedDims = pipelines[connectionId]?.reportedScreenWidth != nil
-        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, P2P: \(isP2P)]")
+        LogManager.shared.log("Sender: Pipeline \(serviceName): \(captureWidth)x\(captureHeight)\(hasReportedDims ? " (device)" : "") @ \(selectedQuality.name) [\(fps) FPS, \(selectedCodec.displayName), P2P: \(isP2P)]")
 
         // P2P: tight 0.1s rate limit window prevents AWDL buffer bloat.
         // Loopback (ADB tunnel): USB has ~280Mbps headroom — a tight window made VideoToolbox
@@ -5053,6 +5067,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let isWiFiADBPath = pipelines[connectionId]?.isWiFiADB ?? false
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
         let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow)
+        encoder.codec = selectedCodec
         encoder.delegate = self
         // Per-receiver burst ceiling. Only ever loosened by explicit opt-in, so P2P and
         // every untouched connection keep the 1.5x behaviour they shipped with.
