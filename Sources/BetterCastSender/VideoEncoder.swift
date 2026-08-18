@@ -30,6 +30,12 @@ class VideoEncoder {
     // (fps, Mbps, avg frame age) and measured the same way — capture to emit — because
     // comparing our every-300-frames byte dump against their per-second aggregate was
     // guesswork. Reset by the 1 Hz stats pass that prints them.
+    /// Exponentially smoothed measured throughput, bits per second. Fed by the 1 Hz
+    /// stats pass. Exists so the shared-radio budget can be split by what each pipeline
+    /// actually uses instead of an equal cut: an idle iPhone was reserving half the
+    /// budget while spending none of it, and the Android was crushed against the rest.
+    var smoothedBps: Double = 0
+
     var statsFrames: Int = 0
     var statsBytes: Int = 0
     var statsAgeSumMs: Double = 0

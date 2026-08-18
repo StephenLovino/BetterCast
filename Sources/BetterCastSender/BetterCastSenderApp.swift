@@ -4627,6 +4627,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             guard let enc = p.videoEncoder, enc.statsFrames > 0 else { continue }
             let fps = Double(enc.statsFrames)
             let mbps = Double(enc.statsBytes) * 8.0 / 1_000_000.0
+            // 0.7/0.3 smoothing: reacts within ~3s, ignores single-second spikes.
+            enc.smoothedBps = enc.smoothedBps * 0.7 + Double(enc.statsBytes) * 8.0 * 0.3
             let avgAge = enc.statsAgeCount > 0 ? enc.statsAgeSumMs / Double(enc.statsAgeCount) : 0
             LogManager.shared.log(String(format: "Pipeline %@: %.1ffps, %.1fMbps, avg frame age: %.1fms, skipped: %d, target: %.1fMbps",
                 p.service.name, fps, mbps, avgAge, enc.adaptDrops, Double(enc.currentBitrate) / 1_000_000.0))
@@ -4654,21 +4656,34 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         //
         // USB ADB is excluded: it is a cable and takes nothing from the radio.
         let radioPipelines = pipelines.values.filter { !$0.isLoopback || $0.isWiFiADB }
-        let sharedCeiling: Int = radioPipelines.count > 1
-            ? max(floorBitrate * 2, selectedQuality.rawValue / radioPipelines.count)
-            : selectedQuality.rawValue
-
+        // Demand-based sharing rather than an equal cut. Each pipeline's ceiling is the
+        // full budget minus what the OTHERS are measured to be using, clamped between
+        // its fair share and the full budget. An idle screen spends almost nothing, so
+        // its neighbour can borrow nearly everything; the moment the idle one wakes up,
+        // its own ceiling is still guaranteed at fair share and the borrower is pulled
+        // back within a couple of smoothing periods. With one receiver this reduces to
+        // exactly the old behaviour.
+        let budget = Double(selectedQuality.rawValue)
+        let fairShare = max(Double(floorBitrate * 2), budget / Double(max(radioPipelines.count, 1)))
         for p in radioPipelines {
             guard let enc = p.videoEncoder else { continue }
-            if enc.maxBitrate != sharedCeiling {
-                enc.maxBitrate = sharedCeiling
-                LogManager.shared.log(String(format: "Sender: Bitrate ceiling %@: %.1f Mbps (%d wireless receivers)",
-                    p.service.name, Double(sharedCeiling) / 1_000_000, radioPipelines.count))
+            let othersUse = radioPipelines
+                .filter { $0.service.name != p.service.name }
+                .compactMap { $0.videoEncoder?.smoothedBps }
+                .reduce(0, +)
+            let ceiling = Int(min(budget, max(fairShare, budget - othersUse)))
+            if enc.maxBitrate != ceiling {
+                let announce = abs(Double(enc.maxBitrate) - Double(ceiling)) > 2_000_000
+                enc.maxBitrate = ceiling
+                if announce {
+                    LogManager.shared.log(String(format: "Sender: Bitrate ceiling %@: %.1f Mbps (%d wireless receivers, others using %.1f)",
+                        p.service.name, Double(ceiling) / 1_000_000, radioPipelines.count, othersUse / 1_000_000))
+                }
             }
             // Pull an over-budget stream down immediately. P2P has no drop signal of its
             // own to steer by, so this is the only thing that makes it yield.
-            if enc.currentBitrate > sharedCeiling {
-                enc.setTargetBitrate(sharedCeiling)
+            if enc.currentBitrate > ceiling {
+                enc.setTargetBitrate(ceiling)
             }
         }
 
