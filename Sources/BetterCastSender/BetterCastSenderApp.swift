@@ -4522,7 +4522,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             let fps = Double(enc.statsFrames)
             let mbps = Double(enc.statsBytes) * 8.0 / 1_000_000.0
             let avgAge = enc.statsAgeCount > 0 ? enc.statsAgeSumMs / Double(enc.statsAgeCount) : 0
-            LogManager.shared.log(String(format: "Pipeline %@: %.1ffps, %.1fMbps, avg frame age: %.1fms, dropped: %d, target: %.1fMbps",
+            LogManager.shared.log(String(format: "Pipeline %@: %.1ffps, %.1fMbps, avg frame age: %.1fms, skipped: %d, target: %.1fMbps",
                 p.service.name, fps, mbps, avgAge, enc.adaptDrops, Double(enc.currentBitrate) / 1_000_000.0))
             enc.statsFrames = 0
             enc.statsBytes = 0
@@ -5145,22 +5145,17 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             // Counters live on the encoder (a class) — mutating them here, on the encoder
             // callback thread, must NOT touch the shared `pipelines` dictionary.
             encoder.adaptFrames += 1
-            if !isKeyframe && pipeline.pendingSends >= NetworkClient.maxSendsInFlight {
-                // Dropping this P-frame leaves the decoder unable to reconstruct
-                // subsequent frames → blocky pixelation until the next keyframe. On
-                // reliable TCP that's the real source of "pixelation", not packet loss.
-                // Request a keyframe (throttled in the encoder) so the picture resyncs in
-                // a fraction of a second, and count the drop so adaptive bitrate backs off.
-                //
-                // Only for isolated drops, though. When the radio is time-slicing to AWDL
-                // the sends stop completing altogether — measured runs of 58/62 and 62/65
-                // drops — and asking for a keyframe on each one starts a storm: the
-                // throttle still allows three per second, each keyframe is far larger than
-                // a P-frame, and at 2 Mbps they consume most of the budget while taking
-                // even longer to push through a link that is already blocked. That feeds
-                // back into more drops. During a blackout, stop asking and wait for the
-                // link; the receiver requests its own keyframe on the gap once frames flow
-                // again.
+
+            // Encoded frames are no longer dropped for ordinary congestion. Flow control
+            // moved to BEFORE the encoder (VideoEncoder.encodeFrame gates on
+            // sendsInFlight), where skipping a frame cannot break the reference chain —
+            // that gate is why this path rarely sees more than two sends in flight now.
+            // What remains here is a blackout guard only: when the radio stops completing
+            // sends altogether (measured runs of 58/62 drops while time-slicing to AWDL),
+            // queuing more encoded frames just buys seconds of latency, so beyond eight
+            // in flight the frame is abandoned and a resync keyframe is requested. The
+            // request throttle and the consecutive-drop cap prevent a keyframe storm.
+            if !isKeyframe && encoder.sendsInFlight >= 8 {
                 encoder.consecutiveDrops += 1
                 if encoder.consecutiveDrops <= 3 {
                     encoder.forceKeyframe(silent: true)
@@ -5257,6 +5252,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             // loopback/P2P was both pointless and the source of the crash, made far more likely
             // by the steady 62fps frame pump. Write it only for infra, and only on the main thread.
             if isInfra {
+                // Synchronous, on this thread: the pre-encode gate reads it from the
+                // capture path, so it cannot lag behind a main-queue hop.
+                encoder.sendStarted()
                 let nowNs = DispatchTime.now().uptimeNanoseconds
                 DispatchQueue.main.async { [weak self] in
                     self?.pipelines[connectionId]?.pendingSends += 1
@@ -5267,6 +5265,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
             pipeline.connection.send(content: packet, completion: .contentProcessed { [weak self] error in
                 if isInfra {
+                    encoder.sendFinished()
                     DispatchQueue.main.async { [weak self] in
                         guard let self = self, var p = self.pipelines[connectionId] else { return }
                         p.pendingSends = max(0, p.pendingSends - 1)

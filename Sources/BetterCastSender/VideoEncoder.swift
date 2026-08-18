@@ -38,6 +38,16 @@ class VideoEncoder {
     private var captureTimesNs: [Int64: UInt64] = [:]
     private let captureTimesLock = NSLock()
 
+    // Sends currently in flight on this pipeline's connection. Written from the encoder
+    // callback thread (send start) and the network queue (send completion), hence the
+    // lock. Only the infrastructure path ever increments it, so on P2P and USB it stays
+    // zero and the pre-encode gate below can never fire there.
+    private var inFlightSends: Int = 0
+    private let inFlightLock = NSLock()
+    func sendStarted() { inFlightLock.lock(); inFlightSends += 1; inFlightLock.unlock() }
+    func sendFinished() { inFlightLock.lock(); inFlightSends = max(0, inFlightSends - 1); inFlightLock.unlock() }
+    var sendsInFlight: Int { inFlightLock.lock(); defer { inFlightLock.unlock() }; return inFlightSends }
+
     var adaptFrames: Int = 0         // frames seen this window (infrastructure path)
     var adaptDrops: Int = 0          // frames dropped this window (backpressure)
     /// Drop ratio at the previous cut, or -1 when no cut is in progress. Lets the
@@ -231,6 +241,19 @@ class VideoEncoder {
 
     func encodeFrame(imageBuffer: CVImageBuffer, pts: CMTime, duration: CMTime) {
         guard let session = compressionSession else { return }
+
+        // Flow control belongs BEFORE the encoder, not after it (SideScreen's design).
+        // A frame skipped here was never encoded, so the next encoded frame still
+        // references the last one that was — the reference chain is intact and the
+        // receiver sees a briefly lower frame rate, which is invisible. Dropping an
+        // already-encoded frame instead breaks the chain and pixelates the picture
+        // until the next keyframe, which was the "flaky whenever the output moves".
+        // Keyframe requests always pass: they exist to resync a struggling link.
+        if frameCount > 0 && !pendingKeyFrameRequest && sendsInFlight >= 2 {
+            adaptFrames += 1
+            adaptDrops += 1
+            return
+        }
         frameCount += 1
         // Advance the monotonic PTS clock the repeat pump derives its timestamps from.
         if pts.seconds.isFinite {
