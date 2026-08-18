@@ -2564,7 +2564,18 @@ struct ConnectionPipeline {
     var isP2P: Bool = false
     // Loopback connections (ADB tunnel via lo0) — high bandwidth, skip backpressure
     var isLoopback: Bool = false
-    // TCP backpressure: skip frames while a send is still in flight
+    // TCP backpressure: how many sends are still in flight.
+    //
+    // This was a Bool, and any frame arriving while one send was outstanding got dropped.
+    // Dropping a P-frame breaks the decoder's reference chain, so the picture pixelates
+    // until the next keyframe — measured at 1-11 drops per second during motion, which is
+    // continuous visible corruption. SideScreen never drops (its log reads "dropped: 0"
+    // throughout) and simply lets a couple of frames queue.
+    //
+    // Our own frame age sits at 6-11ms against their 8-13ms, so we were destroying picture
+    // quality to defend a latency budget we were nowhere near spending. Allow a shallow
+    // queue and only drop once it is genuinely backing up.
+    var pendingSends: Int = 0
     var sendInProgress: Bool = false
     // Time-based send pacing for WiFi ADB (prevents kernel buffer bloat)
     var lastSendTimeNs: UInt64 = 0
@@ -5082,6 +5093,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     }
     
     // VideoEncoderDelegate - Send to the specific connection that owns this encoder
+    /// How many sends may be outstanding before we start dropping P-frames.
+    ///
+    /// Zero-tolerance backpressure corrupts the picture; unbounded queuing grows latency
+    /// without limit. Two matches the depth SideScreen allows, and at ~33fps costs at most
+    /// ~60ms of buffering in the worst case, against the 6-11ms we measure today.
+    static let maxSendsInFlight = 2
+
     private var encodedFrameCount: Int = 0
 
     func videoEncoder(_ encoder: VideoEncoder, didEncode data: Data, for connectionId: UUID, isKeyframe: Bool) {
@@ -5091,7 +5109,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         encoder.statsFrames += 1
         encoder.statsBytes += data.count
         if encodedFrameCount <= 3 || encodedFrameCount % 300 == 0 {
-            LogManager.shared.log("Sender: Sending frame #\(encodedFrameCount) (\(data.count) bytes, KF: \(isKeyframe), sendInProgress: \(pipeline.sendInProgress)) to \(pipeline.service.name)")
+            LogManager.shared.log("Sender: Sending frame #\(encodedFrameCount) (\(data.count) bytes, KF: \(isKeyframe), pending: \(pipeline.pendingSends)) to \(pipeline.service.name)")
         }
 
         // Determine if this connection uses TCP framing (ADB/localhost always TCP, else follow global)
@@ -5113,7 +5131,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             // Counters live on the encoder (a class) — mutating them here, on the encoder
             // callback thread, must NOT touch the shared `pipelines` dictionary.
             encoder.adaptFrames += 1
-            if !isKeyframe && pipeline.sendInProgress {
+            if !isKeyframe && pipeline.pendingSends >= NetworkClient.maxSendsInFlight {
                 // Dropping this P-frame leaves the decoder unable to reconstruct
                 // subsequent frames → blocky pixelation until the next keyframe. On
                 // reliable TCP that's the real source of "pixelation", not packet loss.
@@ -5227,6 +5245,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             if isInfra {
                 let nowNs = DispatchTime.now().uptimeNanoseconds
                 DispatchQueue.main.async { [weak self] in
+                    self?.pipelines[connectionId]?.pendingSends += 1
                     self?.pipelines[connectionId]?.sendInProgress = true
                     self?.pipelines[connectionId]?.lastSendTimeNs = nowNs
                 }
@@ -5235,7 +5254,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             pipeline.connection.send(content: packet, completion: .contentProcessed { [weak self] error in
                 if isInfra {
                     DispatchQueue.main.async { [weak self] in
-                        self?.pipelines[connectionId]?.sendInProgress = false
+                        guard let self = self, var p = self.pipelines[connectionId] else { return }
+                        p.pendingSends = max(0, p.pendingSends - 1)
+                        p.sendInProgress = p.pendingSends > 0
+                        self.pipelines[connectionId] = p
                     }
                 }
                 if let error = error {
