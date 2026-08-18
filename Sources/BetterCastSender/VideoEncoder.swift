@@ -63,7 +63,7 @@ class VideoEncoder {
     /// largest difference between us and SideScreen — they default to it, we never had
     /// the option. The container is unchanged: HVCC is length-prefixed exactly like AVCC,
     /// so framing, the PTS header and the receiver's NALU walk all work as they are.
-    var codec: StreamCodec = .h264
+    let codec: StreamCodec
 
     private var pendingKeyFrameRequest = false
     private var pendingKeyFrameSilent = false
@@ -82,7 +82,13 @@ class VideoEncoder {
     /// burstier traffic — which adaptive bitrate is there to absorb.
     var burstMultiplier: Double = 1.5
 
-    init(connectionId: UUID, width: Int, height: Int, bitrate: Int = 20_000_000, expectedFPS: Int = 120, keyframeIntervalSeconds: Double = 10.0, rateLimitWindow: Double = 1.0) {
+    // codec is an init parameter, not a property set afterwards: the compression session
+    // is built right here, so assigning it later left the session encoding H.264 while
+    // every parameter-set read used the HEVC API. Those return nothing for an H.264
+    // description, so no VPS/SPS/PPS was ever cached or bundled and the receiver sat on a
+    // black screen with no way to configure its decoder.
+    init(connectionId: UUID, width: Int, height: Int, bitrate: Int = 20_000_000, expectedFPS: Int = 120, keyframeIntervalSeconds: Double = 10.0, rateLimitWindow: Double = 1.0, codec: StreamCodec = .h264) {
+        self.codec = codec
         self.connectionId = connectionId
         self.bitrate = bitrate
         self.currentBitrate = bitrate
@@ -148,7 +154,7 @@ class VideoEncoder {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: 1 as CFNumber)
 
         VTCompressionSessionPrepareToEncodeFrames(session)
-        LogManager.shared.log("VideoEncoder: Initialized (\(bitrate/1_000_000)Mbps, KF every \(keyframeIntervalSeconds)s)")
+        LogManager.shared.log("VideoEncoder: Initialized (\(codec == .hevc ? "H.265" : "H.264"), \(bitrate/1_000_000)Mbps, KF every \(keyframeIntervalSeconds)s)")
     }
     
     /// Request the next encodable frame be an IDR keyframe.

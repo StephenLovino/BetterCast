@@ -5066,8 +5066,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Infrastructure: loose 1.0s window lets the encoder handle burst scenes naturally.
         let isWiFiADBPath = pipelines[connectionId]?.isWiFiADB ?? false
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
-        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow)
-        encoder.codec = selectedCodec
+        let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: selectedCodec)
         encoder.delegate = self
         // Per-receiver burst ceiling. Only ever loosened by explicit opt-in, so P2P and
         // every untouched connection keep the 1.5x behaviour they shipped with.
