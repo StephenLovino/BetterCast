@@ -2504,6 +2504,13 @@ struct DiscoveredService: Identifiable {
     let id = UUID()
     let name: String
     let endpoint: NWEndpoint
+    /// Whether this service has ever been browsed on an AWDL/link-local interface.
+    ///
+    /// Only Apple devices answer on awdl0. Forcing a peer-to-peer dial at anything that
+    /// has never appeared there costs two five-second timeouts before the infrastructure
+    /// fallback — which is what an Android phone used to pay on every single connect.
+    /// Sticky, because AWDL is an on-demand radio and may not be up on the first browse.
+    var seenOnAWDL: Bool = false
 }
 
 enum StreamQuality: Int, CaseIterable, Identifiable {
@@ -2802,7 +2809,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 // Build list from mDNS browse results
                 var services = results.compactMap { result -> DiscoveredService? in
                     if case .service(let name, _, _, _) = result.endpoint {
-                        return DiscoveredService(name: name, endpoint: result.endpoint)
+                        let onAWDL = result.interfaces.contains {
+                            $0.name.contains("awdl") || $0.name.contains("llw")
+                        }
+                        // Sticky: once seen on AWDL, stay seen. The radio sleeps.
+                        let previously = self.foundServices.first(where: { $0.name == name })?.seenOnAWDL ?? false
+                        return DiscoveredService(name: name, endpoint: result.endpoint,
+                                                 seenOnAWDL: onAWDL || previously)
                     }
                     return nil
                 }
@@ -3125,7 +3138,23 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let nameLower = service.name.lowercased()
         // Manual IP connections (e.g. "10.0.0.5:51820") are never Apple receivers
         let isManualIP = service.name.contains(":") && service.name.first?.isNumber == true
-        let isAppleReceiver = !isManualIP && !nameLower.contains("android") && !nameLower.contains("windows") && !nameLower.contains("linux")
+        let nameLooksApple = !isManualIP && !nameLower.contains("android") && !nameLower.contains("windows") && !nameLower.contains("linux")
+
+        // Names are a terrible platform signal: an Android phone advertises
+        // "MANUFACTURER MODEL", so a Lenovo Legion Y70 contains none of the words above
+        // and used to be dialled as an Apple device — forcing AWDL, timing out twice,
+        // and only reaching the phone twelve seconds later over infrastructure.
+        //
+        // Reachability is the honest signal. Only Apple devices answer on awdl0, so a
+        // peer-to-peer dial is worth attempting when the service has actually been seen
+        // there, or when it advertises a separate " P2P" instance. Anything else goes
+        // straight to infrastructure.
+        let hasP2PEndpoint = foundServices.contains { $0.name == service.name + " P2P" }
+        let awdlReachable = foundServices.first(where: { $0.name == service.name })?.seenOnAWDL ?? false
+        let isAppleReceiver = nameLooksApple && (hasP2PEndpoint || awdlReachable)
+        if nameLooksApple && !isAppleReceiver {
+            LogManager.shared.log("Sender: \(service.name) never seen on AWDL — dialling infrastructure directly")
+        }
 
         let parameters: NWParameters
         switch connectionType {
