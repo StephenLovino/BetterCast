@@ -4486,7 +4486,28 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     /// bytes still cross Wi-Fi, so it is steered like any other Wi-Fi link. Backs off fast
     /// on drops, recovers gently when clear — hysteresis prevents oscillation. Floor keeps
     /// motion smooth over a weak link.
+    /// One line per receiver per second: fps, Mbps, average capture-to-emit age, drops.
+    ///
+    /// Same four numbers SideScreen prints, measured the same way, so the two logs can be
+    /// laid side by side. Ours previously logged a byte count every 300 frames, which at
+    /// 60fps is one sample per five seconds and tells you nothing about a moving scene.
+    private func logPipelineStats() {
+        for p in pipelines.values {
+            guard let enc = p.videoEncoder, enc.statsFrames > 0 else { continue }
+            let fps = Double(enc.statsFrames)
+            let mbps = Double(enc.statsBytes) * 8.0 / 1_000_000.0
+            let avgAge = enc.statsAgeCount > 0 ? enc.statsAgeSumMs / Double(enc.statsAgeCount) : 0
+            LogManager.shared.log(String(format: "Pipeline %@: %.1ffps, %.1fMbps, avg frame age: %.1fms, dropped: %d, target: %.1fMbps",
+                p.service.name, fps, mbps, avgAge, enc.adaptDrops, Double(enc.currentBitrate) / 1_000_000.0))
+            enc.statsFrames = 0
+            enc.statsBytes = 0
+            enc.statsAgeSumMs = 0
+            enc.statsAgeCount = 0
+        }
+    }
+
     private func adaptBitrates() {
+        logPipelineStats()
         let floorBitrate = 2_000_000 // 2 Mbps — smooth-but-soft rather than blocky
 
         // Every wireless receiver shares one radio on this Mac, AWDL included: the Wi-Fi
@@ -5067,6 +5088,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         guard let pipeline = pipelines[connectionId] else { return }
 
         encodedFrameCount += 1
+        encoder.statsFrames += 1
+        encoder.statsBytes += data.count
         if encodedFrameCount <= 3 || encodedFrameCount % 300 == 0 {
             LogManager.shared.log("Sender: Sending frame #\(encodedFrameCount) (\(data.count) bytes, KF: \(isKeyframe), sendInProgress: \(pipeline.sendInProgress)) to \(pipeline.service.name)")
         }

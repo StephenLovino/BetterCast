@@ -18,6 +18,18 @@ class VideoEncoder {
     // dictionary — so the video-encoder callback thread can update it without mutating
     // a shared Swift dictionary concurrently with the main thread (which corrupts the heap).
     var maxBitrate: Int = 0          // ceiling = user-selected quality
+    // Per-second pipeline stats. Deliberately the same three numbers SideScreen logs
+    // (fps, Mbps, avg frame age) and measured the same way — capture to emit — because
+    // comparing our every-300-frames byte dump against their per-second aggregate was
+    // guesswork. Reset by the 1 Hz stats pass that prints them.
+    var statsFrames: Int = 0
+    var statsBytes: Int = 0
+    var statsAgeSumMs: Double = 0
+    var statsAgeCount: Int = 0
+    /// Capture wall-clock per PTS, so age survives frames VideoToolbox never emits.
+    private var captureTimesNs: [Int64: UInt64] = [:]
+    private let captureTimesLock = NSLock()
+
     var adaptFrames: Int = 0         // frames seen this window (infrastructure path)
     var adaptDrops: Int = 0          // frames dropped this window (backpressure)
     /// Drop ratio at the previous cut, or -1 when no cut is in progress. Lets the
@@ -214,6 +226,12 @@ class VideoEncoder {
              pendingKeyFrameSilent = false
         }
         
+        captureTimesLock.lock()
+        // Bound it: a stalled encoder must not grow this without limit.
+        if captureTimesNs.count > 256 { captureTimesNs.removeAll() }
+        captureTimesNs[pts.value] = DispatchTime.now().uptimeNanoseconds
+        captureTimesLock.unlock()
+
         let status = VTCompressionSessionEncodeFrame(
             session,
             imageBuffer: imageBuffer,
@@ -236,6 +254,15 @@ class VideoEncoder {
         
         // Extract timestamp
         let presentationTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+        // Age = capture to emit, matching how SideScreen measures it.
+        captureTimesLock.lock()
+        if let capturedAt = captureTimesNs.removeValue(forKey: presentationTimeStamp.value) {
+            let ageMs = Double(DispatchTime.now().uptimeNanoseconds - capturedAt) / 1_000_000.0
+            statsAgeSumMs += ageMs
+            statsAgeCount += 1
+        }
+        captureTimesLock.unlock()
         
         // Check if keyframe using Swift casting (Safe)
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]]
