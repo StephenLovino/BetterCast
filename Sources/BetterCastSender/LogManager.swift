@@ -96,6 +96,16 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v18", date: "2026-08-19", highlights: [
+            "Wi-Fi streams no longer pixelate when things move — congestion now costs a moment of smoothness instead of picture corruption",
+            "H.265 (HEVC) support: noticeably more detail at the same bitrate. Set it per device in the device's settings; Mac and Android receivers decode it",
+            "New 5K Retina profile — use an old 5K iMac as a wireless or Thunderbolt display (the Target Display Mode revival)",
+            "Multiple receivers now share bandwidth by what each actually uses, so an idle device no longer starves a busy one",
+            "Android connects ~6 seconds faster (it was being dialled as an Apple device first)",
+            "Per-device Smooth Motion option for burst-heavy scenes",
+            "Connecting now shows progress instead of a dead button",
+            "Logs gained per-second stream stats (fps, Mbps, frame age) for much easier troubleshooting",
+        ]),
         Entry(version: "v17", date: "2026-08-18", highlights: [
             // Listed under v16 until now, but the v16 build never actually contained the
             // .lproj resources — they landed after that tag. This is the first release
