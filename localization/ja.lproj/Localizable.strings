@@ -250,3 +250,13 @@
 /* Smooth motion (per-receiver burst ceiling) */
 "Smooth Motion" = "動きの滑らかさ優先";
 "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "上限を一定に保つのではなく、画面が動いた瞬間にビットを多く割り当てます。Wi-Fi でのシーン切り替えや速い動きのぼやけが改善しますが、トラフィックは不安定になります。即時反映されます。";
+
+/* Connecting banner */
+"Connecting…" = "接続中…";
+"Waking up the Wi-Fi radio…" = "Wi-Fi の電波を起こしています…";
+"Negotiating codecs…" = "コーデックを交渉中…";
+"Tokenmaxxing…" = "Tokenmaxxing…";
+"Clauding…" = "Clauding…";
+"Codexing…" = "Codexing…";
+"Carving your desktop into packets…" = "デスクトップをパケットに刻んでいます…";
+"Almost there…" = "もうすぐです…";

@@ -251,3 +251,13 @@
 /* Smooth motion (per-receiver burst ceiling) */
 "Smooth Motion" = "Mouvement fluide";
 "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "Laisse l\'encodeur consacrer plus de débit dès que l\'image bouge, au lieu de tenir un plafond constant. Corrige le flou lors des changements de scène et des mouvements rapides en Wi-Fi, au prix d\'un trafic plus irrégulier. Effet immédiat.";
+
+/* Connecting banner */
+"Connecting…" = "Connexion…";
+"Waking up the Wi-Fi radio…" = "Réveil de la radio Wi-Fi…";
+"Negotiating codecs…" = "Négociation des codecs…";
+"Tokenmaxxing…" = "Tokenmaxxing…";
+"Clauding…" = "Clauding…";
+"Codexing…" = "Codexing…";
+"Carving your desktop into packets…" = "Découpage du bureau en paquets…";
+"Almost there…" = "Presque fini…";

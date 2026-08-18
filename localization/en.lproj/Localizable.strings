@@ -252,3 +252,13 @@
 /* Smooth motion (per-receiver burst ceiling) */
 "Smooth Motion" = "Smooth Motion";
 "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately.";
+
+/* Connecting banner */
+"Connecting…" = "Connecting…";
+"Waking up the Wi-Fi radio…" = "Waking up the Wi-Fi radio…";
+"Negotiating codecs…" = "Negotiating codecs…";
+"Tokenmaxxing…" = "Tokenmaxxing…";
+"Clauding…" = "Clauding…";
+"Codexing…" = "Codexing…";
+"Carving your desktop into packets…" = "Carving your desktop into packets…";
+"Almost there…" = "Almost there…";

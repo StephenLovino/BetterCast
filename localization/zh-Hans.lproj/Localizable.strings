@@ -251,3 +251,13 @@
 /* Smooth motion (per-receiver burst ceiling) */
 "Smooth Motion" = "流畅动态";
 "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "让编码器在画面移动时投入更多码率，而不是死守固定上限。可修复 Wi-Fi 下场景切换和快速动作时的模糊，代价是流量更不平稳。立即生效。";
+
+/* Connecting banner */
+"Connecting…" = "正在连接…";
+"Waking up the Wi-Fi radio…" = "正在唤醒 Wi-Fi 天线…";
+"Negotiating codecs…" = "正在协商编解码器…";
+"Tokenmaxxing…" = "Tokenmaxxing…";
+"Clauding…" = "Clauding…";
+"Codexing…" = "Codexing…";
+"Carving your desktop into packets…" = "正在把桌面切成数据包…";
+"Almost there…" = "马上就好…";

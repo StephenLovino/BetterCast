@@ -976,6 +976,9 @@ struct SidebarDeviceRow: View {
         if client.isConnectedConsideringP2P(serviceName: service.name) {
             return tr("Connected (WiFi)")
         }
+        if client.connectingUINames.contains(service.name) {
+            return tr("Connecting…")
+        }
         return tr("Available")
     }
 
@@ -2274,8 +2277,17 @@ struct DiscoveredDeviceView: View {
         }
     }
 
+    private var isConnecting: Bool {
+        client.connectingUINames.contains(service.name)
+    }
+
     private var connectForm: some View {
         Form {
+            if isConnecting {
+                Section {
+                    ConnectingBanner()
+                }
+            }
             Section("Connect") {
                 if isAndroid {
                     HStack {
@@ -2454,6 +2466,46 @@ enum DisplayBrightnessControl {
 
 // MARK: - Info Tip
 
+/// Spinner plus a rotating line of copy, shown while a dial is in flight.
+///
+/// A connection attempt legitimately takes several seconds (the AWDL probe alone is
+/// worth five, and an infrastructure retry doubles it), and until now the window showed
+/// nothing at all during that wait — a live person staring at a button that looked dead.
+/// The copy leans playful on purpose; the spinner is the actual information.
+struct ConnectingBanner: View {
+    /// tr() keys, cycled in order. First and last are the honest ones; the middle is
+    /// flavour, and the sequence parks on "Almost there…" rather than looping forever.
+    private static let lines = [
+        "Connecting…",
+        "Waking up the Wi-Fi radio…",
+        "Negotiating codecs…",
+        "Tokenmaxxing…",
+        "Clauding…",
+        "Codexing…",
+        "Carving your desktop into packets…",
+        "Almost there…",
+    ]
+    @State private var index = 0
+    private let timer = Timer.publish(every: 1.3, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(tr(ConnectingBanner.lines[index]))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .id(index)
+                .transition(.opacity)
+        }
+        .onReceive(timer) { _ in
+            withAnimation(.easeInOut(duration: 0.25)) {
+                index = min(index + 1, ConnectingBanner.lines.count - 1)
+            }
+        }
+    }
+}
+
 struct InfoTip: View {
     let text: LocalizedStringKey
     @State private var isShowing = false
@@ -2607,6 +2659,23 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     @Published var foundServices: [DiscoveredService] = []
     @Published var connectedServices: [DiscoveredService] = []
     private var connectingServiceNames: Set<String> = [] // Prevent double-connect race
+
+    /// UI mirror of `connectingServiceNames`. The private set exists to stop
+    /// double-connect races and is touched from connection callbacks; this one is only
+    /// ever mutated on the main queue so SwiftUI can watch it. Before it existed the app
+    /// knew it was connecting but the window showed nothing, and a dial that legitimately
+    /// takes several seconds (the AWDL probe, an infrastructure retry) looked like a dead
+    /// button.
+    @Published var connectingUINames: Set<String> = []
+
+    private func markConnecting(_ name: String) {
+        connectingServiceNames.insert(name)
+        DispatchQueue.main.async { self.connectingUINames.insert(name) }
+    }
+    private func unmarkConnecting(_ name: String) {
+        connectingServiceNames.remove(name)
+        DispatchQueue.main.async { self.connectingUINames.remove(name) }
+    }
 
     /// True when `serviceName` is connected directly OR via its " P2P" sibling.
     /// Apple devices advertise both `<name>` (Wi-Fi listener) and `<name> P2P`
@@ -3154,7 +3223,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             LogManager.shared.log("Sender: Already connecting to \(service.name) — ignoring duplicate")
             return
         }
-        connectingServiceNames.insert(service.name)
+        markConnecting(service.name)
 
         let deviceCount = pipelines.count + 1
         self.status = "Connecting to \(service.name) (Device #\(deviceCount))..."
@@ -3253,7 +3322,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             // Only retry if still not connected (no pipeline created yet)
             if self.pipelines[connectionId] == nil && !connectionTimedOut {
                 connectionTimedOut = true
-                self.connectingServiceNames.remove(service.name)
+                self.unmarkConnecting(service.name)
                 LogManager.shared.log("Sender: Connection to \(service.name) timed out — retrying via infrastructure")
                 connection.cancel()
 
@@ -3281,7 +3350,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 switch state {
                 case .ready:
                     timeoutWork.cancel() // Connection succeeded, cancel timeout
-                    self?.connectingServiceNames.remove(service.name)
+                    self?.unmarkConnecting(service.name)
 
                     // Detect link type before creating pipeline
                     var isP2P = false
@@ -3344,7 +3413,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     self?.receive(on: connection, connectionId: connectionId)
                 case .failed(let error):
                     timeoutWork.cancel()
-                    self?.connectingServiceNames.remove(service.name)
+                    self?.unmarkConnecting(service.name)
                     LogManager.shared.log("Sender: Connection to \(service.name) failed: \(error)")
                     // Release the connection even if it failed before .ready (no pipeline),
                     // breaking the NWConnection self-retain cycle.
@@ -3360,7 +3429,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     }
                 case .cancelled:
                     timeoutWork.cancel()
-                    self?.connectingServiceNames.remove(service.name)
+                    self?.unmarkConnecting(service.name)
                     self?.removeConnection(connectionId)
                     connection.stateUpdateHandler = nil
                 case .waiting(let error):
@@ -4111,7 +4180,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         // Mark as connecting to prevent auto-connect races during retry
-        connectingServiceNames.insert(service.name)
+        markConnecting(service.name)
 
         let deviceCount = pipelines.count + 1
         self.status = "Connecting to \(service.name) (Device #\(deviceCount))..."
@@ -4123,7 +4192,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             DispatchQueue.main.async {
                 switch state {
                 case .ready:
-                    self?.connectingServiceNames.remove(service.name)
+                    self?.unmarkConnecting(service.name)
                     // Detect link type
                     var isP2P = false
                     var isLoopback = false
@@ -4180,7 +4249,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     self?.receive(on: connection, connectionId: connectionId)
                 case .failed(let error):
                     LogManager.shared.log("Sender: Connection to \(service.name) failed: \(error)")
-                    self?.connectingServiceNames.remove(service.name)
+                    self?.unmarkConnecting(service.name)
                     // If the connection failed before .ready, no pipeline exists, so
                     // removeConnection() can't cancel it — do it here so the NWConnection
                     // is released and its self-retain cycle broken.
@@ -4195,7 +4264,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                         self?.status = "Connected to \(remaining) device(s)"
                     }
                 case .cancelled:
-                    self?.connectingServiceNames.remove(service.name)
+                    self?.unmarkConnecting(service.name)
                     self?.removeConnection(connectionId)
                     connection.stateUpdateHandler = nil
                 case .waiting(let error):

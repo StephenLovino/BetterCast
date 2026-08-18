@@ -250,3 +250,13 @@
 /* Smooth motion (per-receiver burst ceiling) */
 "Smooth Motion" = "부드러운 움직임";
 "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "고정된 상한을 유지하는 대신, 화면이 움직이는 순간 더 많은 비트를 사용합니다. Wi-Fi에서 장면 전환과 빠른 움직임이 뭉개지는 현상이 개선되지만 트래픽은 더 불규칙해집니다. 즉시 적용됩니다.";
+
+/* Connecting banner */
+"Connecting…" = "연결 중…";
+"Waking up the Wi-Fi radio…" = "Wi-Fi 라디오를 깨우는 중…";
+"Negotiating codecs…" = "코덱을 협상하는 중…";
+"Tokenmaxxing…" = "Tokenmaxxing…";
+"Clauding…" = "Clauding…";
+"Codexing…" = "Codexing…";
+"Carving your desktop into packets…" = "데스크톱을 패킷으로 조각내는 중…";
+"Almost there…" = "거의 다 됐습니다…";
