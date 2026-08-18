@@ -2159,6 +2159,14 @@ struct DeviceDetailView: View {
                     ))
                     InfoTip(text: "Streams system audio to this receiver.")
                 }
+
+                HStack {
+                    Toggle("Smooth Motion", isOn: Binding(
+                        get: { display.smoothMotion },
+                        set: { client.setSmoothMotion($0, for: display.id) }
+                    ))
+                    InfoTip(text: "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately.")
+                }
             }
 
             // Connection transport — switch without disconnecting first (Android only)
@@ -2486,6 +2494,9 @@ struct ConnectedDisplayInfo: Identifiable {
     let resolution: String
     let displayBounds: CGRect
     var audioEnabled: Bool
+    /// Loosens the encoder's per-window burst ceiling for this receiver. See
+    /// VideoEncoder.burstMultiplier — off by default so no existing connection changes.
+    var smoothMotion: Bool = false
     var cgDisplayID: CGDirectDisplayID? = nil
 }
 
@@ -4389,6 +4400,16 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
     }
 
+    /// Toggle the looser burst ceiling for one receiver, live — no reconnect needed.
+    func setSmoothMotion(_ enabled: Bool, for connectionId: UUID) {
+        if let idx = connectedDisplays.firstIndex(where: { $0.id == connectionId }) {
+            connectedDisplays[idx].smoothMotion = enabled
+            let name = connectedDisplays[idx].name
+            pipelines[connectionId]?.videoEncoder?.setBurstMultiplier(enabled ? 3.0 : 1.5)
+            LogManager.shared.log("Sender: Smooth motion \(enabled ? "on (3.0x burst)" : "off (1.5x burst)") for \(name)")
+        }
+    }
+
     func updateConnectedDisplays() {
         connectedDisplays = pipelines.map { (id, pipeline) in
             let bounds = InputHandler.shared.getDisplayBounds(for: id)
@@ -4399,6 +4420,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 resolution: res,
                 displayBounds: bounds,
                 audioEnabled: connectedDisplays.first(where: { $0.id == id })?.audioEnabled ?? audioStreamingEnabled,
+                smoothMotion: connectedDisplays.first(where: { $0.id == id })?.smoothMotion ?? false,
                 cgDisplayID: pipeline.virtualDisplayManager?.displayID
             )
         }
@@ -4971,6 +4993,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
         let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow)
         encoder.delegate = self
+        // Per-receiver burst ceiling. Only ever loosened by explicit opt-in, so P2P and
+        // every untouched connection keep the 1.5x behaviour they shipped with.
+        if connectedDisplays.first(where: { $0.id == connectionId })?.smoothMotion == true {
+            encoder.burstMultiplier = 3.0
+        }
         pipelines[connectionId]?.videoEncoder = encoder
         // Seed adaptive bitrate: user-selected bitrate is the ceiling; start there.
         encoder.maxBitrate = bitrate // ceiling; encoder.currentBitrate already starts here

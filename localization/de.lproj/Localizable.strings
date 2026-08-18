@@ -248,3 +248,7 @@
 "Buy me a coffee" = "Spendier mir einen Kaffee";
 "Maybe later" = "Vielleicht später";
 "I already donated — stop asking" = "Ich habe bereits gespendet — nicht mehr fragen";
+
+/* Smooth motion (per-receiver burst ceiling) */
+"Smooth Motion" = "Bewegung glätten";
+"Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "Lässt den Encoder mehr Bits einsetzen, sobald sich das Bild bewegt, statt eine feste Obergrenze zu halten. Behebt die Unschärfe bei Szenenwechseln und schnellen Bewegungen über WLAN, um den Preis ungleichmäßigeren Datenverkehrs. Wirkt sofort.";

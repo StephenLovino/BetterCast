@@ -42,6 +42,16 @@ class VideoEncoder {
 
     private var expectedFPS: Int
 
+    /// How far a single rate-limit window may exceed the average bitrate.
+    ///
+    /// DataRateLimits is what stops AWDL buffer bloat, but it is also a hard ceiling on
+    /// burst: when the picture moves, the encoder wants far more bits than the average
+    /// and VideoToolbox's only way to obey the cap is to drop quality. That is the
+    /// "goes soft the moment anything moves" complaint. 1.5x is safe for P2P; a looser
+    /// ceiling lets motion keep its detail on infrastructure Wi-Fi, at the cost of
+    /// burstier traffic — which adaptive bitrate is there to absorb.
+    var burstMultiplier: Double = 1.5
+
     init(connectionId: UUID, width: Int, height: Int, bitrate: Int = 20_000_000, expectedFPS: Int = 120, keyframeIntervalSeconds: Double = 10.0, rateLimitWindow: Double = 1.0) {
         self.connectionId = connectionId
         self.bitrate = bitrate
@@ -81,7 +91,7 @@ class VideoEncoder {
         let bitrateCF = bitrate as CFNumber
         // DataRateLimits uses BYTES per period. Shorter windows = tighter per-frame control.
         // P2P uses 0.1s (prevents AWDL buffer bloat), infrastructure uses 1.0s (more flexible).
-        let bytesPerWindow = Int(Double(bitrate / 8) * 1.5 * rateLimitWindow)
+        let bytesPerWindow = Int(Double(bitrate / 8) * burstMultiplier * rateLimitWindow)
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
 
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateCF)
@@ -122,7 +132,16 @@ class VideoEncoder {
         guard let session = compressionSession, newBitrate != currentBitrate else { return }
         currentBitrate = newBitrate
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: newBitrate as CFNumber)
-        let bytesPerWindow = Int(Double(newBitrate / 8) * 1.5 * rateLimitWindow)
+        let bytesPerWindow = Int(Double(newBitrate / 8) * burstMultiplier * rateLimitWindow)
+        let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
+    }
+
+    /// Change the burst ceiling on a running session, without a reconnect.
+    func setBurstMultiplier(_ value: Double) {
+        guard let session = compressionSession, value != burstMultiplier else { return }
+        burstMultiplier = value
+        let bytesPerWindow = Int(Double(currentBitrate / 8) * burstMultiplier * rateLimitWindow)
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
     }

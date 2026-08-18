@@ -246,3 +246,7 @@
 "Buy me a coffee" = "コーヒーをおごる";
 "Maybe later" = "あとで";
 "I already donated — stop asking" = "寄付済みです — 今後は表示しない";
+
+/* Smooth motion (per-receiver burst ceiling) */
+"Smooth Motion" = "動きの滑らかさ優先";
+"Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "上限を一定に保つのではなく、画面が動いた瞬間にビットを多く割り当てます。Wi-Fi でのシーン切り替えや速い動きのぼやけが改善しますが、トラフィックは不安定になります。即時反映されます。";

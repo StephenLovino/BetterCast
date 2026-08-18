@@ -248,3 +248,7 @@
 "Buy me a coffee" = "Buy me a coffee";
 "Maybe later" = "Maybe later";
 "I already donated — stop asking" = "I already donated — stop asking";
+
+/* Smooth motion (per-receiver burst ceiling) */
+"Smooth Motion" = "Smooth Motion";
+"Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately.";

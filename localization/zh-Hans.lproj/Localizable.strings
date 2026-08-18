@@ -247,3 +247,7 @@
 "Buy me a coffee" = "请我喝杯咖啡";
 "Maybe later" = "以后再说";
 "I already donated — stop asking" = "我已经赞助过了，不用再提醒";
+
+/* Smooth motion (per-receiver burst ceiling) */
+"Smooth Motion" = "流畅动态";
+"Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "让编码器在画面移动时投入更多码率，而不是死守固定上限。可修复 Wi-Fi 下场景切换和快速动作时的模糊，代价是流量更不平稳。立即生效。";

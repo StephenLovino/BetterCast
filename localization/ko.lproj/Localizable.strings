@@ -246,3 +246,7 @@
 "Buy me a coffee" = "커피 한 잔 사주기";
 "Maybe later" = "나중에";
 "I already donated — stop asking" = "이미 후원했습니다 — 그만 물어보기";
+
+/* Smooth motion (per-receiver burst ceiling) */
+"Smooth Motion" = "부드러운 움직임";
+"Lets the encoder spend more bits the moment the picture moves, instead of holding a steady ceiling. Fixes the softness on scene changes and fast motion over Wi-Fi, at the cost of burstier traffic. Takes effect immediately." = "고정된 상한을 유지하는 대신, 화면이 움직이는 순간 더 많은 비트를 사용합니다. Wi-Fi에서 장면 전환과 빠른 움직임이 뭉개지는 현상이 개선되지만 트래픽은 더 불규칙해집니다. 즉시 적용됩니다.";
