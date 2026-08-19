@@ -1,6 +1,13 @@
 # BetterCast
 
-BetterCast is an open-source screen extension app that turns almost any device into a wireless extra display for your Mac. Think Sidecar or AirPlay Receiver — but cross-platform and built for hardware Apple no longer supports.
+BetterCast is an open-source screen extension app that turns almost any device into a wireless extra display for your Mac or Windows PC. Think Sidecar or AirPlay Receiver — but cross-platform and built for hardware Apple no longer supports, right down to using an old 5K iMac as a Thunderbolt display.
+
+<p align="center">
+  <img src="assets/demo.gif" width="300" alt="An Android tablet running as a live extended display beside a MacBook" />
+</p>
+<p align="center">
+  <a href="https://assets.cdn.filesafe.space/B5eQRIdQqei69coMcKF6/media/6a7fa70f2b48e84b4f0f7182.mov">▶ Watch the full demo</a>
+</p>
 
 ## How It Works
 
@@ -14,7 +21,7 @@ Each connected receiver gets its own virtual display with independent resolution
 |----------|------|------------|----------|
 | **macOS** | Sender + Receiver | P2P Direct / WiFi | [bettercast.online](https://bettercast.online/#install) |
 | **iOS / iPadOS** | Receiver | P2P Direct (AWDL) / WiFi | [bettercast.online](https://bettercast.online/#install) |
-| **Windows** | Receiver | WiFi | [bettercast.online](https://bettercast.online/#install) |
+| **Windows** | Sender (beta) + Receiver | WiFi | [bettercast.online](https://bettercast.online/#install) |
 | **Linux** | Receiver | WiFi | [bettercast.online](https://bettercast.online/#install) |
 | **Android** | Receiver | WiFi / ADB USB | [bettercast.online](https://bettercast.online/#install) |
 
@@ -43,7 +50,7 @@ The receiver auto-starts in the background — no need to "switch modes". To sen
 
 ### iOS / iPadOS
 
-The iOS receiver is available via TestFlight. Visit [bettercast.online](https://bettercast.online/#install) for the install link.
+The iOS receiver is [on the App Store](https://apps.apple.com/app/id6761002383). It is not yet available in the EU while App Store trader-status verification is pending.
 
 ### Windows
 
