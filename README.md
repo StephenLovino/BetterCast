@@ -6,7 +6,7 @@ BetterCast is an open-source screen extension app that turns almost any device i
   <img src="assets/demo.gif" width="300" alt="An Android tablet running as a live extended display beside a MacBook" />
 </p>
 <p align="center">
-  <a href="https://assets.cdn.filesafe.space/B5eQRIdQqei69coMcKF6/media/6a7fa70f2b48e84b4f0f7182.mov">▶ Watch the full demo</a>
+  <a href="https://youtube.com/shorts/m1FwRupqOZw">▶ Watch the full demo on YouTube</a>
 </p>
 
 ## How It Works
