@@ -96,6 +96,17 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v19", date: "2026-08-25", highlights: [
+            "Stream to an iPhone or iPad over the cable, no network needed. Pick USB Cable on the device, and open BetterCast on it first",
+            "Pull the cable mid-session and the screen carries on over Wi-Fi instead of dropping",
+            "Dragging with one finger now works in touch mode, and actually drags: text selects, windows move, sliders follow",
+            "Double-tap registers as a double-click, so folders open and words select",
+            "Scrolling follows your Mac's Natural scrolling setting instead of always going the other way",
+            "Each device keeps its place in Arrange between sessions rather than reappearing on the right",
+            "A device now has to be allowed before it can use your screen",
+            "Connecting no longer goes black for several seconds while the link is negotiated",
+            "Apple Pencil pressure and tilt are sent to the Mac (new, and untested on hardware here)",
+        ]),
         Entry(version: "v18", date: "2026-08-19", highlights: [
             "Wi-Fi streams no longer pixelate when things move — congestion now costs a moment of smoothness instead of picture corruption",
             "H.265 (HEVC) support: noticeably more detail at the same bitrate. Set it per device in the device's settings; Mac and Android receivers decode it",

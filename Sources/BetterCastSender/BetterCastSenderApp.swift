@@ -104,6 +104,7 @@ struct BetterCastSenderApp: App {
             networkClient.checkScreenRecordingPermission()
             networkClient.startBrowsing()
             networkClient.startSenderInviteListener()
+            networkClient.startUSBWatch()
             // Auto-start receiver so incoming connections work immediately
             let receiver = ReceiverManager.shared
             if !receiver.isRunning {
@@ -793,7 +794,12 @@ struct SidebarView: View {
                         // Hide " P2P" entry when base device exists (merged into one entry)
                         let isP2PDuplicate = service.name.hasSuffix(" P2P")
                             && client.foundServices.contains(where: { $0.name == String(service.name.dropLast(4)) })
-                        return !(isADBSynthetic && hasMDNSAndroid) && !isP2PDuplicate
+                        // Same for the cable session: "<phone> (USB)" is that phone over a
+                        // different route, not a second device, so it folds into the row
+                        // the user picked it from.
+                        let isCableDuplicate = service.name.hasSuffix(" (USB)")
+                            && client.foundServices.contains(where: { $0.name == String(service.name.dropLast(6)) })
+                        return !(isADBSynthetic && hasMDNSAndroid) && !isP2PDuplicate && !isCableDuplicate
                     }, id: \.name) { service in
                         SidebarDeviceRow(service: service, client: client, selection: $selection)
                     }
@@ -853,7 +859,7 @@ struct SidebarView: View {
                         NSWorkspace.shared.open(url)
                     }
                 } label: {
-                    Label(tr("Support BetterCast"), systemImage: "heart.fill")
+                    Text(tr("Support BetterCast"))
                         .font(.caption)
                         .frame(maxWidth: .infinity)
                 }
@@ -1033,11 +1039,12 @@ struct SidebarDeviceRow: View {
                 .help(tr("Connect over USB"))
             } else if !isAndroid {
                 Button { client.connect(to: service) } label: {
-                    Image(systemName: "link")
+                    Image(systemName: "arrow.right.circle.fill")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
                 .tint(.accentColor)
+                .help(tr("Connect over the network"))
             }
         }
         Button { client.removeService(service) } label: {
@@ -2300,9 +2307,17 @@ struct DiscoveredDeviceView: View {
         service.name.lowercased().contains("android")
     }
 
-    /// The synthetic row for a USB-attached phone; its endpoint is the loopback tunnel.
+    /// The synthetic row for a cable-attached phone; its endpoint is the loopback tunnel.
     private var isUSBSyntheticService: Bool {
-        service.name == "Android (USB)"
+        service.name == "Android (USB)" || service.name.hasSuffix(" (USB)")
+    }
+
+    /// An Apple device that could be streamed to over the cable instead of the network.
+    /// usbmuxd reports a UDID rather than a name, so a cable is offered whenever one is
+    /// attached rather than being matched to this particular row.
+    private var cableDevice: Usbmux.Device? {
+        guard !isAndroid, !isUSBSyntheticService else { return nil }
+        return client.usbDevices.first
     }
 
     /// Check if this device is connected via any method (direct or ADB)
@@ -2312,6 +2327,11 @@ struct DiscoveredDeviceView: View {
             return client.connectedDisplays.first(where: {
                 $0.name.contains("Android (USB)") || $0.name.contains("Android (WiFi ADB)")
             })
+        }
+        // The cable session is this device, reached another way, so this row shows the
+        // live stream rather than sitting at "Available" beside a hidden duplicate.
+        if let cable = client.connectedDisplays.first(where: { $0.name == "\(service.name) (USB)" }) {
+            return cable
         }
         return nil
     }
@@ -2393,6 +2413,30 @@ struct DiscoveredDeviceView: View {
                     }
                     .opacity(client.hasNetworkPath ? 1 : 0.5)
 
+                }
+
+                // Cable, offered on the device itself rather than as a second entry in
+                // the list. The same phone appearing twice, once over Wi-Fi and once as
+                // "iOS (USB)", reads as two devices when it is one with two routes.
+                if let cable = cableDevice {
+                    HStack {
+                        Image(systemName: "cable.connector")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading) {
+                            Text("USB Cable")
+                                .fontWeight(.medium)
+                            Text("No network needed — open BetterCast on the device first")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Connect") {
+                            client.connectUSB(to: cable, displayName: service.name)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        InfoTip(text: "Streams over the cable through usbmuxd, the same channel Finder and Xcode use. No router or Wi-Fi involved. The app has to be open on the device, since unlike Android there is no way to launch it from here.")
+                    }
                 }
 
                 // The USB row's endpoint is the loopback ADB tunnel, so a "network"
@@ -3683,6 +3727,155 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         connection.start(queue: .main)
+    }
+
+    // MARK: - USB (cable-attached iOS devices)
+
+    /// iPhones and iPads currently attached by cable.
+    @Published var usbDevices: [Usbmux.Device] = []
+
+    private var usbTunnel: UsbmuxTunnel?
+    private var usbPollTimer: Timer?
+
+    /// The device and row backing the live cable session, so unplugging can be told
+    /// apart from any other device coming and going.
+    private var usbSessionUDID: String?
+    private var usbSessionName: String?
+    /// Base name of the device, used to find its wireless listener when the cable goes.
+    private var usbSessionBaseName: String?
+
+    /// Watch for devices being plugged and unplugged.
+    ///
+    /// usbmuxd can push attach/detach events, but that needs a socket held open for the
+    /// life of the app; polling a cheap local request every couple of seconds costs
+    /// nothing measurable and cannot get stuck in a half-open state.
+    func startUSBWatch() {
+        guard usbPollTimer == nil else { return }
+        refreshUSBDevices()
+        let timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.refreshUSBDevices()
+        }
+        usbPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func refreshUSBDevices() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let found = (try? Usbmux.listDevices()) ?? []
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                let before = Set(self.usbDevices.map(\.udid))
+                let after = Set(found.map(\.udid))
+                if before != after {
+                    for udid in after.subtracting(before) {
+                        LogManager.shared.log("USB: Device attached (\(udid.prefix(8))…)")
+                    }
+                    for udid in before.subtracting(after) {
+                        LogManager.shared.log("USB: Device detached (\(udid.prefix(8))…)")
+                        if udid == self.usbSessionUDID { self.handOffCableToWireless() }
+                    }
+                    self.usbDevices = found
+                }
+            }
+        }
+    }
+
+    /// Stream to a cable-attached iOS device.
+    ///
+    /// The tunnel puts the device's listener on a loopback port, so from here on this is
+    /// an ordinary local TCP connection and the rest of the sender needs to know nothing
+    /// about cables. The device's app has to be open for anything to be listening: unlike
+    /// Android over ADB, there is no way to launch it from this end.
+    func connectUSB(to device: Usbmux.Device, displayName: String? = nil) {
+        usbTunnel?.stop()
+
+        // Check the device is actually listening before offering a tunnel to dial.
+        // The relay has to accept the local socket before it can know what is on the
+        // far side, so without this the sender reports a healthy connection, builds a
+        // display and starts encoding into a pipe that was never there.
+        do {
+            let probe = try Usbmux.connect(deviceID: device.deviceID, port: BCConstants.tcpPort)
+            close(probe)
+        } catch {
+            status = "USB: \(error.localizedDescription)"
+            LogManager.shared.log("USB: \(error.localizedDescription)")
+            return
+        }
+
+        let tunnel = UsbmuxTunnel(deviceID: device.deviceID)
+        do {
+            try tunnel.start()
+        } catch {
+            status = "USB: \(error.localizedDescription)"
+            LogManager.shared.log("USB: Could not start tunnel — \(error.localizedDescription)")
+            return
+        }
+        usbTunnel = tunnel
+
+        guard let port = NWEndpoint.Port(rawValue: tunnel.localPort) else { return }
+        // Named after the device so the cable session is recognisable as that phone
+        // rather than an anonymous "iOS (USB)" sitting next to it in the list.
+        let name = "\(displayName ?? "iOS") (USB)"
+        let service = DiscoveredService(
+            name: name,
+            endpoint: .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: port)
+        )
+        if !foundServices.contains(where: { $0.name == name }) {
+            foundServices.append(service)
+        }
+        usbSessionUDID = device.udid
+        usbSessionName = name
+        usbSessionBaseName = displayName
+        LogManager.shared.log("USB: Connecting over the cable to \(device.udid.prefix(8))…")
+        connect(to: service)
+    }
+
+    func disconnectUSB() {
+        usbTunnel?.stop()
+        usbTunnel = nil
+        usbSessionUDID = nil
+        usbSessionName = nil
+        usbSessionBaseName = nil
+    }
+
+    /// Carry on over Wi-Fi when the cable is pulled mid-session.
+    ///
+    /// Unplugging is a deliberate act, not a fault, so the screen should follow rather
+    /// than vanish. The tunnel's far end is already gone by the time this runs, so the
+    /// pipeline is torn down first and the device redialled by its wireless name.
+    /// If the device is not advertising on the network, there is nothing to fall back
+    /// to and the session simply ends, which is said out loud rather than left a mystery.
+    private func handOffCableToWireless() {
+        let syntheticName = usbSessionName
+        let baseName = usbSessionBaseName
+
+        if let syntheticName,
+           let entry = pipelines.first(where: { $0.value.service.name == syntheticName }) {
+            removeConnection(entry.key)
+        }
+        foundServices.removeAll { $0.name == syntheticName }
+        disconnectUSB()
+
+        guard let baseName else { return }
+
+        // Prefer the AWDL listener when it is advertising: unplugging is exactly when
+        // the routerless path is worth having.
+        let target = foundServices.first(where: { $0.name == "\(baseName) P2P" })
+            ?? foundServices.first(where: { $0.name == baseName })
+
+        guard let target else {
+            status = "Cable removed — \(baseName) is not on the network"
+            LogManager.shared.log("USB: Cable removed and \(baseName) is not advertising; nothing to fall back to")
+            return
+        }
+
+        LogManager.shared.log("USB: Cable removed — continuing over the network as \(target.name)")
+        status = "Cable removed — reconnecting over Wi-Fi…"
+        // A moment for the torn-down pipeline to release its display before the
+        // replacement builds its own.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.connect(to: target)
+        }
     }
 
     func connectManual() {
@@ -5371,7 +5564,19 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             keyframeInterval = 10.0 // P2P is reliable, long interval is fine
         } else if isLoopback {
             let isWiFiADB = pipelines[connectionId]?.isWiFiADB ?? false
-            if isWiFiADB {
+            // A cable-attached iPhone or iPad is loopback too, but it is not ADB and the
+            // ADB numbers do not apply. usbmuxd multiplexes over USB with fixed buffers
+            // and drops the connection when it cannot keep up, rather than pushing back
+            // the way a real TCP socket would, so aiming at the full 100 Mbps bought a
+            // stream that ran beautifully for a minute and then died of a broken pipe.
+            let isCablediOS = !serviceName.lowercased().contains("android")
+                && serviceName.hasSuffix(" (USB)")
+            if isCablediOS {
+                fps = 60
+                bitrate = min(selectedQuality.rawValue, 25_000_000)
+                keyframeInterval = 3.0
+                LogManager.shared.log("Sender: USB cable mode (iOS) — \(fps) FPS / \(bitrate / 1_000_000) Mbps / KF every 3s for \(serviceName) (picker says \(selectedQuality.rawValue / 1_000_000) Mbps, capped for usbmuxd)")
+            } else if isWiFiADB {
                 // WiFi ADB — receiver queues all frames (no drops), so 60fps is safe.
                 // Bitrate capped to fit WiFi bandwidth; shorter KF interval for faster recovery.
                 fps = 60

@@ -47,6 +47,14 @@ enum BCConstants {
     /// localhost connection loops back into the Mac's own receiver instead of reaching Android.
     static let adbForwardPort: UInt16 = 51823
 
+    /// Loopback port the USB tunnel to an iOS device listens on.
+    ///
+    /// Same idea as `adbForwardPort`: the stream is dialled at 127.0.0.1 on this port
+    /// and relayed over the cable, so the transport above it never learns the
+    /// difference. Distinct from the ADB port so a phone and an iPhone can both be
+    /// plugged in at once.
+    static let usbForwardPort: UInt16 = 51824
+
     // MARK: - Audio
     /// AAC-LC frame size in samples. Required by the AAC encoder/decoder.
     static let aacFrameSize: UInt32 = 1024
