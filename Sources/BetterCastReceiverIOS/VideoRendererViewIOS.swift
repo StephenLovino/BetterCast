@@ -16,7 +16,7 @@ enum InputMode {
     case cursor    // Trackpad: pan moves cursor relatively
 }
 
-class VideoRendererViewIOS: UIView, VideoRendererIOS {
+class VideoRendererViewIOS: UIView, VideoRendererIOS, UIGestureRecognizerDelegate {
 
     weak var inputDelegate: InputDelegate?
 
@@ -132,6 +132,10 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         // 1. Mouse Move (Pan)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.maximumNumberOfTouches = 1
+        // Recognisers swallow the touches they act on by default, which cut off
+        // touchesMoved the instant a drag was recognised: the press and the release
+        // arrived with no movement between them, so nothing on the Mac actually moved.
+        pan.cancelsTouchesInView = false
         addGestureRecognizer(pan)
         
         // 2. Left Click (Tap)
@@ -161,9 +165,9 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
         doubleTap.numberOfTouchesRequired = 1
         addGestureRecognizer(doubleTap)
         // Note: intentionally NOT calling tap.require(toFail: doubleTap) — that adds ~300ms
-        // latency to every single tap. Two quick taps will fire as two single clicks, which
-        // macOS interprets as a double-click anyway. The dedicated doubleTap recognizer also
-        // still fires for tighter double-click timing.
+        // latency to every single tap. The dedicated doubleTap recognizer carries an explicit
+        // click count instead: macOS does NOT infer a double-click from two clicks arriving
+        // close together, it only reports one when the event says so.
 
         // 7. Long Press (Click and Drag)
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
@@ -178,6 +182,121 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
             swipe.numberOfTouchesRequired = 3
             addGestureRecognizer(swipe)
         }
+
+        // Every recogniser above is for fingers. A Pencil is handled directly in
+        // touchesBegan/Moved/Ended so a stroke starts on contact, and the delegate
+        // keeps these from firing a second, pressureless click on top of it.
+        gestureRecognizers?.forEach { $0.delegate = self }
+    }
+
+    // MARK: - Full-rate drag sampling
+
+    /// True while a touch-mode long-press drag is in flight.
+    ///
+    /// UIKit delivers gesture callbacks once per display refresh, but the digitizer
+    /// samples well above that, and every sample in between is held in the event's
+    /// coalesced list. Dragging straight off the recognizer therefore threw away most
+    /// of the stroke: a quick diagonal drag arrived on the Mac as a handful of long
+    /// jumps, so selections landed short and anything following the finger stepped
+    /// instead of gliding. While this is set, movement comes from `touchesMoved`
+    /// below and the recognizer stops sending its own coarse samples.
+    private var isTouchDragActive = false
+
+    /// Where the current touch-mode drag was last seen, so the release can be sent even
+    /// if the finger lifts somewhere that maps to nothing.
+    private var lastTouchDragPoint: (Double, Double)?
+
+    /// Whether touchesMoved has delivered anything during this drag. When it has, the
+    /// recogniser stays quiet so the same movement is not sent twice at two rates.
+    private var touchSamplingDelivered = false
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesMoved(touches, with: event)
+
+        if let pencil = touches.first(where: { $0.type == .pencil }) {
+            streamSamples(for: pencil, event: event, type: .mouseMove)
+            return
+        }
+
+        guard isTouchDragActive,
+              inputMode == .touch,
+              let touch = touches.first,
+              (event?.allTouches?.count ?? 1) == 1 else { return }
+
+        touchSamplingDelivered = true
+        streamSamples(for: touch, event: event, type: .mouseMove)
+    }
+
+    /// Forward every sample UIKit gathered since the last callback, oldest first,
+    /// falling back to the touch itself when it coalesced nothing.
+    private func streamSamples(for touch: UITouch, event: UIEvent?, type: InputEventType) {
+        let coalesced = event?.coalescedTouches(for: touch) ?? []
+        for sample in (coalesced.isEmpty ? [touch] : coalesced) {
+            guard let (x, y) = normalizedPoint(at: sample.location(in: self)) else { continue }
+            inputDelegate?.didTriggerInput(makeEvent(type: type, x: x, y: y, touch: sample))
+        }
+    }
+
+    /// Build a wire event, attaching stylus detail when the touch came from a Pencil.
+    /// A finger sends no pressure at all, which is what keeps it an ordinary click.
+    private func makeEvent(type: InputEventType, x: Double, y: Double, touch: UITouch) -> InputEvent {
+        guard touch.type == .pencil else {
+            return InputEvent(type: type, x: x, y: y)
+        }
+        let maxForce = touch.maximumPossibleForce
+        // maximumPossibleForce is 0 on hardware that cannot weigh the touch. Reporting
+        // full pressure there is better than reporting none: the stroke still draws.
+        let pressure = maxForce > 0 ? min(1.0, Double(touch.force / maxForce)) : 1.0
+        return InputEvent(
+            type: type,
+            x: x,
+            y: y,
+            pressure: pressure,
+            altitude: Double(touch.altitudeAngle),
+            azimuth: Double(touch.azimuthAngle(in: self))
+        )
+    }
+
+    // MARK: - Apple Pencil
+
+    /// A Pencil drives the Mac directly rather than through the finger gestures.
+    ///
+    /// Drawing needs contact to register the instant the tip lands, so waiting on a
+    /// long press or a tap recogniser to settle would clip the start of every stroke.
+    /// `gestureRecognizer(_:shouldReceive:)` below keeps the finger recognisers out of
+    /// the way so a Pencil tap cannot also arrive as a second, pressureless click.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        guard let pencil = touches.first(where: { $0.type == .pencil }),
+              let (x, y) = normalizedPoint(at: pencil.location(in: self)) else { return }
+        inputDelegate?.didTriggerInput(makeEvent(type: .leftMouseDown, x: x, y: y, touch: pencil))
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        endPencil(touches)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        endPencil(touches)
+    }
+
+    private func endPencil(_ touches: Set<UITouch>) {
+        guard let pencil = touches.first(where: { $0.type == .pencil }),
+              let (x, y) = normalizedPoint(at: pencil.location(in: self)) else { return }
+        // Lift reports no pressure, which is also what tells the Mac to take the stylus
+        // back out of proximity.
+        inputDelegate?.didTriggerInput(
+            InputEvent(type: .leftMouseUp, x: x, y: y, pressure: 0,
+                       altitude: Double(pencil.altitudeAngle),
+                       azimuth: Double(pencil.azimuthAngle(in: self)))
+        )
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldReceive touch: UITouch) -> Bool {
+        touch.type != .pencil
     }
 
     /// Toggle between aspect-fill (full screen) and aspect-fit (letterbox)
@@ -188,7 +307,12 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
     }
     
     private func normalizedPoint(from gesture: UIGestureRecognizer) -> (Double, Double)? {
-        let location = gesture.location(in: self)
+        normalizedPoint(at: gesture.location(in: self))
+    }
+
+    /// Map a point in this view to the 0-1 position of the same pixel in the streamed
+    /// image, accounting for whichever way the video is currently fitted.
+    private func normalizedPoint(at location: CGPoint) -> (Double, Double)? {
         let viewSize = bounds.size
 
         guard viewSize.width > 0, viewSize.height > 0,
@@ -262,8 +386,45 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
     // MARK: - Gesture Handlers
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        // Touch mode: panning the finger does NOT move the Mac cursor.
-        // Tap = click, long-press = drag. This keeps the Mac cursor from chasing the finger.
+        // Touch mode: one finger drags, the way a touchscreen should. This used to be
+        // ignored entirely, leaving a 0.3s press-and-hold as the only way to drag
+        // anything — undiscoverable, and it made touch mode look broken even though
+        // taps were landing correctly. Two fingers already mean scroll, so one finger
+        // is free to mean drag. Movement itself is streamed by touchesMoved at the
+        // digitizer's full rate; this only marks where the drag starts and stops.
+        if inputMode == .touch {
+            let point = normalizedPoint(from: gesture) ?? lastTouchDragPoint
+            switch gesture.state {
+            case .began:
+                guard let (x, y) = point else { return }
+                lastTouchDragPoint = (x, y)
+                touchSamplingDelivered = false
+                isTouchDragActive = true
+                inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: x, y: y))
+                inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y))
+            case .changed:
+                if let p = point { lastTouchDragPoint = p }
+                // Normally touchesMoved carries the movement at the digitizer's full
+                // rate. If it is not being delivered, fall back to the recogniser's own
+                // coarser samples rather than sending no movement at all.
+                if !touchSamplingDelivered, let (x, y) = point {
+                    inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: x, y: y))
+                }
+            case .ended, .cancelled, .failed:
+                // Release even when the finger lifts outside the video: `point` falls
+                // back to the last good position rather than leaving the button held.
+                guard isTouchDragActive else { return }
+                isTouchDragActive = false
+                if let (x, y) = point {
+                    inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y))
+                }
+                lastTouchDragPoint = nil
+            default:
+                break
+            }
+            return
+        }
+
         guard inputMode == .cursor else { return }
         switch gesture.state {
         case .began, .changed:
@@ -302,15 +463,18 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
             guard let pt = normalizedPoint(from: gesture) else { return }
             (x, y) = pt
         }
-        inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y))
+        // The second click carries clickCount 2. Two clicks close together are NOT read
+        // as a double-click by macOS on their own, which is why double-tap used to open
+        // nothing and select no words: the click state has to be stated explicitly.
+        inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y, clickCount: 1))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-            self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y))
+            self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y, clickCount: 1))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-            self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y))
+            self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y, clickCount: 2))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y))
+            self.inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y, clickCount: 2))
         }
     }
 
@@ -334,17 +498,10 @@ class VideoRendererViewIOS: UIView, VideoRendererIOS {
                 break
             }
         } else {
-            guard let (x, y) = normalizedPoint(from: gesture) else { return }
-            switch gesture.state {
-            case .began:
-                inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseDown, x: x, y: y))
-            case .changed:
-                inputDelegate?.didTriggerInput(InputEvent(type: .mouseMove, x: x, y: y))
-            case .ended, .cancelled:
-                inputDelegate?.didTriggerInput(InputEvent(type: .leftMouseUp, x: x, y: y))
-            default:
-                break
-            }
+            // Dragging in touch mode is handled by handlePan now, from the first
+            // movement rather than after a hold. Doing it here as well would press the
+            // button twice for one gesture.
+            return
         }
     }
 

@@ -26,9 +26,26 @@ struct InputEvent: Codable {
     /// labelling the connection "iOS @ <ip>:<port>".
     let deviceName: String?
 
+    /// 1 for a single click, 2 for a double, 3 for a triple. macOS only reports a
+    /// double-click to apps when the event carries the click state, so this has to
+    /// travel with the click rather than being inferred from timing on the Mac.
+    let clickCount: Int?
+
+    /// Apple Pencil pressure 0-1, plus how the pencil is being held. Sent only for
+    /// stylus touches; their absence is what tells the Mac this was a finger.
+    let pressure: Double?
+    /// Angle between pencil and screen in radians. π/2 is upright.
+    let altitude: Double?
+    /// Compass direction the pencil points, in radians.
+    let azimuth: Double?
+
     private static var nextId: UInt64 = 0
 
-    init(type: InputEventType, x: Double = 0, y: Double = 0, keyCode: UInt16 = 0, deltaX: Double = 0, deltaY: Double = 0, deviceName: String? = nil) {
+    init(type: InputEventType, x: Double = 0, y: Double = 0, keyCode: UInt16 = 0, deltaX: Double = 0, deltaY: Double = 0, deviceName: String? = nil, clickCount: Int? = nil, pressure: Double? = nil, altitude: Double? = nil, azimuth: Double? = nil) {
+        self.clickCount = clickCount
+        self.pressure = pressure
+        self.altitude = altitude
+        self.azimuth = azimuth
         self.type = type
         self.x = x
         self.y = y

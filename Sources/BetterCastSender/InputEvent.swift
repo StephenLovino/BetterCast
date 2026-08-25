@@ -25,9 +25,33 @@ struct InputEvent: Codable {
     /// re-dial them via the proper Bonjour service name + AWDL routing.
     let deviceName: String?
 
+    /// 1 for a single click, 2 for a double, 3 for a triple.
+    ///
+    /// macOS does not infer this from two clicks arriving close together: an app only
+    /// sees a double-click if the event carries the click state. Without it a
+    /// double-tap on the device opened nothing, selected no word, expanded no folder.
+    /// Absent on receivers that predate this, which is read as 1.
+    let clickCount: Int?
+
+    /// Stylus pressure, 0-1. Present only when the event came from an Apple Pencil.
+    ///
+    /// Its presence is what marks an event as stylus rather than finger: a receiver
+    /// that predates pencil support simply omits it, and the Mac posts ordinary mouse
+    /// events as before. A Pencil talking to an older Mac therefore still draws, just
+    /// at a constant width.
+    let pressure: Double?
+    /// Angle between the pencil and the screen, in radians. π/2 is upright.
+    let altitude: Double?
+    /// Compass direction the pencil points, in radians.
+    let azimuth: Double?
+
     private static var nextId: UInt64 = 0
 
-    init(type: InputEventType, x: Double = 0, y: Double = 0, keyCode: UInt16 = 0, deltaX: Double = 0, deltaY: Double = 0, eventId: UInt64? = nil, deviceName: String? = nil) {
+    init(type: InputEventType, x: Double = 0, y: Double = 0, keyCode: UInt16 = 0, deltaX: Double = 0, deltaY: Double = 0, eventId: UInt64? = nil, deviceName: String? = nil, clickCount: Int? = nil, pressure: Double? = nil, altitude: Double? = nil, azimuth: Double? = nil) {
+        self.clickCount = clickCount
+        self.pressure = pressure
+        self.altitude = altitude
+        self.azimuth = azimuth
         self.type = type
         self.x = x
         self.y = y

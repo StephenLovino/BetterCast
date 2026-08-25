@@ -20,6 +20,29 @@ class InputHandler {
 
     func removeDisplayBounds(for connectionId: UUID) {
         displayBoundsMap.removeValue(forKey: connectionId)
+        // A device that disconnects mid-drag would otherwise leave its button latched
+        // down, and every later move on that connection would post as a drag.
+        releaseButtons(for: connectionId)
+    }
+
+    /// Drop any latched button state, and lift a button that is genuinely still down
+    /// so the Mac is not left holding a click nobody can release.
+    private func releaseButtons(for connectionId: UUID) {
+        if leftButtonDown.remove(connectionId) != nil {
+            postMouseEvent(type: .leftMouseUp, point: currentCursorPoint(), button: .left)
+        }
+        if rightButtonDown.remove(connectionId) != nil {
+            postMouseEvent(type: .rightMouseUp, point: currentCursorPoint(), button: .right)
+        }
+        // Leaving a stylus in range after its device has gone keeps apps in a
+        // pressure-aware mode with nothing driving it.
+        if stylusInProximity.remove(connectionId) != nil {
+            postProximity(entering: false)
+        }
+    }
+
+    private func currentCursorPoint() -> CGPoint {
+        CGEvent(source: nil)?.location ?? .zero
     }
 
     func getDisplayBounds(for connectionId: UUID) -> CGRect {
@@ -27,6 +50,7 @@ class InputHandler {
     }
 
     func removeAllDisplayBounds() {
+        for id in displayBoundsMap.keys { releaseButtons(for: id) }
         displayBoundsMap.removeAll()
     }
     
@@ -66,19 +90,50 @@ class InputHandler {
             }
         }
         
+        // Stylus events take a different route entirely: macOS only reports pressure and
+        // tilt to apps when the event carries tablet fields, so a Pencil stroke has to be
+        // posted as tablet input rather than as a mouse move that happens to know its
+        // pressure. Drawing apps then pick it up with no per-app work.
+        if let pressure = event.pressure {
+            handleTablet(event: event, point: point, pressure: pressure, connectionId: connectionId)
+            return
+        }
+
         switch event.type {
         case .mouseMove:
-            postMouseEvent(type: .mouseMoved, point: point, button: .left) // Button ignored for move
+            // A move with the button held is a DRAG, and macOS will not treat it as one
+            // unless it is posted as .leftMouseDragged. Posting .mouseMoved throughout
+            // meant text never selected, sliders never followed the finger, and nothing
+            // could be dragged across the desktop — the pointer simply travelled while
+            // the button sat down. Which button is held decides the event type.
+            if leftButtonDown.contains(connectionId) {
+                if logThrottle % 60 == 1 {
+                    LogManager.shared.log("InputHandler: dragging (button held) → (\(Int(x)),\(Int(y)))")
+                }
+                postMouseEvent(type: .leftMouseDragged, point: point, button: .left)
+            } else if rightButtonDown.contains(connectionId) {
+                postMouseEvent(type: .rightMouseDragged, point: point, button: .right)
+            } else {
+                postMouseEvent(type: .mouseMoved, point: point, button: .left) // Button ignored for move
+            }
         case .leftMouseDown:
-            LogManager.shared.log("InputHandler: leftDown → (\(Int(x)),\(Int(y))) bounds=\(bounds) fallback=\(usingFallback)")
-            postMouseEvent(type: .leftMouseDown, point: point, button: .left)
+            LogManager.shared.log("InputHandler: leftDown → (\(Int(x)),\(Int(y))) bounds=\(bounds) fallback=\(usingFallback) clicks=\(event.clickCount ?? 1)")
+            leftButtonDown.insert(connectionId)
+            postMouseEvent(type: .leftMouseDown, point: point, button: .left, clickCount: event.clickCount ?? 1)
         case .leftMouseUp:
-            postMouseEvent(type: .leftMouseUp, point: point, button: .left)
+            let wasDown = leftButtonDown.remove(connectionId) != nil
+            // Logged as the pair to leftDown: an up that never arrives would latch the
+            // button and turn every later move into a drag, which looks from the outside
+            // like input dying altogether.
+            LogManager.shared.log("InputHandler: leftUp → (\(Int(x)),\(Int(y))) wasDown=\(wasDown)")
+            postMouseEvent(type: .leftMouseUp, point: point, button: .left, clickCount: event.clickCount ?? 1)
         case .rightMouseDown:
             LogManager.shared.log("InputHandler: rightDown → (\(Int(x)),\(Int(y))) bounds=\(bounds) fallback=\(usingFallback)")
-            postMouseEvent(type: .rightMouseDown, point: point, button: .right)
+            rightButtonDown.insert(connectionId)
+            postMouseEvent(type: .rightMouseDown, point: point, button: .right, clickCount: event.clickCount ?? 1)
         case .rightMouseUp:
-            postMouseEvent(type: .rightMouseUp, point: point, button: .right)
+            rightButtonDown.remove(connectionId)
+            postMouseEvent(type: .rightMouseUp, point: point, button: .right, clickCount: event.clickCount ?? 1)
         case .keyDown:
             postKeyboardEvent(keyCode: event.keyCode, keyDown: true)
         case .keyUp:
@@ -104,8 +159,19 @@ class InputHandler {
                     scrollEvent.post(tap: .cghidEventTap)
                 }
             default:
-                // Normal two-finger scroll
-                if let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(event.deltaY), wheel2: Int32(event.deltaX), wheel3: 0) {
+                // Normal two-finger scroll, in whichever direction this Mac scrolls.
+                //
+                // Synthesized scroll events bypass the flip macOS applies to a real
+                // trackpad, so "Natural scrolling" was ignored and two fingers always
+                // scrolled the classic way. On a Mac left at the default that is simply
+                // backwards, and it is the one gesture that felt unlike the trackpad
+                // sitting next to it. The receiver sends classic-oriented deltas, so
+                // natural scrolling is the case that needs inverting.
+                let direction: Int32 = naturalScrolling ? -1 : 1
+                if let scrollEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                                             wheel1: direction * Int32(event.deltaY),
+                                             wheel2: direction * Int32(event.deltaX),
+                                             wheel3: 0) {
                     scrollEvent.post(tap: .cghidEventTap)
                 }
             }
@@ -114,8 +180,98 @@ class InputHandler {
         }
     }
     
-    private func postMouseEvent(type: CGEventType, point: CGPoint, button: CGMouseButton) {
+    /// Whether this Mac is set to "Natural scrolling" (System Settings > Trackpad).
+    ///
+    /// The key only exists once someone has changed it, and the shipping default is on,
+    /// so an absent value means natural. Read fresh rather than cached: changing the
+    /// setting should take effect on the next gesture, not the next launch.
+    private var naturalScrolling: Bool {
+        UserDefaults.standard.object(forKey: "com.apple.swipescrolldirection") as? Bool ?? true
+    }
+
+    /// Which connections are holding a button down, so a move can be posted as a drag.
+    /// Per connection, because several devices drive their own displays at once.
+    private var leftButtonDown: Set<UUID> = []
+    private var rightButtonDown: Set<UUID> = []
+
+    // MARK: - Stylus
+
+    // A synthetic tablet, deliberately not impersonating a real vendor so it is
+    // obvious in logs where these events came from. macOS never looks these up; they
+    // exist so apps can tell one pointing device from another.
+    private let tabletVendorID: Int64 = 0x0BC0      // "BC"
+    private let tabletProductID: Int64 = 0x0001
+    private let tabletDeviceID: Int64 = 1
+    /// Advertises pressure, tilt and rotation so apps enable their pressure-aware paths.
+    private let tabletCapabilityMask: Int64 = 0x05C7
+
+    /// Connections whose stylus macOS currently believes is near the tablet.
+    private var stylusInProximity: Set<UUID> = []
+
+    private func handleTablet(event: InputEvent, point: CGPoint, pressure: Double, connectionId: UUID) {
+        let goingAway = (event.type == .leftMouseUp)
+
+        // Apps ignore tablet data until the pointer is announced as in range.
+        if !goingAway && !stylusInProximity.contains(connectionId) {
+            postProximity(entering: true)
+            stylusInProximity.insert(connectionId)
+        }
+
+        let cgType: CGEventType
+        switch event.type {
+        case .leftMouseDown:
+            leftButtonDown.insert(connectionId)
+            cgType = .leftMouseDown
+        case .leftMouseUp:
+            leftButtonDown.remove(connectionId)
+            cgType = .leftMouseUp
+        default:
+            // Contact with the glass is a drag; hovering above it is a bare move.
+            cgType = leftButtonDown.contains(connectionId) ? .leftMouseDragged : .mouseMoved
+        }
+
+        guard let ev = CGEvent(mouseEventSource: nil, mouseType: cgType,
+                               mouseCursorPosition: point, mouseButton: .left) else { return }
+
+        // Tilt is the pencil's lean flattened onto the screen's axes. Upright means no
+        // lean on either axis, so cos(altitude) scales it and azimuth points it.
+        let altitude = event.altitude ?? (.pi / 2)
+        let azimuth = event.azimuth ?? 0
+        let lean = cos(altitude)
+
+        ev.setIntegerValueField(.mouseEventSubtype, value: Int64(CGEventMouseSubtype.tabletPoint.rawValue))
+        ev.setDoubleValueField(.tabletEventPointPressure, value: pressure)
+        ev.setDoubleValueField(.tabletEventTiltX, value: cos(azimuth) * lean)
+        ev.setDoubleValueField(.tabletEventTiltY, value: sin(azimuth) * lean)
+        ev.setIntegerValueField(.tabletEventDeviceID, value: tabletDeviceID)
+        ev.post(tap: .cghidEventTap)
+
+        if goingAway {
+            postProximity(entering: false)
+            stylusInProximity.remove(connectionId)
+        }
+    }
+
+    /// Tell macOS the stylus has come into or gone out of range.
+    private func postProximity(entering: Bool) {
+        guard let ev = CGEvent(source: nil) else { return }
+        ev.type = .tabletProximity
+        ev.setIntegerValueField(.tabletProximityEventVendorID, value: tabletVendorID)
+        ev.setIntegerValueField(.tabletProximityEventTabletID, value: tabletProductID)
+        ev.setIntegerValueField(.tabletProximityEventDeviceID, value: tabletDeviceID)
+        ev.setIntegerValueField(.tabletProximityEventSystemTabletID, value: 0)
+        ev.setIntegerValueField(.tabletProximityEventPointerType,
+                                value: Int64(NX_TABLET_POINTER_PEN))
+        ev.setIntegerValueField(.tabletProximityEventCapabilityMask, value: tabletCapabilityMask)
+        ev.setIntegerValueField(.tabletProximityEventEnterProximity, value: entering ? 1 : 0)
+        ev.post(tap: .cghidEventTap)
+    }
+
+    private func postMouseEvent(type: CGEventType, point: CGPoint, button: CGMouseButton, clickCount: Int = 1) {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: button) else { return }
+        if clickCount > 1 {
+            event.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+        }
         event.post(tap: .cghidEventTap)
     }
     
