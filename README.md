@@ -18,7 +18,7 @@ Every screen-extension tool picks a lane: Sidecar is iPad-only and wants both de
 | Price | Free, open source | Free (built in) | Free, open source | Subscription | Hardware dongle | Free (closed source) |
 | Host (sender) | Mac, Windows (beta) | Mac | Mac | Mac & Windows | Mac & Windows | Windows |
 | iPhone / iPad receiver | ✅ | iPad only¹ | ✅ | ✅ | iPad only | ✅ |
-| Android receiver | ✅ | ❌ | ❌² | ✅ | ❌ | ✅ |
+| Android receiver | ✅ | ❌ | Community forks² | ✅ | ❌ | ✅ |
 | Windows receiver | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
 | Linux receiver | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Mac as receiver | ✅ | ❌ | Planned | ✅ | ✅ | ❌ |
@@ -29,7 +29,7 @@ Every screen-extension tool picks a lane: Sidecar is iPad-only and wants both de
 | No account needed | ✅ | Same Apple ID | ✅ | Account required | — | ✅ |
 
 ¹ Sidecar requires both devices signed into the same Apple ID, and supports only recent iPad models.
-² Community forks add Android receivers to OpenDisplay; they are not part of the official project.
+² Independent community projects add Android (and iOS 12) receivers to OpenDisplay — not shipped by the official app, but they exist and work.
 "—" means not documented by the vendor at the time of writing. Spotted an error? Please open an issue — this table is meant to be fair.
 
 If your setup is all-Apple and wired USB to an iPhone matters most, [OpenDisplay](https://github.com/peetzweg/opendisplay) is a solid open-source choice. BetterCast is for everyone whose spare screens didn't all come from one company — see [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for open-source projects whose ideas informed this one.
