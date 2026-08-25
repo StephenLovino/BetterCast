@@ -9,6 +9,31 @@ BetterCast is an open-source screen extension app that turns almost any device i
   <a href="https://youtube.com/shorts/m1FwRupqOZw">▶ Watch the full demo on YouTube</a>
 </p>
 
+## Why BetterCast?
+
+Every screen-extension tool picks a lane: Sidecar is iPad-only and wants both devices on the same Apple ID, OpenDisplay is Apple-to-Apple, spacedesk is Windows-to-mobile, Duet moved to a subscription, Luna needs a hardware dongle. BetterCast is the one that doesn't pick a lane: it sends from your Mac (Windows sender in beta) and receives on everything — iPhone, iPad, Android, Windows, Linux, or another Mac — with audio, multi-device, and HEVC already shipped, free and GPLv3.
+
+| | **BetterCast** | Apple Sidecar | [OpenDisplay](https://github.com/peetzweg/opendisplay) | Duet Display | Luna Display | spacedesk |
+|---|---|---|---|---|---|---|
+| Price | Free, open source | Free (built in) | Free, open source | Subscription | Hardware dongle | Free (closed source) |
+| Host (sender) | Mac, Windows (beta) | Mac | Mac | Mac & Windows | Mac & Windows | Windows |
+| iPhone / iPad receiver | ✅ | iPad only¹ | ✅ | ✅ | iPad only | ✅ |
+| Android receiver | ✅ | ❌ | ❌² | ✅ | ❌ | ✅ |
+| Windows receiver | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
+| Linux receiver | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Mac as receiver | ✅ | ❌ | Planned | ✅ | ✅ | ❌ |
+| Audio streaming | ✅ | ❌ | Planned | ✅ | ❌ | ✅ |
+| Multiple displays at once | ✅ | ❌ | ✅ | — | ❌ | ✅ |
+| Direct P2P, no router | ✅ (AWDL) | ✅ | ❌ | ❌ | — | ❌ |
+| Wired USB | Android (ADB) | ✅ | ✅ (iPhone/iPad) | ✅ | ✅ | ✅ |
+| No account needed | ✅ | Same Apple ID | ✅ | Account required | — | ✅ |
+
+¹ Sidecar requires both devices signed into the same Apple ID, and supports only recent iPad models.
+² Community forks add Android receivers to OpenDisplay; they are not part of the official project.
+"—" means not documented by the vendor at the time of writing. Spotted an error? Please open an issue — this table is meant to be fair.
+
+If your setup is all-Apple and wired USB to an iPhone matters most, [OpenDisplay](https://github.com/peetzweg/opendisplay) is a solid open-source choice. BetterCast is for everyone whose spare screens didn't all come from one company — see [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for open-source projects whose ideas informed this one.
+
 ## How It Works
 
 **BetterCast** is a single unified Mac app that does both jobs: it can **send** your screen to other devices (creating a virtual display per receiver) and **receive** screens from other Macs in a separate window. Receivers on iOS, Windows, Linux, and Android are dedicated apps.
