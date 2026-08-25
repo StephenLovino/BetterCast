@@ -26,23 +26,43 @@ struct BetterCastSenderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
-                mainView
-                    .sheet(isPresented: $showDonatePrompt) {
-                        DonatePromptView(
-                            onLater: { showDonatePrompt = false },
-                            onAlreadyDonated: {
-                                DonatePromptState.silenced = true
-                                showDonatePrompt = false
-                            }
-                        )
-                    }
-            } else {
-                OnboardingView(onComplete: {
-                    hasCompletedOnboarding = true
-                })
-                .frame(minWidth: 520, minHeight: 600)
-                .background(Color(nsColor: .windowBackgroundColor))
+            Group {
+                if hasCompletedOnboarding {
+                    mainView
+                        .sheet(isPresented: $showDonatePrompt) {
+                            DonatePromptView(
+                                onLater: { showDonatePrompt = false },
+                                onAlreadyDonated: {
+                                    DonatePromptState.silenced = true
+                                    showDonatePrompt = false
+                                }
+                            )
+                        }
+                } else {
+                    OnboardingView(onComplete: {
+                        hasCompletedOnboarding = true
+                    })
+                    .frame(minWidth: 520, minHeight: 600)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                }
+            }
+            // Sits outside the onboarding branch: a device can dial this Mac before
+            // onboarding is finished, and the request still has to be answered.
+            // Only one sheet shows at a time on macOS, so the donation nudge steps
+            // aside rather than swallowing the prompt.
+            .onChange(of: networkClient.pendingInvite?.id) { newValue in
+                if newValue != nil { showDonatePrompt = false }
+            }
+            .sheet(isPresented: Binding(
+                get: { networkClient.pendingInvite != nil },
+                set: { if !$0 && networkClient.pendingInvite != nil { networkClient.denyInvite() } }
+            )) {
+                InvitePromptView(
+                    deviceName: networkClient.pendingInvite?.displayName ?? "",
+                    onAllowOnce: { networkClient.approveInvite(remember: false) },
+                    onAllowAlways: { networkClient.approveInvite(remember: true) },
+                    onDeny: { networkClient.denyInvite() }
+                )
             }
         }
     }
@@ -1434,6 +1454,21 @@ struct DetailPanelView: View {
                             hasCompletedTour = false
                             selection = .devices
                         }
+
+                        Button("Forget Allowed Devices") {
+                            client.clearTrustedInviteHosts()
+                        }
+                        .disabled(client.trustedInviteHostCount == 0)
+                    }
+
+                    if client.trustedInviteHostCount > 0 {
+                        HStack(spacing: 6) {
+                            Text("\(client.trustedInviteHostCount) allowed device(s) can ask for your screen without a prompt.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            InfoTip(text: "Devices you chose 'Always allow' for. Forgetting them means the next request asks again.")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -2765,6 +2800,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         static let manualPort = "setting.manualPort"
         static let fps = "setting.fps"
         static let legacyCapture = "setting.legacyCapture"
+        static let trustedInviteHosts = "setting.trustedInviteHosts"
     }
     private static func loadQuality() -> StreamQuality {
         (UserDefaults.standard.object(forKey: SettingsKey.quality) as? Int)
@@ -3057,47 +3093,58 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                         }
                     }
 
-                    // Synthesize a service name from the remote endpoint so the rest of the
-                    // sender code (UI, pipeline routing, logs) can treat this like a normal device.
-                    let serviceName: String
-                    switch connection.endpoint {
-                    case .hostPort(let host, let port):
-                        serviceName = "iOS @ \(host):\(port)"
-                    default:
-                        serviceName = "iOS (invited)"
-                    }
-                    let service = DiscoveredService(name: serviceName, endpoint: connection.endpoint)
+                    let hostKey = Self.inviteHostKey(for: connection.endpoint)
 
-                    var pipeline = ConnectionPipeline(
+                    // A connection this Mac made to itself, or one from a device the user
+                    // has already allowed, goes straight through. Everything else waits.
+                    if isLoopback || self.isTrustedInviteHost(hostKey) {
+                        self.beginInvitedSession(
+                            connection: connection,
+                            connectionId: connectionId,
+                            isP2P: isP2P,
+                            isLoopback: isLoopback
+                        )
+                        return
+                    }
+
+                    guard self.pendingInvite == nil else {
+                        // One prompt at a time. A second caller waits for the next attempt
+                        // rather than stacking sheets or silently jumping the queue.
+                        LogManager.shared.log("Sender: Invite — \(hostKey) refused, another request is already waiting")
+                        connection.stateUpdateHandler = nil
+                        connection.cancel()
+                        return
+                    }
+
+                    LogManager.shared.log("Sender: Invite — \(hostKey) is asking to use this Mac as a display, waiting for approval")
+                    self.pendingInvite = PendingInvite(
                         id: connectionId,
                         connection: connection,
-                        service: service,
-                        lastHeartbeat: Date()
+                        hostKey: hostKey,
+                        isP2P: isP2P,
+                        isLoopback: isLoopback,
+                        displayName: hostKey
                     )
-                    pipeline.isP2P = isP2P
-                    pipeline.isLoopback = isLoopback
-                    // Invite-initiated connections always come from a modern iOS receiver
-                    // (NetworkListenerIOS), which auto-detects type-byte framing on the first
-                    // received frame. Keeping this true is required for audio to flow — the
-                    // audioEncoder delegate skips sending when supportsTypeByte is false.
-                    pipeline.supportsTypeByte = true
+                    NSApp.activate(ignoringOtherApps: true)
 
-                    self.pipelines[connectionId] = pipeline
-                    self.connectedServices.append(service)
-                    self.updateConnectedDisplays()
-
-                    let count = self.pipelines.count
-                    self.status = "Connected to \(count) device(s)"
-                    LogManager.shared.log("Sender: Invite — connected to \(serviceName) (Total: \(count), P2P: \(isP2P))")
-
-                    self.startPipeline(for: connectionId)
-
-                    if count == 1 {
-                        self.startHeartbeatMonitor()
-                        self.startStatsTimer()
+                    // Nobody at the keyboard means no. Otherwise an unanswered prompt would
+                    // sit there holding the socket open indefinitely.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+                        guard let self = self, self.pendingInvite?.id == connectionId else { return }
+                        LogManager.shared.log("Sender: Invite — no answer after 60s, declining")
+                        self.denyInvite()
                     }
 
-                    self.receive(on: connection, connectionId: connectionId)
+                case .failed(let error) where self.pendingInvite?.id == connectionId:
+                    LogManager.shared.log("Sender: Invite — waiting request dropped: \(error)")
+                    self.pendingInvite = nil
+                    connection.stateUpdateHandler = nil
+                    self.removeConnection(connectionId)
+
+                case .cancelled where self.pendingInvite?.id == connectionId:
+                    self.pendingInvite = nil
+                    connection.stateUpdateHandler = nil
+                    self.removeConnection(connectionId)
 
                 case .failed(let error):
                     LogManager.shared.log("Sender: Invite connection failed: \(error)")
@@ -3113,6 +3160,53 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
 
         connection.start(queue: .main)
+    }
+
+    /// Turn an approved invite into a live pipeline. Split out of `handleIncomingInvite`
+    /// so the socket can sit idle while the user decides, and nothing here runs until
+    /// they say yes.
+    private func beginInvitedSession(connection: NWConnection, connectionId: UUID, isP2P: Bool, isLoopback: Bool) {
+        // Synthesize a service name from the remote endpoint so the rest of the
+        // sender code (UI, pipeline routing, logs) can treat this like a normal device.
+        let serviceName: String
+        switch connection.endpoint {
+        case .hostPort(let host, let port):
+            serviceName = "iOS @ \(host):\(port)"
+        default:
+            serviceName = "iOS (invited)"
+        }
+        let service = DiscoveredService(name: serviceName, endpoint: connection.endpoint)
+
+        var pipeline = ConnectionPipeline(
+            id: connectionId,
+            connection: connection,
+            service: service,
+            lastHeartbeat: Date()
+        )
+        pipeline.isP2P = isP2P
+        pipeline.isLoopback = isLoopback
+        // Invite-initiated connections always come from a modern iOS receiver
+        // (NetworkListenerIOS), which auto-detects type-byte framing on the first
+        // received frame. Keeping this true is required for audio to flow — the
+        // audioEncoder delegate skips sending when supportsTypeByte is false.
+        pipeline.supportsTypeByte = true
+
+        pipelines[connectionId] = pipeline
+        connectedServices.append(service)
+        updateConnectedDisplays()
+
+        let count = pipelines.count
+        status = "Connected to \(count) device(s)"
+        LogManager.shared.log("Sender: Invite — connected to \(serviceName) (Total: \(count), P2P: \(isP2P))")
+
+        startPipeline(for: connectionId)
+
+        if count == 1 {
+            startHeartbeatMonitor()
+            startStatsTimer()
+        }
+
+        receive(on: connection, connectionId: connectionId)
     }
 
     // Heartbeat
@@ -3135,6 +3229,111 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     // iOS-initiated connections: this sender listens on senderInvitePort and advertises
     // _bettercast-sender._tcp so iOS receivers can discover the sender and dial it.
     private var senderInviteListener: NWListener?
+
+    /// Last screen size each device reported, so its display can be created at the right
+    /// size immediately instead of being built at the default and then torn down.
+    ///
+    /// A single connect used to burn three or four virtual displays: one at 1920x1080,
+    /// one once the device said what it actually was, then the same again after the
+    /// re-dial handed over. Every rebuild evicts whatever windows the user had put on
+    /// that screen, so the display they were looking at was perpetually an empty desktop
+    /// and tapping it did nothing. Keyed on the base name so the Wi-Fi listener and its
+    /// " P2P" sibling share one entry.
+    private var lastReportedScreen: [String: (width: Int, height: Int)] = [:]
+
+    private func screenSizeKey(_ serviceName: String) -> String {
+        serviceName.hasSuffix(" P2P") ? String(serviceName.dropLast(4)) : serviceName
+    }
+
+    private func rememberScreenSize(width: Int, height: Int, for serviceName: String) {
+        lastReportedScreen[screenSizeKey(serviceName)] = (width, height)
+    }
+
+    /// Invite connections being kept alive while a re-dial to the same device is in
+    /// flight, keyed by the name being dialled. Cleared either when the replacement is
+    /// ready, or when the dial gives up and the original carries on.
+    private var supersededByRedial: [String: UUID] = [:]
+
+    // MARK: - Incoming invite approval
+
+    /// An incoming invite that is connected but not yet streaming, waiting on the user.
+    ///
+    /// The invite listener accepts any device that can reach the port. Until this
+    /// existed the socket went straight to a virtual display and a live stream, so
+    /// anything on the same network could ask this Mac for a screen without a word
+    /// to whoever was sitting at it. Nothing starts now until the prompt is answered.
+    struct PendingInvite: Identifiable {
+        let id: UUID
+        let connection: NWConnection
+        let hostKey: String
+        let isP2P: Bool
+        let isLoopback: Bool
+        /// What the user sees. The device name if it introduced itself, else the address.
+        var displayName: String
+    }
+
+    @Published var pendingInvite: PendingInvite?
+
+    /// Devices the user ticked "always allow" for, by address.
+    ///
+    /// An address is a weak identity and a determined attacker on the same network can
+    /// borrow one. It is enough to stop the prompt nagging on every reconnect from the
+    /// user's own phone, and no more than that. Real device identity arrives with
+    /// pairing (issue #49).
+    @Published private var trustedInviteHosts: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: SettingsKey.trustedInviteHosts) ?? []
+    )
+
+    private func isTrustedInviteHost(_ hostKey: String) -> Bool {
+        trustedInviteHosts.contains(hostKey)
+    }
+
+    private func rememberInviteHost(_ hostKey: String) {
+        trustedInviteHosts.insert(hostKey)
+        UserDefaults.standard.set(Array(trustedInviteHosts), forKey: SettingsKey.trustedInviteHosts)
+    }
+
+    /// Forget every device the user has ever allowed, so they are all asked again.
+    func clearTrustedInviteHosts() {
+        trustedInviteHosts.removeAll()
+        UserDefaults.standard.removeObject(forKey: SettingsKey.trustedInviteHosts)
+        LogManager.shared.log("Sender: Invite — cleared the list of allowed devices")
+    }
+
+    var trustedInviteHostCount: Int { trustedInviteHosts.count }
+
+    /// Stable-ish key for an endpoint: the host without the ephemeral source port.
+    private static func inviteHostKey(for endpoint: NWEndpoint) -> String {
+        switch endpoint {
+        case .hostPort(let host, _):
+            return "\(host)"
+        default:
+            return "\(endpoint)"
+        }
+    }
+
+    /// User said yes. Start the session, and optionally stop asking for this device.
+    func approveInvite(remember: Bool) {
+        guard let invite = pendingInvite else { return }
+        pendingInvite = nil
+        if remember { rememberInviteHost(invite.hostKey) }
+        LogManager.shared.log("Sender: Invite — approved \(invite.displayName)\(remember ? " (always allow)" : "")")
+        beginInvitedSession(
+            connection: invite.connection,
+            connectionId: invite.id,
+            isP2P: invite.isP2P,
+            isLoopback: invite.isLoopback
+        )
+    }
+
+    /// User said no, or the prompt timed out. Drop the socket without streaming anything.
+    func denyInvite() {
+        guard let invite = pendingInvite else { return }
+        pendingInvite = nil
+        LogManager.shared.log("Sender: Invite — denied \(invite.displayName)")
+        invite.connection.stateUpdateHandler = nil
+        invite.connection.cancel()
+    }
     
     init() {
         LogManager.shared.log("Sender: App Starting")
@@ -3440,6 +3639,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
                     // Start per-connection pipeline (each device gets its own display/encoder/recorder)
                     self?.startPipeline(for: connectionId)
+
+                    // The re-dial landed, so the invite connection it replaces can go now.
+                    if let old = self?.supersededByRedial.removeValue(forKey: service.name) {
+                        LogManager.shared.log("Sender: Re-dial to \(service.name) is up — retiring the invite connection it replaced")
+                        self?.removeConnection(old)
+                    }
 
                     // Start shared services on first connection
                     if count == 1 {
@@ -4278,6 +4483,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
                     self?.startPipeline(for: connectionId)
 
+                    // Same hand-over as the direct path: the invite connection this
+                    // replaces stays up until the fallback is actually streaming.
+                    if let old = self?.supersededByRedial.removeValue(forKey: service.name) {
+                        LogManager.shared.log("Sender: Re-dial to \(service.name) is up — retiring the invite connection it replaced")
+                        self?.removeConnection(old)
+                    }
+
                     if count == 1 {
                         self?.startHeartbeatMonitor()
                         self?.startStatsTimer()
@@ -4937,9 +5149,31 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             return
         }
 
-        LogManager.shared.log("Sender: Device hello '\(deviceName)' → re-dialing as \(target.name)")
-        removeConnection(connectionId)
+        // Keep streaming over the invite connection until the re-dial actually lands.
+        // Dropping it first meant a failed AWDL attempt cost the working connection as
+        // well: the phone went black for the five seconds the dial took to time out,
+        // then reconnected over the same infrastructure path it started on. Rotating
+        // the phone appeared to "fix" it only because that forces a fresh keyframe.
+        // The invite pipeline may already know this device's screen size, filed under its
+        // address. Move it to the real name so the re-dial builds the right display first
+        // time instead of making one at the default and rebuilding a moment later.
+        if let w = existing.reportedScreenWidth, let h = existing.reportedScreenHeight, w > 0, h > 0 {
+            rememberScreenSize(width: w, height: h, for: deviceName)
+        }
+        LogManager.shared.log("Sender: Device hello '\(deviceName)' → re-dialing as \(target.name), keeping the current stream until it lands")
+        supersededByRedial[target.name] = connectionId
         connect(to: target)
+
+        // If the re-dial never lands, stop waiting on it and let the invite connection
+        // carry on as the real one. Comfortably longer than the AWDL timeout plus the
+        // infrastructure retry that follows it, so this only fires on genuine failure.
+        let targetName = target.name
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            guard let self = self,
+                  self.supersededByRedial[targetName] == connectionId else { return }
+            self.supersededByRedial.removeValue(forKey: targetName)
+            LogManager.shared.log("Sender: Re-dial to \(targetName) never landed — staying on the invite connection")
+        }
     }
 
     // Handle screen info from iOS receiver (command 777)
@@ -4962,6 +5196,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
         pipelines[connectionId]?.reportedScreenWidth = width
         pipelines[connectionId]?.reportedScreenHeight = height
+        rememberScreenSize(width: width, height: height, for: serviceName)
         LogManager.shared.log("Sender: Screen info from \(serviceName): \(width)x\(height)")
 
         // Restart pipeline with new dimensions
@@ -5007,10 +5242,22 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Create virtual display if enabled
         if useVirtualDisplay {
             LogManager.shared.log("Sender: Creating virtual display for \(serviceName)...")
-            let displayManager = VirtualDisplayManager()
+            // Keyed by device so macOS recognises it as the same monitor next time
+            // and keeps wherever the user dragged it in Arrange.
+            let displayManager = VirtualDisplayManager(deviceKey: serviceName)
 
             // Use receiver-reported screen dimensions if available (matches device aspect ratio)
             let resolution: VirtualDisplayManager.Resolution
+
+            // A device that has connected before already told us its screen size. Seed the
+            // pipeline with it so the display is built correctly on the first attempt.
+            if pipelines[connectionId]?.reportedScreenWidth == nil,
+               let remembered = lastReportedScreen[screenSizeKey(serviceName)] {
+                pipelines[connectionId]?.reportedScreenWidth = remembered.width
+                pipelines[connectionId]?.reportedScreenHeight = remembered.height
+                LogManager.shared.log("Sender: Reusing known screen size \(remembered.width)x\(remembered.height) for \(serviceName)")
+            }
+
             if let rw = pipelines[connectionId]?.reportedScreenWidth,
                let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
                 // Reported dims are the device's native PIXELS: pass through unchanged.
