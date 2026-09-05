@@ -3,7 +3,7 @@
 # Exit on error
 set -e
 
-VERSION="v19"
+VERSION="v20"
 
 # Code signing identity (Developer ID Application certificate)
 # Set to "-" for ad-hoc signing (local use), or your Developer ID for distribution

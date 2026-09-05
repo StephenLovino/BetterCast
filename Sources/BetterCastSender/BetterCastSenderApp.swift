@@ -1554,13 +1554,19 @@ struct DetailPanelView: View {
                             Label("Update available: \(version)", systemImage: "arrow.down.circle.fill")
                                 .foregroundColor(.green)
                             Spacer()
-                            Button("Download") {
-                                if let urlStr = updateChecker.downloadURL, let url = URL(string: urlStr) {
-                                    NSWorkspace.shared.open(url)
+                            if updateChecker.isDownloading {
+                                ProgressView(value: updateChecker.downloadProgress)
+                                    .frame(width: 90)
+                                Text("\(Int(updateChecker.downloadProgress * 100))%")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Button("Update Now") {
+                                    updateChecker.downloadAndOpen()
                                 }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
                         }
                     } else {
                         Label("You're on the latest version", systemImage: "checkmark.circle.fill")
