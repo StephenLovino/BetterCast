@@ -1856,8 +1856,12 @@ bool VirtualDisplayVDD::waitForVirtualMonitors(int expected, int timeoutMs) cons
         QThread::msleep(500);
     }
 
-    VDD_LOG(QString("VDD: Only %1 of %2 virtual monitor(s) appeared within %3 ms")
-                .arg(seen).arg(expected).arg(timeoutMs));
+    // Both numbers, because which one fell short says what went wrong: no
+    // monitors at all is a driver or settings problem, monitors present but
+    // unattached is Windows refusing to put them on the desktop.
+    VDD_LOG(QString("VDD: Timed out after %1 ms — %2 virtual monitor(s) present, "
+                    "%3 attached, wanted %4")
+                .arg(timeoutMs).arg(seenPresent).arg(seenAttached).arg(expected));
     return false;
 }
 
