@@ -2654,11 +2654,16 @@ struct InfoTip: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isShowing, arrowEdge: .trailing) {
+            // A definite width, not maxWidth. maxWidth leaves the popover sizing
+            // against an indefinite proposal, so macOS falls back to a container far
+            // taller than the sentence inside it, with the text stranded at the
+            // bottom. Fixing the width lets the text wrap and the height follow.
             Text(text)
                 .font(.caption)
-                .padding(10)
-                .frame(maxWidth: 260)
+                .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(10)
+                .frame(width: 260, alignment: .leading)
         }
     }
 }
