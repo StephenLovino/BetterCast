@@ -271,26 +271,42 @@ jobs:
             "artifact/BetterCastReceiver.exe"
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
-      - name: Verify NSIS (preinstalled on windows-2022)
+      - name: Ensure NSIS
         shell: pwsh
         run: |
-          # windows-2022 runners ship with NSIS at C:\Program Files (x86)\NSIS\
-          # already on PATH. We assert presence rather than reinstalling so we
-          # don't depend on third-party mirrors or winget at build time.
+          # This step asserted that the runner ships NSIS, and stopped being
+          # true. The job runs on windows-latest, which has moved past the
+          # windows-2022 image the assertion was written for, so every run since
+          # has failed here — which is why v18 and v19 went out with no Windows
+          # installer at all while the app itself built fine.
+          #
+          # Not going back to downloading it either: the mirror the older
+          # version of this file used (nicehash/NSIS v3.10) now 404s. Chocolatey
+          # is preinstalled on GitHub's Windows runners and serves NSIS itself,
+          # so this depends on the runner and the package rather than on a third
+          # party that can disappear.
           $makensis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+          $nsisDir = "C:\Program Files (x86)\NSIS"
+          if (-not $makensis -and (Test-Path "$nsisDir\makensis.exe")) {
+            $makensis = "$nsisDir\makensis.exe"
+            $nsisDir >> $env:GITHUB_PATH
+          }
           if (-not $makensis) {
-            $candidate = "C:\Program Files (x86)\NSIS\makensis.exe"
-            if (Test-Path $candidate) {
-              "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
-              $makensis = $candidate
+            Write-Host "NSIS is not on this runner image - installing it"
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw "choco install nsis failed with $LASTEXITCODE" }
+            if (-not (Test-Path "$nsisDir\makensis.exe")) {
+              throw "choco reported success but makensis.exe is not in $nsisDir"
             }
+            $makensis = "$nsisDir\makensis.exe"
+            $nsisDir >> $env:GITHUB_PATH
           }
-          if (-not $makensis) {
-            Write-Error "makensis.exe not found — windows-2022 runner image changed?"
-            exit 1
-          }
-          Write-Host "Using NSIS: $makensis"
+
+          # Assert it runs, not that a file exists. An assertion checking the
+          # wrong thing is what this step is replacing.
           & $makensis /VERSION
+          if ($LASTEXITCODE -ne 0) { throw "makensis is present at $makensis but would not run" }
+          Write-Host "Using NSIS: $makensis"
 
       - name: Build installer
         shell: pwsh
