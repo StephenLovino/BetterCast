@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QList>
+#include <QSet>
 #include <QUdpSocket>
 #include <QTimer>
 #include <QHostAddress>
@@ -61,6 +62,14 @@ private:
     bool isOwnAddress(const QHostAddress& addr);
     void ensureMdnsSocket();
 
+    /// Join the mDNS group on every eligible interface, and forget the ones
+    /// that have gone. Safe to call repeatedly; the browse timer does.
+    void refreshMulticastMemberships();
+
+    /// Send one datagram out of every eligible interface rather than letting
+    /// the routing table pick one.
+    void sendMulticast(const QByteArray& datagram);
+
 #ifdef HAS_MDNS
     void* m_registerRef = nullptr;
     void* m_browseRef = nullptr;
@@ -73,6 +82,9 @@ private:
     QString m_serviceName;
     bool m_advertising = false;
     int m_announceCount = 0;
+    /// Interface names currently joined to the mDNS group, keyed the way
+    /// QNetworkInterface::name() reports them.
+    QSet<QString> m_joinedIfaces;
 
     // Browsing
     QTimer* m_browseTimer = nullptr;

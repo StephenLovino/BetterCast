@@ -194,8 +194,82 @@ void ServiceDiscovery::stopBrowsing() {
 #endif
 }
 
+// Interfaces mDNS can usefully talk on.
+//
+// Shared by the join and the send, because the two have to agree: joining a
+// group on an interface nothing is sent through, or sending through one that
+// never joined, both look like "discovery just does not work here".
+static bool mdnsEligible(const QNetworkInterface& iface) {
+    const auto flags = iface.flags();
+    return flags.testFlag(QNetworkInterface::IsUp) &&
+           flags.testFlag(QNetworkInterface::IsRunning) &&
+           flags.testFlag(QNetworkInterface::CanMulticast) &&
+           !flags.testFlag(QNetworkInterface::IsLoopBack);
+}
+
+void ServiceDiscovery::refreshMulticastMemberships() {
+    if (!m_mdnsSocket) return;
+
+    // Interfaces appear while the app is running, and the one that matters most
+    // is the Mobile Hotspot: it does not exist until someone switches it on,
+    // which is always after startup. The membership scan used to run once, from
+    // ensureMdnsSocket, so a phone joining that hotspot was announcing into an
+    // interface this process had never subscribed to and was simply invisible.
+    QSet<QString> live;
+    for (const auto& iface : QNetworkInterface::allInterfaces()) {
+        if (!mdnsEligible(iface)) continue;
+        const QString key = iface.name();
+        live.insert(key);
+        if (m_joinedIfaces.contains(key)) continue;
+        if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
+            m_joinedIfaces.insert(key);
+            MDNS_LOG(QString("mDNS: Joined multicast on %1").arg(iface.humanReadableName()));
+        } else {
+            MDNS_LOG(QString("mDNS: Failed multicast join on %1: %2")
+                         .arg(iface.humanReadableName(), m_mdnsSocket->errorString()));
+        }
+    }
+
+    // Forget the ones that went away, so the same interface coming back later -
+    // a hotspot switched off and on again - is joined afresh rather than
+    // assumed to still be a member.
+    for (auto it = m_joinedIfaces.begin(); it != m_joinedIfaces.end(); ) {
+        if (live.contains(*it)) { ++it; continue; }
+        MDNS_LOG(QString("mDNS: %1 went away — dropping its multicast membership").arg(*it));
+        it = m_joinedIfaces.erase(it);
+    }
+}
+
+void ServiceDiscovery::sendMulticast(const QByteArray& datagram) {
+    if (!m_mdnsSocket) return;
+
+    // Once per interface, naming each one explicitly.
+    //
+    // A plain writeDatagram to 224.0.0.251 goes out whichever interface the
+    // routing table prefers - the default route, so Wi-Fi - and nowhere else.
+    // Every announcement and every browse query therefore missed the hotspot
+    // segment entirely, which is the other half of why a phone on the hotspot
+    // could not be found and could not find this PC.
+    const QNetworkInterface saved = m_mdnsSocket->multicastInterface();
+    int sent = 0;
+    for (const auto& iface : QNetworkInterface::allInterfaces()) {
+        if (!mdnsEligible(iface)) continue;
+        m_mdnsSocket->setMulticastInterface(iface);
+        if (m_mdnsSocket->writeDatagram(datagram, kMdnsAddress, kMdnsPort) > 0) sent++;
+    }
+    m_mdnsSocket->setMulticastInterface(saved);
+
+    // Nothing eligible: fall back to letting the routing table decide, which is
+    // what this always did and is better than sending nothing.
+    if (sent == 0) m_mdnsSocket->writeDatagram(datagram, kMdnsAddress, kMdnsPort);
+}
+
 void ServiceDiscovery::ensureMdnsSocket() {
-    if (m_mdnsSocket) return;
+    if (m_mdnsSocket) {
+        // Already up, but the set of interfaces may not be what it was.
+        refreshMulticastMemberships();
+        return;
+    }
 
     m_mdnsSocket = new QUdpSocket(this);
 
@@ -216,26 +290,12 @@ void ServiceDiscovery::ensureMdnsSocket() {
         MDNS_LOG(QString("mDNS: Bound to fallback port %1 (send-only)").arg(m_mdnsSocket->localPort()));
     }
 
-    // Join multicast group on all eligible interfaces
-    bool joined = false;
-    for (const auto& iface : QNetworkInterface::allInterfaces()) {
-        if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
-            iface.flags().testFlag(QNetworkInterface::IsRunning) &&
-            iface.flags().testFlag(QNetworkInterface::CanMulticast) &&
-            !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
-            if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress, iface)) {
-                MDNS_LOG(QString("mDNS: Joined multicast on %1").arg(iface.humanReadableName()));
-                joined = true;
-            } else {
-                MDNS_LOG(QString("mDNS: Failed multicast join on %1: %2")
-                         .arg(iface.humanReadableName(), m_mdnsSocket->errorString()));
-            }
-        }
-    }
-    if (!joined) {
+    // Join multicast group on all eligible interfaces, and keep doing so as
+    // interfaces come and go.
+    refreshMulticastMemberships();
+    if (m_joinedIfaces.isEmpty()) {
         if (m_mdnsSocket->joinMulticastGroup(kMdnsAddress)) {
             MDNS_LOG("mDNS: Joined multicast on default interface");
-            joined = true;
         } else {
             MDNS_LOG("mDNS: FAILED to join any multicast group — discovery will not work");
         }
@@ -256,8 +316,13 @@ bool ServiceDiscovery::isOwnAddress(const QHostAddress& addr) {
 void ServiceDiscovery::sendBrowseQuery() {
     if (!m_mdnsSocket) return;
 
+    // Refresh memberships here rather than only at startup: this timer is
+    // already the regular heartbeat, and an interface that appeared since the
+    // last tick has to be joined before a query out of it means anything.
+    refreshMulticastMemberships();
+
     QByteArray query = buildBrowseQuery();
-    m_mdnsSocket->writeDatagram(query, kMdnsAddress, kMdnsPort);
+    sendMulticast(query);
 }
 
 QByteArray ServiceDiscovery::buildBrowseQuery() {
@@ -515,8 +580,8 @@ void ServiceDiscovery::handleMdnsQuery(const QByteArray& packet,
             }
             for (const auto& addr : addrs) {
                 QByteArray response = buildMdnsResponse(txId, addr);
-                // Send to multicast (standard mDNS)
-                m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+                // Send to multicast (standard mDNS), on every interface
+                sendMulticast(response);
                 // Also send unicast directly to the querier — this works even if
                 // multicast is blocked by Windows Firewall on the return path
                 m_mdnsSocket->writeDatagram(response, sender, senderPort);
@@ -540,7 +605,8 @@ void ServiceDiscovery::sendAnnouncement() {
     auto addrs = getLocalAddresses();
     for (const auto& addr : addrs) {
         QByteArray response = buildMdnsResponse(0, addr);
-        qint64 sent = m_mdnsSocket->writeDatagram(response, kMdnsAddress, kMdnsPort);
+        sendMulticast(response);
+        const qint64 sent = response.size();
         if (m_announceCount <= 3) {
             qDebug() << "mDNS: Announcement" << m_announceCount
                       << "sent" << sent << "bytes for" << addr.toString();
