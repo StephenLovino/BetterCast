@@ -1824,21 +1824,33 @@ bool VirtualDisplayVDD::waitForVirtualMonitors(int expected, int timeoutMs) cons
 
     QElapsedTimer clock;
     clock.start();
-    int seen = -1;
+    int seenPresent = -1;
+    int seenAttached = -1;
     while (clock.elapsed() < timeoutMs) {
-        int count = 0;
+        int present = 0;
+        int attached = 0;
         for (const auto& mon : enumerateMonitors()) {
-            if (mon.isVirtual) count++;
+            if (!mon.isVirtual) continue;
+            present++;
+            if (mon.attached) attached++;
         }
-        if (count != seen) {
-            seen = count;
-            VDD_LOG(QString("VDD: %1 of %2 virtual monitor(s) up after %3 ms")
-                        .arg(count).arg(expected).arg(clock.elapsed()));
+        if (present != seenPresent || attached != seenAttached) {
+            seenPresent = present;
+            seenAttached = attached;
+            VDD_LOG(QString("VDD: %1 virtual monitor(s) present, %2 attached to the "
+                            "desktop, after %3 ms (want %4)")
+                        .arg(present).arg(attached).arg(clock.elapsed()).arg(expected));
         }
-        if (count >= expected) {
-            // Present is not the same as ready — give the driver a moment to
-            // finish publishing modes before anything tries a mode change.
-            QThread::msleep(1200);
+
+        // Attached, not merely present.
+        //
+        // A device node shows up within milliseconds; Windows takes seconds
+        // longer to put the monitor on the desktop. This used to count nodes
+        // and report "3 of 3 virtual monitor(s) up after 5 ms", after which
+        // every position, mode change and capture failed on displays that were
+        // not there yet - each of which reads like its own bug.
+        if (attached >= expected) {
+            QThread::msleep(300);   // let the last one settle its mode list
             return true;
         }
         QThread::msleep(500);
@@ -2061,6 +2073,44 @@ bool VirtualDisplayVDD::removeVddDevices(int keep) {
 
 // ─── VDD Settings File ────────────────────────────────────────────────────────
 
+// Where the driver reads its settings — which is not where the driver package
+// happens to be installed.
+//
+// MttVDD.dll contains, as wide strings, "C:\VirtualDisplayDriver",
+// "\vdd_settings.xml" and "SOFTWARE\MikeTheTech\VirtualDisplayDriver": it
+// looks in a fixed folder, with that registry key able to redirect it.
+//
+// This code used to write into whichever folder the .inf was installed from -
+// C:\Program Files\BetterCast\VirtualDisplayDriver here - a file the driver
+// never opens. So the driver ran on its built-in defaults no matter what
+// BetterCast wrote, and a virtual display coming up at 800x600 was it saying
+// so. Every "the mode is not advertised" and "could not set 1920x1080" failure
+// downstream came from the same place.
+QString VirtualDisplayVDD::vddSettingsPath() const {
+    QString dir;
+#ifdef _WIN32
+    // The redirect wins when it is set, so an install that moved the folder
+    // still works.
+    HKEY key;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                      L"SOFTWARE\\MikeTheTech\\VirtualDisplayDriver",
+                      0, KEY_READ, &key) == ERROR_SUCCESS) {
+        for (const wchar_t* value : {L"SettingsPath", L"Path", L"InstallPath", L""}) {
+            wchar_t buf[MAX_PATH] = {};
+            DWORD size = sizeof(buf);
+            if (RegQueryValueExW(key, value, nullptr, nullptr,
+                                 reinterpret_cast<LPBYTE>(buf), &size) == ERROR_SUCCESS) {
+                const QString candidate = QString::fromWCharArray(buf).trimmed();
+                if (!candidate.isEmpty()) { dir = candidate; break; }
+            }
+        }
+        RegCloseKey(key);
+    }
+#endif
+    if (dir.isEmpty()) dir = "C:/VirtualDisplayDriver";
+    return QDir(dir).filePath("vdd_settings.xml");
+}
+
 // The Virtual Display Driver's settings file, as the driver actually writes it:
 //
 //   <vdd_settings>
@@ -2091,8 +2141,12 @@ QVector<VirtualDisplayVDD::VddResolution> VirtualDisplayVDD::readVddSettings() c
     QVector<VddResolution> displays;
     if (m_vddPath.isEmpty()) return displays;
 
-    for (const auto& filename : kSettingsFiles) {
-        QString path = m_vddPath + "/" + filename;
+    // The driver's real file first; the copy inside the install folder only as
+    // a fallback, since that is the one nothing reads.
+    QStringList candidates{ vddSettingsPath() };
+    for (const auto& filename : kSettingsFiles) candidates << (m_vddPath + "/" + filename);
+
+    for (const auto& path : candidates) {
         QFile file(path);
         if (!file.exists() || !file.open(QIODevice::ReadOnly)) continue;
 
@@ -2145,18 +2199,8 @@ QVector<VirtualDisplayVDD::VddResolution> VirtualDisplayVDD::readVddSettings() c
 bool VirtualDisplayVDD::writeVddSettings(const QVector<VddResolution>& displays) {
     if (m_vddPath.isEmpty()) return false;
 
-    // Find existing settings file, or create the first known one
-    QString settingsPath;
-    for (const auto& filename : kSettingsFiles) {
-        QString path = m_vddPath + "/" + filename;
-        if (QFileInfo::exists(path)) {
-            settingsPath = path;
-            break;
-        }
-    }
-    if (settingsPath.isEmpty()) {
-        settingsPath = m_vddPath + "/" + kSettingsFiles.first();
-    }
+    const QString settingsPath = vddSettingsPath();
+    if (settingsPath.isEmpty()) return false;
 
     // Build the file contents in memory so the same bytes can go down either
     // the direct or the elevated path.
@@ -2264,6 +2308,13 @@ bool VirtualDisplayVDD::writeVddSettings(const QVector<VddResolution>& displays)
     // never reaches the in-app log: the settings file was never updated and
     // every virtual display stayed on the driver's 800x600 default. Try the
     // write; let the failure, not a prediction of it, choose the path.
+    // The driver's folder is a fixed location that may not exist at all - it is
+    // not created by installing the driver package, only by whatever put the
+    // settings there. Try locally; the elevated path below creates it too, for
+    // the usual case where C:\ is not writable by this user.
+    const QString settingsDir = QFileInfo(settingsPath).absolutePath();
+    if (!QDir(settingsDir).exists()) QDir().mkpath(settingsDir);
+
     bool wrote = false;
     QFile direct(settingsPath);
     if (direct.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -2286,8 +2337,12 @@ bool VirtualDisplayVDD::writeVddSettings(const QVector<VddResolution>& displays)
         // Copy into Program Files behind a single UAC prompt.
         VDD_LOG("VDD: " + settingsPath + " needs administrator rights — "
                 "copying the new display modes into place elevated");
-        const QString args = QString("/s /c \"copy /Y \"%1\" \"%2\"\"")
-                                 .arg(QDir::toNativeSeparators(stagePath),
+        // mkdir first, and ignore it failing because the folder is already
+        // there: the driver's settings folder is a fixed path that nothing
+        // else creates, so on a fresh machine the copy has nowhere to land.
+        const QString args = QString("/s /c \"mkdir \"%1\" 2>nul & copy /Y \"%2\" \"%3\"\"")
+                                 .arg(QDir::toNativeSeparators(settingsDir),
+                                      QDir::toNativeSeparators(stagePath),
                                       QDir::toNativeSeparators(settingsPath));
 
         SHELLEXECUTEINFOW sei = {};

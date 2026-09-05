@@ -193,6 +193,10 @@ private:
     bool m_havePrimaryMode = false;
     bool writeVddSettings(const QVector<VddResolution>& displays);
     QVector<VddResolution> readVddSettings() const;
+
+    /// Full path of the file the driver actually reads, which is not the copy
+    /// sitting in whichever folder the driver package was installed from.
+    QString vddSettingsPath() const;
     bool notifyDriverRefresh();
     bool tryNamedPipe(const QString& command);
 
