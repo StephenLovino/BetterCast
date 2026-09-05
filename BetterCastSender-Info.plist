@@ -32,11 +32,11 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSCameraUsageDescription</key>
-	<string>BetterCast uses the camera only to read a Wi-Fi QR code shown on your phone, so you do not have to type hotspot details. No images are stored or sent anywhere.</string>
+	<string>BetterCast uses this to show the screen of an iPhone or iPad connected by cable, and to read a Wi-Fi QR code shown on your phone so you do not have to type hotspot details. macOS treats a connected phone's screen as a camera, which is why this asks for camera access. Nothing is stored or sent anywhere.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>BetterCast needs access to audio for system sound capture (if enabled).</string>
+	<string>BetterCast uses this to send your Mac's sound to a connected device, and to play the sound of an iPhone or iPad connected by cable. Nothing is recorded or sent anywhere else.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>BetterCast needs to capture your screen to stream it to the receiver.</string>
 </dict>

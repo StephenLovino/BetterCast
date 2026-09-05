@@ -106,6 +106,7 @@ struct BetterCastSenderApp: App {
             networkClient.startBrowsing()
             networkClient.startSenderInviteListener()
             networkClient.startUSBWatch()
+            PhoneMirrorSession.shared.startWatching()
             // Auto-start receiver so incoming connections work immediately
             let receiver = ReceiverManager.shared
             if !receiver.isRunning {
@@ -770,6 +771,10 @@ extension DashboardCard {
 struct SidebarView: View {
     @ObservedObject var client: NetworkClient
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
+    /// Phones attached by cable, shown alongside Receive since both are this Mac
+    /// displaying someone else's screen rather than sending its own.
+    @ObservedObject private var phoneMirror = PhoneMirrorSession.shared
+    @ObservedObject private var phoneCapture = PhoneMirrorSession.shared.capture
 
     var body: some View {
         List {
@@ -832,6 +837,35 @@ struct SidebarView: View {
             Section("Receive") {
                 sidebarRow(tr("Receive Screen"), icon: "display.and.arrow.down", tag: .receive)
                     .tourAnchor("sidebar_receive")
+
+                // The other direction: a phone on the cable, shown on this Mac.
+                // macOS publishes an attached device's screen as a capture source,
+                // so nothing is installed on the phone.
+                ForEach(phoneCapture.devices) { device in
+                    Button {
+                        phoneMirror.show(device)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(device.name)
+                                Text(phoneMirror.activeDeviceName == device.name
+                                     ? "Showing on this Mac"
+                                     : "Show this phone's screen")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "iphone.gen3")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if !phoneCapture.status.isEmpty {
+                    Text(phoneCapture.status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Settings & Logs at the bottom
