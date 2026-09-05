@@ -121,6 +121,27 @@ of `main` and has never been merged. Five more commits are stranded on
 
 ## Things that have bitten more than once
 
+- **`vdd_settings.xml` belongs to the driver, not to us.** BetterCast wrote a
+  schema of its own invention — `<VirtualDisplaySettings><Displays><Display>
+  <Width>` — and read that same shape back, so writer and reader agreed with
+  each other and neither agreed with the Virtual Display Driver, which reads
+  `<vdd_settings><resolutions><resolution><width>`. Nothing compared them
+  against a real file until one was downloaded from the VDD release and opened.
+  The overwrite also deleted `<monitors><count>`, which is how the driver knows
+  how many monitors to create. Symptoms, none of which pointed at the cause:
+  virtual displays stuck at 800×600 (the driver's first *stock* mode, because
+  our list never reached it), then displays that would not attach at all, then
+  device nodes piling up as the sender kept adding more looking for a free one.
+  Fixed by copying the file through and replacing only `<resolutions>`. If you
+  touch that file again, diff it against
+  `SignedDrivers/x86/VDD/vdd_settings.xml` from the VDD release zip first.
+
+- **A silent failure can be load-bearing.** The write above needs administrator
+  rights and had been failing quietly for months, which left the driver's own
+  file intact and the product half-working. Fixing that silent failure is what
+  finally let the corruption land. When repairing something that fails
+  silently, check what has been depending on it failing.
+
 - **Write C++ and YAML with an editor, not a shell heredoc.** Backslashes and
   non-ASCII have been corrupted in transit at least six times — `'\\'` becoming
   `'\'`, literal `\n` landing in YAML, Spanish accents stripped out of
