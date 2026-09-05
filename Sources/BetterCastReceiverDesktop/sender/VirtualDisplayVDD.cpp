@@ -2061,11 +2061,36 @@ bool VirtualDisplayVDD::removeVddDevices(int keep) {
 
 // ─── VDD Settings File ────────────────────────────────────────────────────────
 
+// The Virtual Display Driver's settings file, as the driver actually writes it:
+//
+//   <vdd_settings>
+//     <monitors><count>1</count></monitors>
+//     <gpu><friendlyname>default</friendlyname></gpu>
+//     <global><g_refresh_rate>60</g_refresh_rate>...</global>
+//     <resolutions>
+//       <resolution><width>1920</width><height>1080</height>
+//                   <refresh_rate>30</refresh_rate></resolution>
+//     </resolutions>
+//     <options>...</options>
+//   </vdd_settings>
+//
+// This code used to invent its own shape - <VirtualDisplaySettings><Displays>
+// <Display><Width> - and read that same shape back, so the writer and the
+// reader agreed with each other and neither agreed with the driver. The reader
+// therefore always reported no modes, which made the writer overwrite the file
+// every time; and the overwrite deleted <monitors><count>, which is how the
+// driver knows how many monitors to create, along with the GPU choice and the
+// global refresh rates.
+//
+// Two things kept it hidden. The write needs administrator rights, and until
+// that was fixed it failed silently, leaving the driver's own file in place.
+// And a virtual display coming up at 800x600 looked like a resolution bug
+// rather than what it was - the driver's first stock mode, because our modes
+// had never reached it.
 QVector<VirtualDisplayVDD::VddResolution> VirtualDisplayVDD::readVddSettings() const {
     QVector<VddResolution> displays;
     if (m_vddPath.isEmpty()) return displays;
 
-    // Try each known settings file
     for (const auto& filename : kSettingsFiles) {
         QString path = m_vddPath + "/" + filename;
         QFile file(path);
@@ -2073,30 +2098,43 @@ QVector<VirtualDisplayVDD::VddResolution> VirtualDisplayVDD::readVddSettings() c
 
         QXmlStreamReader xml(&file);
         VddResolution current = {0, 0, 0};
+        bool inResolution = false;
 
         while (!xml.atEnd()) {
             xml.readNext();
             if (xml.isStartElement()) {
-                QString name = xml.name().toString();
-                if (name == "Width" || name == "width") {
+                const QString name = xml.name().toString().toLower();
+                if (name == "resolution") {
+                    inResolution = true;
+                    current = {0, 0, 0};
+                } else if (!inResolution) {
+                    continue;   // width/height elsewhere in the file is not ours
+                } else if (name == "width") {
                     current.width = xml.readElementText().toInt();
-                } else if (name == "Height" || name == "height") {
+                } else if (name == "height") {
                     current.height = xml.readElementText().toInt();
-                } else if (name == "RefreshRate" || name == "refreshRate" ||
-                           name == "Refresh" || name == "refresh") {
-                    current.refreshRate = xml.readElementText().toInt();
+                } else if (name == "refresh_rate" || name == "rate") {
+                    // Only the first rate for a resolution: the driver allows
+                    // several and this list is used to answer "is this size
+                    // offered", where the rate does not matter.
+                    const int r = xml.readElementText().toInt();
+                    if (current.refreshRate == 0) current.refreshRate = r;
                 }
             } else if (xml.isEndElement()) {
-                QString name = xml.name().toString();
-                if ((name == "Display" || name == "display" || name == "Monitor" || name == "monitor")
-                    && current.width > 0 && current.height > 0) {
+                if (xml.name().toString().toLower() != "resolution") continue;
+                inResolution = false;
+                if (current.width > 0 && current.height > 0) {
                     if (current.refreshRate == 0) current.refreshRate = 60;
                     displays.append(current);
-                    current = {0, 0, 0};
                 }
+                current = {0, 0, 0};
             }
         }
 
+        if (xml.hasError()) {
+            VDD_LOG(QString("VDD: %1 could not be parsed (%2) — leaving it alone")
+                        .arg(path, xml.errorString()));
+        }
         file.close();
         if (!displays.isEmpty()) break;
     }
@@ -2122,24 +2160,96 @@ bool VirtualDisplayVDD::writeVddSettings(const QVector<VddResolution>& displays)
 
     // Build the file contents in memory so the same bytes can go down either
     // the direct or the elevated path.
+    //
+    // Copied through element by element, replacing only <resolutions>.
+    // Everything else in that file belongs to the driver or to the user:
+    // <monitors><count> decides how many monitors exist at all, <gpu> picks the
+    // adapter, <global> holds the refresh rates applied to every mode, and
+    // <options> carries EDID, HDR and logging switches. Rewriting the document
+    // wholesale threw all of that away, which is what left a machine with four
+    // device nodes and no monitor that would attach to anything.
+    auto writeResolutions = [&displays](QXmlStreamWriter& xml) {
+        xml.writeStartElement("resolutions");
+        for (const auto& disp : displays) {
+            xml.writeStartElement("resolution");
+            xml.writeTextElement("width", QString::number(disp.width));
+            xml.writeTextElement("height", QString::number(disp.height));
+            xml.writeTextElement("refresh_rate", QString::number(disp.refreshRate));
+            xml.writeEndElement();   // resolution
+        }
+        xml.writeEndElement();       // resolutions
+    };
+
     QByteArray payload;
-    {
+    bool rewrote = false;
+
+    QFile existing(settingsPath);
+    if (existing.open(QIODevice::ReadOnly)) {
+        const QByteArray original = existing.readAll();
+        existing.close();
+
+        QXmlStreamReader in(original);
+        QXmlStreamWriter out(&payload);
+        out.setAutoFormatting(true);
+        bool sawRoot = false;
+
+        while (!in.atEnd() && !in.hasError()) {
+            in.readNext();
+            if (in.isStartElement() && in.name().toString().toLower() == "vdd_settings") {
+                sawRoot = true;
+            }
+            if (in.isStartElement() && in.name().toString().toLower() == "resolutions") {
+                writeResolutions(out);
+                in.skipCurrentElement();   // drop the driver's list, keep ours
+                continue;
+            }
+            if (in.isStartDocument())      out.writeStartDocument();
+            else if (in.isEndDocument())   out.writeEndDocument();
+            else if (in.isStartElement())  { out.writeStartElement(in.name().toString());
+                                             out.writeAttributes(in.attributes()); }
+            else if (in.isEndElement())    out.writeEndElement();
+            else if (in.isCharacters() && !in.isWhitespace())
+                                           out.writeCharacters(in.text().toString());
+            else if (in.isComment())       out.writeComment(in.text().toString());
+        }
+
+        // Only trust the result if it was the driver's document and it parsed.
+        rewrote = sawRoot && !in.hasError() && !payload.isEmpty();
+        if (!rewrote) {
+            payload.clear();
+            VDD_LOG("VDD: " + settingsPath + " is not a settings file this "
+                    "version understands — writing a fresh one");
+        }
+    }
+
+    if (!rewrote) {
+        // No file, or one that could not be parsed. Write a complete document
+        // in the driver's own shape, including the parts we do not manage, so
+        // a fresh file is still a valid one.
         QXmlStreamWriter xml(&payload);
         xml.setAutoFormatting(true);
         xml.writeStartDocument();
-        xml.writeStartElement("VirtualDisplaySettings");
-        xml.writeStartElement("Displays");
+        xml.writeStartElement("vdd_settings");
 
-        for (const auto& disp : displays) {
-            xml.writeStartElement("Display");
-            xml.writeTextElement("Width", QString::number(disp.width));
-            xml.writeTextElement("Height", QString::number(disp.height));
-            xml.writeTextElement("RefreshRate", QString::number(disp.refreshRate));
-            xml.writeEndElement(); // Display
-        }
+        xml.writeStartElement("monitors");
+        xml.writeTextElement("count", "1");
+        xml.writeEndElement();
 
-        xml.writeEndElement(); // Displays
-        xml.writeEndElement(); // VirtualDisplaySettings
+        xml.writeStartElement("gpu");
+        xml.writeTextElement("friendlyname", "default");
+        xml.writeEndElement();
+
+        xml.writeStartElement("global");
+        xml.writeTextElement("g_refresh_rate", "60");
+        xml.writeEndElement();
+
+        writeResolutions(xml);
+
+        xml.writeStartElement("options");
+        xml.writeTextElement("HardwareCursor", "true");
+        xml.writeEndElement();
+
+        xml.writeEndElement();   // vdd_settings
         xml.writeEndDocument();
     }
 
