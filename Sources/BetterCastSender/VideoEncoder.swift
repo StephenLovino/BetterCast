@@ -63,6 +63,20 @@ class VideoEncoder {
     /// True while the controller has deliberately stopped cutting, so the explanatory
     /// log line is emitted once per episode rather than every second.
     var adaptHolding: Bool = false
+
+    /// The bitrate at which drops last forced a cut, or 0 before anything has failed.
+    ///
+    /// Without this, recovery climbed a fixed step every quiet second all the way back
+    /// to the user's ceiling, failed at the same place, and cut again: 100 → 70 → 49 →
+    /// 59 → 71 → 81 → 56 → 39, over and over. Most of that sawtooth sits above what the
+    /// link can carry, and every peak is a burst of dropped frames and queued latency.
+    /// Remembering where it broke lets recovery stop just below it instead.
+    var adaptCeiling: Int = 0
+
+    /// Consecutive quiet windows since the ceiling was last set, used to relax it. A
+    /// link that improves (interference clears, someone stops streaming) should be able
+    /// to earn its bandwidth back rather than being pinned by one bad minute.
+    var adaptCleanWindows: Int = 0
     /// Consecutive backpressure drops. Distinguishes an isolated stall, which is worth
     /// chasing with a resync keyframe, from a blackout, where keyframes make it worse.
     var consecutiveDrops: Int = 0
@@ -96,7 +110,20 @@ class VideoEncoder {
     /// "goes soft the moment anything moves" complaint. 1.5x is safe for P2P; a looser
     /// ceiling lets motion keep its detail on infrastructure Wi-Fi, at the cost of
     /// burstier traffic — which adaptive bitrate is there to absorb.
-    var burstMultiplier: Double = 1.5
+    var burstMultiplier: Double = 1.5 {
+        didSet { applyRateLimit() }
+    }
+
+    /// Push the current bitrate and burst allowance at the running session.
+    /// Needed because burstMultiplier is set after the session exists, and previously
+    /// nothing re-applied the limit, so Smooth Motion changed a number that was never
+    /// read again.
+    func applyRateLimit() {
+        guard let session = compressionSession else { return }
+        let bytesPerWindow = Int(Double(currentBitrate / 8) * burstMultiplier * rateLimitWindow)
+        let limits = [bytesPerWindow, rateLimitWindow] as CFArray
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+    }
 
     // codec is an init parameter, not a property set afterwards: the compression session
     // is built right here, so assigning it later left the session encoding H.264 while
@@ -149,14 +176,18 @@ class VideoEncoder {
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
 
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrateCF)
-        // Only where it earns its keep. On AWDL a tight window is what stops peer-to-peer
-        // buffer bloat, and on the WiFi-ADB tunnel it stops kernel buffer growth. On plain
-        // infrastructure it is a burst ceiling and nothing else, and a burst is exactly
-        // what a moving picture needs — SideScreen deleted the same property outright,
-        // noting it "was causing bursty traffic and buffer stalls".
-        if rateLimitWindow < 1.0 {
-            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
-        }
+        // Applied on every path, with the window and the burst allowance doing the
+        // tuning rather than the cap being present or absent.
+        //
+        // This was skipped on infrastructure for a while, on the theory that a burst is
+        // what a moving picture needs. It is, but with nothing but AverageBitRate set
+        // VideoToolbox treats the target as a long-run average and overshoots freely:
+        // a 20 Mbps target measured 54 Mbps and a 50 Mbps target measured 124 Mbps.
+        // Over AWDL there is headroom to absorb that. Through a router to a PC there is
+        // not, so the link saturates and frames queue, which is felt as seconds of lag
+        // rather than as a bitrate problem. A generous ceiling still leaves motion its
+        // detail while bounding the worst case.
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
         
         // Keyframe Control — shorter interval = faster error recovery at cost of bandwidth
         let maxKeyFrameInterval = Int(keyframeIntervalSeconds * Double(expectedFPS))
@@ -193,20 +224,18 @@ class VideoEncoder {
         guard let session = compressionSession, newBitrate != currentBitrate else { return }
         currentBitrate = newBitrate
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: newBitrate as CFNumber)
-        guard rateLimitWindow < 1.0 else { return }   // infrastructure runs uncapped
         let bytesPerWindow = Int(Double(newBitrate / 8) * burstMultiplier * rateLimitWindow)
         let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
     }
 
     /// Change the burst ceiling on a running session, without a reconnect.
+    /// The property observer on `burstMultiplier` re-applies the limit, so setting it
+    /// is enough. This used to return early on infrastructure, back when infrastructure
+    /// had no limit to change, which quietly made Smooth Motion a no-op there.
     func setBurstMultiplier(_ value: Double) {
-        guard let session = compressionSession, value != burstMultiplier else { return }
+        guard compressionSession != nil, value != burstMultiplier else { return }
         burstMultiplier = value
-        guard rateLimitWindow < 1.0 else { return }   // infrastructure runs uncapped
-        let bytesPerWindow = Int(Double(currentBitrate / 8) * burstMultiplier * rateLimitWindow)
-        let limitCF = [bytesPerWindow, rateLimitWindow] as CFArray
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitCF)
     }
 
     func encode(sampleBuffer: CMSampleBuffer) {

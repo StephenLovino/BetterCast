@@ -8,6 +8,7 @@ import IOKit.graphics
 
 @main
 struct BetterCastSenderApp: App {
+    @NSApplicationDelegateAdaptor(BetterCastAppDelegate.self) private var appDelegate
     @StateObject private var networkClient = NetworkClient()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("hasCompletedTour") private var hasCompletedTour = false
@@ -5142,6 +5143,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     target = max(floorBitrate, Int(Double(current) * 0.7)) // back off 30%
                     enc.lastAdaptDropRatio = dropRatio
                     enc.adaptHolding = false
+                    // Remember where it broke so recovery stops short of it next time.
+                    enc.adaptCeiling = current
+                    enc.adaptCleanWindows = 0
                 } else if !enc.adaptHolding {
                     // Held deliberately — say so once rather than looking stuck.
                     enc.adaptHolding = true
@@ -5157,7 +5161,20 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 // hysteresis, so it neither oscillates nor sits pinned low.
                 enc.lastAdaptDropRatio = -1 // clean window; a later spike may cut again
                 enc.adaptHolding = false
-                target = min(enc.maxBitrate, current + enc.maxBitrate / 10) // recover ~10%/s
+
+                // Climb towards just under the level that last failed, not towards the
+                // user's ceiling. After a stretch of quiet the remembered level is
+                // nudged up, so a link that genuinely improves is not pinned forever by
+                // one bad minute.
+                enc.adaptCleanWindows += 1
+                if enc.adaptCeiling > 0 && enc.adaptCleanWindows >= 10 {
+                    enc.adaptCeiling = min(enc.maxBitrate, Int(Double(enc.adaptCeiling) * 1.05))
+                    enc.adaptCleanWindows = 0
+                }
+                let reachable = enc.adaptCeiling > 0
+                    ? min(enc.maxBitrate, Int(Double(enc.adaptCeiling) * 0.85))
+                    : enc.maxBitrate
+                target = min(reachable, current + enc.maxBitrate / 10) // recover ~10%/s
             } else {
                 enc.lastAdaptDropRatio = -1
                 enc.adaptHolding = false
@@ -5650,8 +5667,17 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
         let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: resolvedCodec)
         encoder.delegate = self
-        // Per-receiver burst ceiling. Only ever loosened by explicit opt-in, so P2P and
-        // every untouched connection keep the 1.5x behaviour they shipped with.
+        // Per-receiver burst ceiling.
+        //
+        // A direct radio link can absorb a tight window, so P2P keeps the 1.5x it
+        // shipped with. Infrastructure goes through a router with far less headroom,
+        // and running it with no ceiling at all is what let a 20 Mbps target measure
+        // 54 Mbps: the link saturated, frames queued, and the picture arrived seconds
+        // late. 2x leaves motion room to breathe without letting a busy scene flood
+        // the network.
+        if !isP2P && !isLoopback {
+            encoder.burstMultiplier = 2.0
+        }
         if connectedDisplays.first(where: { $0.id == connectionId })?.smoothMotion == true {
             encoder.burstMultiplier = 3.0
         }
