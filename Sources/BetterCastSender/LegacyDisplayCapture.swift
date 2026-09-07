@@ -65,8 +65,12 @@ class LegacyDisplayCapture {
         // Pixel format: BGRA is what CGDisplayStream natively outputs.
         let pixelFormat = Int32(kCVPixelFormatType_32BGRA)
 
-        // Properties dictionary: we don't need any special properties.
-        let properties: CFDictionary? = nil
+        // CGDisplayStream draws no cursor unless asked; ScreenCaptureKit draws it by
+        // default. Leaving this nil meant Compatibility Mode silently lost the pointer
+        // on every receiver, which looked like an input bug on the far end.
+        let properties: CFDictionary = [
+            CGDisplayStream.showCursor: kCFBooleanTrue as Any,
+        ] as CFDictionary
 
         let stream = CGDisplayStream(
             dispatchQueueDisplay: displayID,

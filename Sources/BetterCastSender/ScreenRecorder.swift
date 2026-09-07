@@ -147,19 +147,37 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func startLegacyCapture() async {
         // CGDisplayStream only works with physical displays that have a hardware framebuffer.
-        // Virtual displays are software-only; detect and fall back to the main display.
+        // A CGVirtualDisplay takes a moment to register with the WindowServer after it
+        // is created. On the restart path (the receiver reporting its real screen size,
+        // or rotating) this used to run before that had happened, find the display
+        // missing from the online list, and silently capture the MAIN display instead.
+        // The receiver then showed a mirror of the Mac while input and the cursor went
+        // to the virtual display nobody was filming. The first connection worked only
+        // because it happened to win the race. Wait for the display instead; the bounds
+        // poll one level up already does exactly this, for exactly this reason.
         let captureDisplayID: CGDirectDisplayID
         if let tid = targetDisplayID {
-            // Check whether this display is online (physical) or likely virtual.
-            // CGGetOnlineDisplayList returns currently active physical displays.
-            var onlineCount: UInt32 = 0
-            var onlineIDs = [CGDirectDisplayID](repeating: 0, count: 16)
-            CGGetOnlineDisplayList(16, &onlineIDs, &onlineCount)
-            let isOnline = onlineIDs.prefix(Int(onlineCount)).contains(tid)
-            if isOnline {
+            var found = false
+            for attempt in 1...20 {
+                if stopRequested { return }
+                var onlineCount: UInt32 = 0
+                var onlineIDs = [CGDirectDisplayID](repeating: 0, count: 16)
+                CGGetOnlineDisplayList(16, &onlineIDs, &onlineCount)
+                if onlineIDs.prefix(Int(onlineCount)).contains(tid) {
+                    found = true
+                    if attempt > 1 {
+                        LogManager.shared.log("ScreenRecorder: Display \(tid) came online after \(attempt) checks")
+                    }
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+            if found {
                 captureDisplayID = tid
             } else {
-                LogManager.shared.log("ScreenRecorder: Target display \(tid) is not online (virtual?) — falling back to main display for legacy capture")
+                // Only after ~3s, and loud: a mirror where an extension was expected is
+                // precisely the failure the old silent fallback used to hide.
+                LogManager.shared.log("ScreenRecorder: Display \(tid) never came online after 3s, falling back to main display (this MIRRORS instead of extending)")
                 captureDisplayID = CGMainDisplayID()
             }
         } else {

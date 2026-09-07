@@ -176,6 +176,18 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v21", date: "2026-09-07", highlights: [
+            "Compatibility Mode no longer shows a copy of your Mac's screen instead of the extra desktop, and the pointer is visible on the receiver again",
+            "Compatibility Mode is now set per device, so watching protected video on one screen no longer costs every other screen its sound",
+            "Audio now says when Compatibility Mode is blocking it, instead of looking switched on and quietly sending nothing",
+            "Pick the codec before you connect, not only afterwards",
+            "Two receivers no longer draw on top of each other in Overview, and taps land where you touch after macOS rearranges the displays",
+            "One wireless screen can no longer starve another: a device that backs off keeps its share instead of handing it to the device that never does",
+            "Dim an individual receiver from its own settings, without changing your Mac's brightness",
+            "An Android on the cable now appears as one device offering USB, rather than a second entry in the list",
+            "Switch a connected Android between USB, ADB Wi-Fi and direct Wi-Fi, instead of only the first two",
+            "The arrow in the installer window no longer disappears behind the Applications folder",
+        ]),
         Entry(version: "v20", date: "2026-09-06", highlights: [
             "See your iPhone or iPad on this Mac. Plug it in, unlock it, and pick it under Receive. Nothing to install on the phone",
             "Sound from the phone plays through your Mac, and the window takes the phone's shape, including when you rotate it",

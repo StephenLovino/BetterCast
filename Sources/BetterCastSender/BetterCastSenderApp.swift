@@ -794,8 +794,11 @@ struct SidebarView: View {
                 } else {
                     ForEach(client.foundServices.filter { service in
                         let isADBSynthetic = service.name.contains("Android (USB)") || service.name.contains("Android (WiFi ADB)")
+                        // Same model-aware test as the connected filter below: a phone that
+                        // advertises "Lenovo Legion Y70" is still the Android on the cable.
                         let hasMDNSAndroid = client.foundServices.contains(where: {
-                            $0.name.lowercased().contains("android") && !$0.name.contains("Android (USB)") && !$0.name.contains("Android (WiFi ADB)")
+                            ($0.name.lowercased().contains("android") || client.matchesAttachedAndroid($0.name))
+                                && !$0.name.contains("Android (USB)") && !$0.name.contains("Android (WiFi ADB)")
                         })
                         // Hide " P2P" entry when base device exists (merged into one entry)
                         let isP2PDuplicate = service.name.hasSuffix(" P2P")
@@ -814,8 +817,15 @@ struct SidebarView: View {
                 // Connected ADB tunnels not in foundServices
                 ForEach(client.connectedDisplays.filter { display in
                     let inFoundServices = client.foundServices.contains(where: { $0.name == display.name })
+                    // The tunnel's own row is a duplicate whenever the phone it belongs to
+                    // is already listed. Matching only on the word "android" missed every
+                    // phone that advertises its model instead ("Lenovo Legion Y70"), so the
+                    // cable folded correctly before connecting and then split back into two
+                    // rows the moment it did.
                     let isADBDuplicate = (display.name.contains("Android (USB)") || display.name.contains("Android (WiFi ADB)"))
-                        && client.foundServices.contains(where: { $0.name.lowercased().contains("android") })
+                        && client.foundServices.contains(where: {
+                            $0.name.lowercased().contains("android") || client.matchesAttachedAndroid($0.name)
+                        })
                     // Hide " P2P" connected entry when base device is also connected
                     let isP2PConnected = display.name.hasSuffix(" P2P")
                         && client.connectedDisplays.contains(where: { $0.name == String(display.name.dropLast(4)) })
@@ -988,8 +998,13 @@ struct SidebarDeviceRow: View {
     @ObservedObject var client: NetworkClient
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
 
+    /// Android by advertised name, or because the phone on the cable says it is this
+    /// device. Phones advertise their model over mDNS ("Lenovo Legion Y70"), so the name
+    /// test alone left the ADB options off the very row the user was looking at, and the
+    /// cable had nowhere to go but a second entry. Only true while a cable is attached,
+    /// so the ADB rows appear exactly when they are usable.
     private var isAndroid: Bool {
-        service.name.lowercased().contains("android")
+        service.name.lowercased().contains("android") || client.matchesAttachedAndroid(service.name)
     }
 
     /// The synthetic row offered when a phone is plugged in but not discoverable.
@@ -1384,12 +1399,15 @@ struct DetailPanelView: View {
                     Slider(value: $client.displayBrightness, in: 0...1, step: 0.05) {
                         Text("Brightness")
                     }
-                    InfoTip(text: "Adjusts the brightness of your built-in display.")
+                    InfoTip(text: "Adjusts your Mac's own backlight, not the receivers. To dim one receiver, use the Brightness slider on that device.")
                 }
 
                 HStack {
                     Toggle("Audio Streaming", isOn: $client.audioStreamingEnabled)
-                    InfoTip(text: "Streams system audio to the receiver. Requires a compatible receiver.")
+                        .disabled(client.useLegacyCapture)
+                    InfoTip(text: client.useLegacyCapture
+                            ? "Unavailable while Compatibility Mode is on: legacy capture reads the framebuffer only and carries no audio. Turn Compatibility Mode off to stream audio."
+                            : "Streams system audio to the receiver. Requires a compatible receiver.")
                 }
 
                 HStack {
@@ -2200,8 +2218,11 @@ struct DeviceDetailView: View {
     @ObservedObject var client: NetworkClient
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
 
-    private var isAndroidDevice: Bool { display.name.lowercased().contains("android") }
+    private var isAndroidDevice: Bool {
+        display.name.lowercased().contains("android") || client.matchesAttachedAndroid(display.name)
+    }
     private var isOnUSB: Bool { display.name.contains("Android (USB)") }
+    private var isOnADBWiFi: Bool { display.name.contains("Android (WiFi ADB)") }
     private var currentTransportLabel: String {
         if display.name.contains("Android (USB)") { return tr("USB (ADB)") }
         if display.name.contains("Android (WiFi ADB)") { return tr("Wireless (WiFi ADB)") }
@@ -2251,7 +2272,10 @@ struct DeviceDetailView: View {
                         get: { display.audioEnabled },
                         set: { client.setAudioEnabled($0, for: display.id) }
                     ))
-                    InfoTip(text: "Streams system audio to this receiver.")
+                    .disabled(client.legacyCaptureFor(serviceName: display.name))
+                    InfoTip(text: client.legacyCaptureFor(serviceName: display.name)
+                            ? "Unavailable while Compatibility Mode is on: legacy capture reads the framebuffer only and carries no audio. Turn Compatibility Mode off to stream audio."
+                            : "Streams system audio to this receiver.")
                 }
 
                 HStack {
@@ -2275,27 +2299,67 @@ struct DeviceDetailView: View {
                     }
                     InfoTip(text: "Overrides the app-wide codec for this device only. H.265 looks much better for the same bitrate, but needs an updated receiver — Android 1.2+ and Mac receivers from v18; others show a black screen. Applies immediately; streams blink once while pipelines restart.")
                 }
+
+                HStack {
+                    Slider(value: Binding(
+                        get: { client.brightnessFor(serviceName: display.name) },
+                        set: { client.setBrightness($0, for: display.id) }
+                    ), in: 0.15...1.0, step: 0.05) {
+                        Text("Brightness")
+                    }
+                    InfoTip(text: "Dims this receiver's picture without touching your Mac's own screen. Applied to the virtual display's gamma, so it costs nothing and takes effect instantly.")
+                }
+
+                HStack {
+                    Picker("Compatibility Mode", selection: Binding(
+                        get: { client.legacyCaptureOverrides[display.name].map { $0 ? "on" : "off" } ?? "auto" },
+                        set: { raw in
+                            client.setLegacyCaptureOverride(raw == "auto" ? nil : (raw == "on"), for: display.name)
+                        }
+                    )) {
+                        Text("\(tr("Default")) (\(client.useLegacyCapture ? "On" : "Off"))").tag("auto")
+                        Text(verbatim: "On").tag("on")
+                        Text(verbatim: "Off").tag("off")
+                    }
+                    InfoTip(text: "Reads the GPU framebuffer directly to bypass DRM/HDCP blocking (Netflix, Apple TV). Carries no audio and costs more CPU, so leave it off unless you need protected video on this device. Default follows the global toggle in Settings.")
+                }
             }
 
             // Connection transport — switch without disconnecting first (Android only)
             if isAndroidDevice {
                 Section("Connection") {
                     LabeledContent("Method") { Text(currentTransportLabel) }
-                    if isOnUSB {
-                        HStack {
-                            Button("Switch to Wireless") {
-                                client.switchAndroidToWireless(from: display.id)
-                                selection = .devices
-                            }
-                            InfoTip(text: "Switches to a wireless ADB tunnel so you can unplug the cable. Stays connected through the handoff.")
-                        }
-                    } else {
+                    // Every route the device is not already on. This used to be a two-way
+                    // toggle, which assumed a cable was always the other option and left
+                    // no way back to a plain network connection.
+                    if !isOnUSB {
                         HStack {
                             Button("Switch to USB (smoother)") {
                                 client.switchAndroidToUSB(from: display.id)
                                 selection = .devices
                             }
-                            InfoTip(text: "Plug in a USB cable first. USB gives lower latency and higher bandwidth than WiFi.")
+                            InfoTip(text: "Plug in a USB cable first. USB gives lower latency and higher bandwidth than WiFi, and it takes this device off the Wi-Fi radio entirely — which is the fix worth trying if playback stutters while another wireless screen is connected.")
+                        }
+                    }
+                    if !isOnADBWiFi {
+                        HStack {
+                            Button("Switch to ADB (WiFi)") {
+                                client.switchAndroidToWireless(from: display.id)
+                                selection = .devices
+                            }
+                            InfoTip(text: "Switches to a wireless ADB tunnel so you can unplug the cable. Stays connected through the handoff. Slower than a direct connection, since adb relays every byte over the same Wi-Fi.")
+                        }
+                    }
+                    if isOnUSB || isOnADBWiFi {
+                        HStack {
+                            Button("Switch to WiFi (TCP)") {
+                                client.switchAndroidToTCP(from: display.id)
+                                selection = .devices
+                            }
+                            .disabled(!client.hasDirectAndroidRoute)
+                            InfoTip(text: client.hasDirectAndroidRoute
+                                    ? "Drops the adb tunnel and connects straight over the network. Fewer moving parts than either ADB route, and no cable."
+                                    : "Unavailable: this device is not visible on the network right now, so there is no direct route to switch to.")
                         }
                     }
                 }
@@ -2344,8 +2408,13 @@ struct DiscoveredDeviceView: View {
     @ObservedObject var client: NetworkClient
     @Binding var selection: BetterCastSenderApp.SidebarSelection?
 
+    /// Android by advertised name, or because the phone on the cable says it is this
+    /// device. Phones advertise their model over mDNS ("Lenovo Legion Y70"), so the name
+    /// test alone left the ADB options off the very row the user was looking at, and the
+    /// cable had nowhere to go but a second entry. Only true while a cable is attached,
+    /// so the ADB rows appear exactly when they are usable.
     private var isAndroid: Bool {
-        service.name.lowercased().contains("android")
+        service.name.lowercased().contains("android") || client.matchesAttachedAndroid(service.name)
     }
 
     /// The synthetic row for a cable-attached phone; its endpoint is the loopback tunnel.
@@ -2555,7 +2624,43 @@ struct DiscoveredDeviceView: View {
 
                 HStack {
                     Toggle("Audio Streaming", isOn: $client.audioStreamingEnabled)
-                    InfoTip(text: "Streams system audio to the receiver. Requires a compatible receiver.")
+                        .disabled(client.legacyCaptureFor(serviceName: service.name))
+                    InfoTip(text: client.legacyCaptureFor(serviceName: service.name)
+                            ? "Unavailable while Compatibility Mode is on for this device: legacy capture reads the framebuffer only and carries no audio."
+                            : "Streams system audio to the receiver. Requires a compatible receiver.")
+                }
+
+                // Codec belongs here as well as on the connected pane: picking it only
+                // after connecting means the first stream always runs on the old setting,
+                // and on a receiver that cannot decode H.265 that first stream is a black
+                // screen. codecOverrides is keyed on the service name, which is known
+                // before any connection exists.
+                HStack {
+                    Picker(tr("Codec"), selection: Binding(
+                        get: { client.codecOverrides[service.name] ?? "auto" },
+                        set: { raw in
+                            client.setCodecOverride(raw == "auto" ? nil : StreamCodec(rawValue: raw), for: service.name)
+                        }
+                    )) {
+                        Text("\(tr("Default")) (\(client.selectedCodec.displayName))").tag("auto")
+                        Text(verbatim: "H.264").tag("h264")
+                        Text(verbatim: "H.265 (HEVC)").tag("hevc")
+                    }
+                    InfoTip(text: "Overrides the app-wide codec for this device only, and can be set before you connect. H.265 looks much better for the same bitrate, but needs an updated receiver — Android 1.2+ and Mac receivers from v18; others show a black screen.")
+                }
+
+                HStack {
+                    Picker("Compatibility Mode", selection: Binding(
+                        get: { client.legacyCaptureOverrides[service.name].map { $0 ? "on" : "off" } ?? "auto" },
+                        set: { raw in
+                            client.setLegacyCaptureOverride(raw == "auto" ? nil : (raw == "on"), for: service.name)
+                        }
+                    )) {
+                        Text("\(tr("Default")) (\(client.useLegacyCapture ? "On" : "Off"))").tag("auto")
+                        Text(verbatim: "On").tag("on")
+                        Text(verbatim: "Off").tag("off")
+                    }
+                    InfoTip(text: "Reads the GPU framebuffer directly to bypass DRM/HDCP blocking (Netflix, Apple TV). Carries no audio and costs more CPU, so leave it off unless you need protected video on this device. Default follows the global toggle in Settings.")
                 }
             }
         }
@@ -2955,6 +3060,56 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     /// nil clears the override (follow the global default). Applies live through the
     /// same seamless pipeline restart the settings Apply uses.
+    /// Per-device Compatibility Mode, keyed by service name. Absent = follow the global
+    /// toggle. Each pipeline already builds its own ScreenRecorder, so the capture path
+    /// can differ per device: DRM playback on one receiver no longer costs every other
+    /// receiver its audio.
+    @Published var legacyCaptureOverrides: [String: Bool] =
+        UserDefaults.standard.dictionary(forKey: "legacyCaptureOverrides") as? [String: Bool] ?? [:] {
+        didSet { UserDefaults.standard.set(legacyCaptureOverrides, forKey: "legacyCaptureOverrides") }
+    }
+
+    /// Compatibility Mode in force for this device: its override, else the global toggle.
+    func legacyCaptureFor(serviceName: String) -> Bool {
+        legacyCaptureOverrides[serviceName] ?? useLegacyCapture
+    }
+
+    /// nil clears the override (follow the global toggle). Restarts pipelines like the
+    /// codec override does, since the capture path is chosen at pipeline start.
+    func setLegacyCaptureOverride(_ on: Bool?, for serviceName: String) {
+        if let on { legacyCaptureOverrides[serviceName] = on }
+        else { legacyCaptureOverrides.removeValue(forKey: serviceName) }
+        LogManager.shared.log("Sender: Compatibility Mode for \(serviceName): \(on.map { $0 ? "on" : "off" } ?? "default (\(useLegacyCapture ? "on" : "off"))")")
+        updateStreamResolution()
+    }
+
+    /// Per-device brightness, keyed by service name. 1.0 = untouched.
+    @Published var brightnessOverrides: [String: Double] =
+        UserDefaults.standard.dictionary(forKey: "brightnessOverrides") as? [String: Double] ?? [:] {
+        didSet { UserDefaults.standard.set(brightnessOverrides, forKey: "brightnessOverrides") }
+    }
+
+    func brightnessFor(serviceName: String) -> Double {
+        brightnessOverrides[serviceName] ?? 1.0
+    }
+
+    /// Applies immediately — gamma is a framebuffer property, so there is no pipeline
+    /// restart and no visible blink.
+    func setBrightness(_ value: Double, for connectionId: UUID) {
+        guard let pipeline = pipelines[connectionId] else { return }
+        brightnessOverrides[pipeline.service.name] = value
+        pipeline.videoEncoder?.brightness = value
+        LogManager.shared.log(String(format: "Sender: Brightness for %@: %.0f%%", pipeline.service.name, value * 100))
+    }
+
+    /// Re-apply after a pipeline restart: the virtual display is destroyed and recreated
+    /// with a new ID, and the gamma ramp goes with the old one.
+    func reapplyBrightness(for connectionId: UUID, serviceName: String) {
+        let value = brightnessFor(serviceName: serviceName)
+        guard value < 1.0 else { return }
+        pipelines[connectionId]?.videoEncoder?.brightness = value
+    }
+
     func setCodecOverride(_ codec: StreamCodec?, for serviceName: String) {
         if let codec { codecOverrides[serviceName] = codec.rawValue }
         else { codecOverrides.removeValue(forKey: serviceName) }
@@ -3427,6 +3582,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     
     init() {
         LogManager.shared.log("Sender: App Starting")
+        observeScreenArrangement()
         
         // We can't monitor recursively in init easily, but we can start it.
         interfaceMonitor.pathUpdateHandler = { [weak self] path in
@@ -4495,6 +4651,21 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     private static let adbUSBName = "Android (USB)"
 
+    /// Model name of the USB-attached Android, e.g. "Legion Y70".
+    ///
+    /// Everything Android-related used to be decided by asking whether a device's name
+    /// contained "android". Phones advertise their model over mDNS, so a Legion Y70 is
+    /// called "Lenovo Legion Y70" and failed that test: the Switch to USB button never
+    /// appeared on it, and the cable showed up as a second, unrelated device instead.
+    @Published var adbUSBModel: String? = nil
+
+    /// True when `name` looks like the Android currently attached by cable.
+    func matchesAttachedAndroid(_ name: String) -> Bool {
+        guard let model = adbUSBModel, model.count >= 3 else { return false }
+        let a = name.lowercased(), b = model.lowercased()
+        return a.contains(b) || b.contains(a)
+    }
+
     /// Offer a USB-attached Android even with no network at all.
     ///
     /// Discovery is mDNS, which needs Wi-Fi; the ADB tunnel is loopback over the
@@ -4517,19 +4688,46 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             let hasUSB = devices.output.components(separatedBy: "\n").contains {
                 $0.contains("\tdevice") && !$0.contains(":") && !$0.hasPrefix("emulator-")
             }
+            // Ask the phone what it is, so the cable can be matched to the row the user
+            // already has rather than appearing as a separate device. Pinned with -s:
+            // a bare `adb shell` errors out whenever a wireless ADB device is also
+            // attached, which is exactly the case this feature exists to handle.
+            let usbSerial = devices.output.components(separatedBy: "\n")
+                .first { $0.contains("\tdevice") && !$0.contains(":") && !$0.hasPrefix("emulator-") }
+                .flatMap { $0.components(separatedBy: "\t").first }
+            let model: String? = usbSerial.flatMap { serial in
+                let r = self.runAdb(["-s", serial, "shell", "getprop", "ro.product.model"])
+                guard r.success else { return nil }
+                let m = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                return m.isEmpty ? nil : m
+            }
+
             DispatchQueue.main.async {
+                if self.adbUSBModel != model {
+                    self.adbUSBModel = model
+                    if let m = model { LogManager.shared.log("ADB USB: attached device reports model '\(m)'") }
+                }
                 let name = NetworkClient.adbUSBName
                 let listed = self.foundServices.contains { $0.name == name }
                 // Don't touch the list while a tunnel is live — the connected row owns it.
                 let live = self.connectedDisplays.contains { $0.name.contains("Android (") }
-                if hasUSB && !listed && !live {
+                // The same phone reached another way is not a second device. Once its own
+                // row is on screen — discovered or connected — the cable belongs there, as
+                // the ADB (USB) option, exactly as the Apple cable already folds into its
+                // device's row rather than becoming a separate "iOS (USB)" entry.
+                let foldsIntoOwnRow = self.foundServices.contains {
+                        $0.name != name && self.matchesAttachedAndroid($0.name)
+                    } || self.connectedDisplays.contains { self.matchesAttachedAndroid($0.name) }
+                if hasUSB && !listed && !live && !foldsIntoOwnRow {
                     guard let port = NWEndpoint.Port(rawValue: BCConstants.adbForwardPort) else { return }
                     let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host("localhost"), port: port)
                     self.foundServices.append(DiscoveredService(name: name, endpoint: endpoint))
                     LogManager.shared.log("ADB USB: Device attached — offering '\(name)' (no network needed)")
-                } else if !hasUSB && listed && !live {
+                } else if listed && !live && (!hasUSB || foldsIntoOwnRow) {
                     self.foundServices.removeAll { $0.name == name }
-                    LogManager.shared.log("ADB USB: Device detached — removing '\(name)'")
+                    LogManager.shared.log(hasUSB
+                        ? "ADB USB: Cable belongs to '\(self.adbUSBModel ?? "?")', already listed — folding it into that row"
+                        : "ADB USB: Device detached — removing '\(name)'")
                 }
             }
         }
@@ -5003,6 +5201,38 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         connectADBWireless()
     }
 
+    /// Switch an already-connected Android back to a direct network connection.
+    ///
+    /// The ADB routes both dial a loopback tunnel, so returning to Wi-Fi means dialling
+    /// the phone's own mDNS record instead — which only exists if it is currently
+    /// discoverable. Without this the Connection section was a two-way toggle between the
+    /// two ADB transports, and a user on a cable had no way back to plain Wi-Fi short of
+    /// disconnecting and starting again.
+    func switchAndroidToTCP(from connectionId: UUID) {
+        guard let target = foundServices.first(where: {
+            $0.name != NetworkClient.adbUSBName
+                && !$0.name.contains("Android (WiFi ADB)")
+                && ($0.name.lowercased().contains("android") || self.matchesAttachedAndroid($0.name))
+        }) else {
+            LogManager.shared.log("Sender: No direct route for this Android — it is not visible on the network right now")
+            return
+        }
+        LogManager.shared.log("Sender: Switching Android connection to direct Wi-Fi (TCP) via '\(target.name)'…")
+        removeConnection(connectionId)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.connect(to: target)
+        }
+    }
+
+    /// True when this Android is reachable directly, i.e. a switch to TCP can succeed.
+    var hasDirectAndroidRoute: Bool {
+        foundServices.contains {
+            $0.name != NetworkClient.adbUSBName
+                && !$0.name.contains("Android (WiFi ADB)")
+                && ($0.name.lowercased().contains("android") || self.matchesAttachedAndroid($0.name))
+        }
+    }
+
     func setAudioEnabled(_ enabled: Bool, for connectionId: UUID) {
         if let idx = connectedDisplays.firstIndex(where: { $0.id == connectionId }) {
             connectedDisplays[idx].audioEnabled = enabled
@@ -5018,6 +5248,38 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             let name = connectedDisplays[idx].name
             pipelines[connectionId]?.videoEncoder?.setBurstMultiplier(enabled ? 3.0 : 1.5)
             LogManager.shared.log("Sender: Smooth motion \(enabled ? "on (3.0x burst)" : "off (1.5x burst)") for \(name)")
+        }
+    }
+
+    /// macOS repositions existing displays whenever one is added or removed, but a
+    /// pipeline's bounds were read once by pollDisplayBounds at start and never again.
+    /// Two receivers therefore drew on top of each other in the overview, and input
+    /// mapped against wherever a display used to sit. Re-read every live pipeline's
+    /// bounds whenever the arrangement changes.
+    ///
+    /// Iterating `pipelines` here is safe for the same reason updateConnectedDisplays is:
+    /// this runs on the main queue, and it only reads.
+    private func observeScreenArrangement() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            var moved: [String] = []
+            for (connectionId, pipeline) in self.pipelines {
+                guard let displayID = pipeline.virtualDisplayManager?.displayID else { continue }
+                let bounds = CGDisplayBounds(displayID)
+                guard bounds.width > 0, bounds.height > 0 else { continue }
+                if InputHandler.shared.getDisplayBounds(for: connectionId) != bounds {
+                    InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
+                    moved.append("\(pipeline.service.name) -> \(bounds)")
+                }
+            }
+            if !moved.isEmpty {
+                LogManager.shared.log("Sender: Display arrangement changed, refreshed bounds: \(moved.joined(separator: ", "))")
+                self.updateConnectedDisplays()
+            }
         }
     }
 
@@ -5120,7 +5382,22 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             guard let enc = p.videoEncoder else { continue }
             let othersUse = radioPipelines
                 .filter { $0.service.name != p.service.name }
-                .compactMap { $0.videoEncoder?.smoothedBps }
+                .compactMap { other -> Double? in
+                    guard let e = other.videoEncoder else { return nil }
+                    // A neighbour that has been cut below its fair share is showing us a
+                    // symptom, not its demand. Counting the symptom let the pipeline that
+                    // never backs off borrow exactly the headroom the struggling one had
+                    // just surrendered — which starved it further, freeing more headroom,
+                    // and round again. Measured on an iPhone (P2P, no drop signal, so it
+                    // never yields) plus an Android on infrastructure Wi-Fi: the Android
+                    // sat at 2.5 Mbps and 1-6 fps while the iPhone climbed to 27 Mbps and
+                    // its own ceiling rose to 44. Crediting a starved neighbour its fair
+                    // share stops the spiral before it starts. Self-clearing: once it
+                    // recovers past fair share it goes back to being measured, so an idle
+                    // screen still lends its headroom the way it always did.
+                    let starved = Double(e.currentBitrate) < fairShare
+                    return starved ? max(e.smoothedBps, fairShare) : e.smoothedBps
+                }
                 .reduce(0, +)
             let ceiling = Int(min(budget, max(fairShare, budget - othersUse)))
             if enc.maxBitrate != ceiling {
@@ -5564,6 +5841,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     if bounds.width > 0 && bounds.height > 0 {
                         InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
                         LogManager.shared.log("Sender: Virtual display for \(serviceName) bounds: \(bounds) (attempt \(attempt))")
+                        // The display is new after every restart, so its gamma is identity again.
+                        self.reapplyBrightness(for: connectionId, serviceName: serviceName)
                         self.updateConnectedDisplays()
                     } else if attempt < 10 {
                         // Retry after increasing delay (0.5s, 1s, 1.5s, ...)
@@ -5712,6 +5991,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         let rateLimitWindow: Double = isP2P ? 0.1 : (isLoopback ? (isWiFiADBPath ? 0.25 : 1.0) : 1.0)
         let encoder = VideoEncoder(connectionId: connectionId, width: captureWidth, height: captureHeight, bitrate: bitrate, expectedFPS: fps, keyframeIntervalSeconds: keyframeInterval, rateLimitWindow: rateLimitWindow, codec: resolvedCodec)
         encoder.delegate = self
+        // Set before the first frame, so a dimmed receiver does not flash at full
+        // brightness for the second it takes the bounds poll to come round.
+        encoder.brightness = brightnessFor(serviceName: serviceName)
         // Per-receiver burst ceiling.
         //
         // A direct radio link can absorb a tight window, so P2P keeps the 1.5x it
@@ -5748,9 +6030,15 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             height: captureHeight,
             captureFPS: Int32(fps)
         )
-        recorder.useLegacyCapture = useLegacyCapture
+        let legacyForThisDevice = legacyCaptureFor(serviceName: serviceName)
+        recorder.useLegacyCapture = legacyForThisDevice
         // Legacy capture (CGDisplayStream) doesn't support audio — disable it.
-        recorder.captureAudio = audioEnabled && !useLegacyCapture
+        recorder.captureAudio = audioEnabled && !legacyForThisDevice
+        if audioEnabled && legacyForThisDevice {
+            // This used to happen silently, right after "Audio encoder created", which
+            // made it look like audio was working when nothing was ever captured.
+            LogManager.shared.log("Sender: Audio requested for \(serviceName) but Compatibility Mode is on — legacy capture carries no audio, so none will be sent")
+        }
         recorder.audioEncoder = audioEnc
         pipelines[connectionId]?.screenRecorder = recorder
 

@@ -1,6 +1,7 @@
 import Foundation
 import VideoToolbox
 import CoreMedia
+import CoreImage
 
 /// Which video codec a pipeline encodes with.
 enum StreamCodec: String, CaseIterable, Identifiable {
@@ -274,8 +275,56 @@ class VideoEncoder {
                     duration: .invalid)
     }
 
-    func encodeFrame(imageBuffer: CVImageBuffer, pts: CMTime, duration: CMTime) {
+    /// Per-receiver dimming, 1.0 = untouched.
+    ///
+    /// This has to be applied to the pixels. Setting the virtual display's gamma ramp
+    /// looks like the cheap way to do it, but the ramp is applied by the scanout stage on
+    /// the way to a physical panel, and screen capture reads the composited framebuffer
+    /// before that — so the receiver saw no change at all. Costs one GPU pass per frame,
+    /// and only when someone has actually turned it down.
+    var brightness: Double = 1.0
+
+    private lazy var ciContext: CIContext = CIContext(options: [.cacheIntermediates: false])
+    private var dimPool: CVPixelBufferPool?
+    private var dimPoolFormat: (w: Int, h: Int, fmt: OSType)?
+
+    /// Returns a dimmed copy, or nil to fall through to the original frame.
+    private func dimmed(_ source: CVImageBuffer) -> CVPixelBuffer? {
+        let w = CVPixelBufferGetWidth(source)
+        let h = CVPixelBufferGetHeight(source)
+        let fmt = CVPixelBufferGetPixelFormatType(source)
+        if dimPool == nil || dimPoolFormat.map({ $0 != (w, h, fmt) }) ?? true {
+            let attrs: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: fmt,
+                kCVPixelBufferWidthKey as String: w,
+                kCVPixelBufferHeightKey as String: h,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+            ]
+            var pool: CVPixelBufferPool?
+            guard CVPixelBufferPoolCreate(nil, nil, attrs as CFDictionary, &pool) == kCVReturnSuccess else { return nil }
+            dimPool = pool
+            dimPoolFormat = (w, h, fmt)
+        }
+        guard let pool = dimPool else { return nil }
+        var out: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out) == kCVReturnSuccess,
+              let dest = out else { return nil }
+        let scale = CGFloat(max(0.05, min(1.0, brightness)))
+        let image = CIImage(cvImageBuffer: source)
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: scale, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: scale, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: scale, w: 0),
+            ])
+        ciContext.render(image, to: dest)
+        return dest
+    }
+
+    func encodeFrame(imageBuffer rawImageBuffer: CVImageBuffer, pts: CMTime, duration: CMTime) {
         guard let session = compressionSession else { return }
+        // Applied here rather than at either call site so the legacy path, the
+        // ScreenCaptureKit path and the static-frame pump all get it for free.
+        let imageBuffer: CVImageBuffer = (brightness < 0.999 ? dimmed(rawImageBuffer) : nil) ?? rawImageBuffer
 
         // Flow control belongs BEFORE the encoder, not after it (SideScreen's design).
         // A frame skipped here was never encoded, so the next encoded frame still
