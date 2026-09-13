@@ -271,12 +271,14 @@ jobs:
             "artifact/BetterCastReceiver.exe"
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
-      - name: Verify NSIS (preinstalled on windows-2022)
+      - name: Ensure NSIS
         shell: pwsh
         run: |
-          # windows-2022 runners ship with NSIS at C:\Program Files (x86)\NSIS\
-          # already on PATH. We assert presence rather than reinstalling so we
-          # don't depend on third-party mirrors or winget at build time.
+          # This used to assert NSIS was preinstalled, on the basis that the
+          # windows-2022 image shipped it. `runs-on: windows-latest` then rolled
+          # forward to an image that does not, and every Windows build failed at
+          # this step with the build itself already successful. Install it when
+          # it is missing rather than asserting an image detail we do not pin.
           $makensis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
           if (-not $makensis) {
             $candidate = "C:\Program Files (x86)\NSIS\makensis.exe"
@@ -286,7 +288,16 @@ jobs:
             }
           }
           if (-not $makensis) {
-            Write-Error "makensis.exe not found — windows-2022 runner image changed?"
+            Write-Host "NSIS not present on this runner image; installing via Chocolatey."
+            choco install nsis --no-progress -y
+            $candidate = "C:\Program Files (x86)\NSIS\makensis.exe"
+            if (Test-Path $candidate) {
+              "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+              $makensis = $candidate
+            }
+          }
+          if (-not $makensis) {
+            Write-Error "makensis.exe not found and could not be installed"
             exit 1
           }
           Write-Host "Using NSIS: $makensis"
@@ -329,7 +340,11 @@ jobs:
           }
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
 
+      # Uploaded even when a later packaging step failed. The portable build is
+      # what people test with, and it was being withheld because the installer
+      # step ahead of it broke — the binary existed and nobody could reach it.
       - name: Upload portable artifact
+        if: always() && hashFiles('artifact/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: BetterCastReceiver-Windows-x64-${{ steps.version.outputs.version }}
