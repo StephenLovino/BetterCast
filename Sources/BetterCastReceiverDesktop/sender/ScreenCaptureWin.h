@@ -7,6 +7,8 @@
 #include <QTimer>
 #include <QString>
 #include <atomic>
+#include <vector>
+#include <cstdint>
 
 // Forward declarations — avoid pulling Windows headers into every TU
 struct ID3D11Device;
@@ -44,6 +46,15 @@ private:
     void captureFrameGdi();
     void cleanup();
 
+    /// Draw the hardware cursor into a captured BGRA frame.
+    ///
+    /// Desktop Duplication hands back the desktop WITHOUT the pointer: Windows
+    /// composites the normal cursor in a hardware overlay plane, which never
+    /// reaches the duplicated surface. That is why the cursor appears while a
+    /// window is being dragged (Windows falls back to drawing it in software,
+    /// so it lands in the image) and vanishes the moment the drag ends.
+    void compositePointer(uint8_t* bgra, int pitch, int w, int h);
+
     // D3D11 objects
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
@@ -63,4 +74,21 @@ private:
     QString m_displayName;
     QSize m_resolution;
     std::atomic<bool> m_running{false};
+
+    // Cursor state, carried between frames. Both halves have to be cached:
+    // the position is only meaningful on frames where the mouse moved, and the
+    // shape is only delivered when it CHANGES, not every frame.
+    std::vector<uint8_t> m_ptrShape;
+    int  m_ptrShapeType = 0;          // DXGI_OUTDUPL_POINTER_SHAPE_TYPE_*
+    int  m_ptrWidth  = 0;
+    int  m_ptrHeight = 0;             // for MONOCHROME this counts BOTH masks
+    int  m_ptrPitch  = 0;
+    int  m_ptrX = 0;
+    int  m_ptrY = 0;
+    bool m_ptrVisible = false;
+
+    // Virtual-desktop origin of the GDI-captured display, so a cursor position
+    // reported in desktop coordinates can be made relative to the capture.
+    int m_gdiOriginX = 0;
+    int m_gdiOriginY = 0;
 };
