@@ -22,6 +22,20 @@ enum class InputEventType : int {
 // Special command keyCodes
 constexpr uint16_t kHeartbeatKeyCode = 888;
 constexpr uint16_t kIDRRequestKeyCode = 999;
+constexpr uint16_t kScreenInfoKeyCode = 777;   // width/height in deltaX/deltaY
+
+// Three-finger swipes from the iOS receiver (v19+). The macOS sender maps them
+// to Ctrl+Arrow: Mission Control, App Exposé, previous and next space.
+constexpr uint16_t kSwipeUpKeyCode    = 600;
+constexpr uint16_t kSwipeDownKeyCode  = 601;
+constexpr uint16_t kSwipeLeftKeyCode  = 602;
+constexpr uint16_t kSwipeRightKeyCode = 603;
+
+// ScrollWheel reuses keyCode as a gesture mode, the macOS sender's convention.
+constexpr uint16_t kGestureScroll    = 0;
+constexpr uint16_t kGesturePinch     = 1;   // deltaY = (scale - 1) * 100 per update
+constexpr uint16_t kGestureRotate    = 2;   // deltaX = rotation
+constexpr uint16_t kGestureSmartZoom = 3;   // no amount: a two-finger double tap
 
 struct InputEvent {
     InputEventType type;
