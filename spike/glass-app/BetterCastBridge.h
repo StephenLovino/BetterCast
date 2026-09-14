@@ -256,6 +256,26 @@ const std::vector<std::string>& logLines();
 // Opens the log file in whatever the user reads text with.
 void openLogFile();
 
+// ── Virtual displays ─────────────────────────────────────────────────────
+//
+// Every install and every pool build used to be able to leave display driver
+// nodes behind, and disconnected ones never went away. These let the settings
+// page show how many there are and clear them.
+
+struct VirtualDisplayNodes {
+    bool available    = false;  // sender built in, so the driver can be asked
+    int  present      = 0;      // nodes whose monitor can come up
+    int  disconnected = 0;      // leftovers with no device behind them
+};
+
+// Cached and re-read every few seconds, so it is safe to call every frame.
+VirtualDisplayNodes virtualDisplayNodes();
+
+// Removes every virtual display node, disconnected ones included, behind one
+// UAC prompt. Blocks until the prompt is answered. Refuses while anything is
+// streaming, since it would end those captures; lastLogLine() says why.
+bool removeAllVirtualDisplays();
+
 // ── Asking another device for its screen ─────────────────────────────────
 //
 // The reverse of everything else here: instead of sending this PC's screen

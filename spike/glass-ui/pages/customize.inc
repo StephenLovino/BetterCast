@@ -113,6 +113,28 @@
                 Glass::StatRow("Log file", BetterCastBridge::logFilePath().c_str());
                 ImGui::TextWrapped("Written as it happens and kept across a crash, so the "
                                    "previous run is still there after a restart.");
+
+                const auto vddNodes = BetterCastBridge::virtualDisplayNodes();
+                if (vddNodes.available) {
+                    ImGui::Dummy(ImVec2(0, 6));
+                    const std::string vddCounts =
+                        std::to_string(vddNodes.present) + " active, " +
+                        std::to_string(vddNodes.disconnected) + " disconnected";
+                    Glass::StatRow("Virtual displays", vddCounts.c_str());
+                    if (vddNodes.present + vddNodes.disconnected > 0) {
+                        ImGui::TextWrapped("Disconnected ones are left over from earlier "
+                                           "installs. Removing all of them is safe: "
+                                           "BetterCast adds what it needs the next time "
+                                           "you extend. Asks for administrator approval.");
+                        ImGui::Dummy(ImVec2(0, 6));
+                        if (BetterCastBridge::sessionCount() > 0) {
+                            ImGui::TextDisabled("Stop streaming first - removing them ends "
+                                                "every capture.");
+                        } else if (Glass::Button("Remove All Virtual Displays", false)) {
+                            BetterCastBridge::removeAllVirtualDisplays();
+                        }
+                    }
+                }
                 Glass::EndPanel();
 
                 Glass::BeginPanel("SUPPORT");

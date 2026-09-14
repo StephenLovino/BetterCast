@@ -85,8 +85,29 @@ public:
     struct VddDevice {
         QString instanceId;    // e.g. "ROOT\\DISPLAY\\0001"
         QString friendlyName;
+        // Its hardware ID names this driver (Root\MttVDD). Other products'
+        // virtual displays are root-enumerated too; only these are ours to purge.
+        bool isVddDriver = false;
+        // False for a node whose device is gone - the disconnected leftovers of
+        // earlier installs. Only ever false with includeDisconnected.
+        bool present = true;
     };
-    QVector<VddDevice> enumerateVddDevices() const;
+    // Present nodes only by default, which is what the pool counts.
+    QVector<VddDevice> enumerateVddDevices(bool includeDisconnected = false) const;
+
+    struct VddNodeCounts {
+        int present = 0;
+        int disconnected = 0;
+    };
+    // This driver's nodes, including disconnected ones. Walks SetupAPI, so
+    // cache it rather than calling it every frame.
+    VddNodeCounts countVddNodes() const;
+
+    // Remove every node belonging to this driver, present or disconnected,
+    // behind one UAC prompt. Unlike removeAllVirtualDisplays(), this also
+    // clears leftovers from earlier installs. Ends any capture running on a
+    // virtual display, so do not call it while streaming.
+    bool purgeVirtualDisplays();
 
     // Add another VDD device node. On this driver one node == one monitor, and
     // creating a node needs administrator rights, so this raises a single UAC

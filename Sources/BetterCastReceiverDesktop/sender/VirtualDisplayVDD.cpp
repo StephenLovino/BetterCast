@@ -35,6 +35,7 @@
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "cfgmgr32.lib")  // CM_Locate_DevNodeW, to tell disconnected nodes apart
 #pragma comment(lib, "user32.lib")   // CCD: QueryDisplayConfig / SetDisplayConfig
 #pragma comment(lib, "shell32.lib")  // ShellExecuteEx
 
@@ -1766,11 +1767,15 @@ int VirtualDisplayVDD::findVirtualDisplayOutput() const {
 
 // ─── VDD Device Nodes ─────────────────────────────────────────────────────────
 
-QVector<VirtualDisplayVDD::VddDevice> VirtualDisplayVDD::enumerateVddDevices() const {
+QVector<VirtualDisplayVDD::VddDevice> VirtualDisplayVDD::enumerateVddDevices(
+    bool includeDisconnected) const {
     QVector<VddDevice> devices;
 #ifdef _WIN32
+    // Without DIGCF_PRESENT, SetupAPI also returns nodes whose device is gone:
+    // the disconnected monitors earlier installs left behind. The pool must not
+    // count those, but a cleanup has to see them or they are never removed.
     HDEVINFO devInfo = SetupDiGetClassDevsW(&GUID_DEVCLASS_DISPLAY, nullptr, nullptr,
-                                            DIGCF_PRESENT);
+                                            includeDisconnected ? 0 : DIGCF_PRESENT);
     if (devInfo == INVALID_HANDLE_VALUE) return devices;
 
     SP_DEVINFO_DATA devData = {};
@@ -1803,9 +1808,34 @@ QVector<VirtualDisplayVDD::VddDevice> VirtualDisplayVDD::enumerateVddDevices() c
         // populated straight away, so a successful devcon install was counted
         // as "0 nodes added" and reported as a failure. Repeated attempts then
         // created ten nodes while telling the user nothing had worked.
-        if (id.startsWith("ROOT\\DISPLAY", Qt::CaseInsensitive) ||
+        // Hardware IDs are a double-null-terminated list; the buffer is zeroed
+        // and the size passed leaves room for that terminator.
+        bool isVddDriver = false;
+        wchar_t hwIds[1024] = {};
+        if (SetupDiGetDeviceRegistryPropertyW(devInfo, &devData, SPDRP_HARDWAREID,
+                                              nullptr, reinterpret_cast<PBYTE>(hwIds),
+                                              sizeof(hwIds) - 2 * sizeof(wchar_t), nullptr)) {
+            for (const wchar_t* p = hwIds; *p; p += wcslen(p) + 1) {
+                const QString hw = QString::fromWCharArray(p);
+                if (hw.contains("MttVDD", Qt::CaseInsensitive) ||
+                    hw.contains("VirtualDisplayDriver", Qt::CaseInsensitive)) {
+                    isVddDriver = true;
+                    break;
+                }
+            }
+        }
+
+        bool present = true;
+        if (includeDisconnected) {
+            DEVINST inst = 0;
+            present = CM_Locate_DevNodeW(&inst, instanceId, CM_LOCATE_DEVNODE_NORMAL)
+                      == CR_SUCCESS;
+        }
+
+        if (isVddDriver || id.startsWith("ROOT\\DISPLAY", Qt::CaseInsensitive) ||
             looksVirtual(id) || looksVirtual(name)) {
-            devices.append({id, name.isEmpty() ? QStringLiteral("Virtual Display Driver") : name});
+            devices.append({id, name.isEmpty() ? QStringLiteral("Virtual Display Driver") : name,
+                            isVddDriver, present});
         }
         devData = {};
         devData.cbSize = sizeof(devData);
@@ -2071,6 +2101,107 @@ bool VirtualDisplayVDD::removeVddDevices(int keep) {
     return remaining <= keep;
 #else
     Q_UNUSED(keep);
+    return false;
+#endif
+}
+
+#ifdef _WIN32
+// Run one cmd.exe command line elevated and wait for it. Returns false only when
+// it could not be launched at all; a declined UAC prompt comes back as
+// ERROR_CANCELLED in launchError.
+static bool runElevatedCmd(const QString& commandLine, DWORD* exitCode, DWORD* launchError) {
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    sei.lpVerb = L"runas";
+    sei.lpFile = L"cmd.exe";
+    const std::wstring wargs = QString("/c " + commandLine).toStdWString();
+    sei.lpParameters = wargs.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        if (launchError) *launchError = GetLastError();
+        return false;
+    }
+    DWORD code = 0xFFFFFFFF;
+    if (sei.hProcess) {
+        WaitForSingleObject(sei.hProcess, 120000);
+        GetExitCodeProcess(sei.hProcess, &code);
+        CloseHandle(sei.hProcess);
+    }
+    if (exitCode) *exitCode = code;
+    return true;
+}
+#endif
+
+VirtualDisplayVDD::VddNodeCounts VirtualDisplayVDD::countVddNodes() const {
+    VddNodeCounts counts;
+    for (const auto& d : enumerateVddDevices(true)) {
+        if (!d.isVddDriver) continue;
+        if (d.present) counts.present++;
+        else counts.disconnected++;
+    }
+    return counts;
+}
+
+// Remove every node this driver owns, present or not.
+//
+// removeAllVirtualDisplays() only ever saw present nodes, so the disconnected
+// ones earlier installs left behind survived every attempt, and its Remove
+// button only enabled after a Create in the same session. This is the version
+// a user reaches for when Display Settings is full of monitors that are not
+// there. No m_vddInstalled check: leftovers outlive a driver that is no longer
+// detected, and removing a node does not need the driver files.
+bool VirtualDisplayVDD::purgeVirtualDisplays() {
+#ifdef _WIN32
+    QVector<VddDevice> ours;
+    for (const auto& d : enumerateVddDevices(true)) {
+        if (d.isVddDriver) ours.append(d);
+    }
+    if (ours.isEmpty()) {
+        VDD_LOG("VDD: No virtual display device nodes to remove");
+        m_createdDisplayCount = 0;
+        emit virtualDisplayRemoved();
+        emit statusChanged("No virtual displays to remove");
+        return true;
+    }
+
+    // One command for all of them, so the user sees a single UAC prompt.
+    QStringList parts;
+    for (const auto& d : ours) {
+        parts << QString("pnputil /remove-device \"%1\"").arg(d.instanceId);
+        VDD_LOG(QString("VDD: Will remove %1 (%2)")
+                    .arg(d.instanceId, d.present ? "present" : "disconnected"));
+    }
+    emit statusChanged(QString("Removing %1 virtual display(s) — approve the "
+                               "administrator prompt").arg(ours.size()));
+
+    DWORD exitCode = 0;
+    DWORD launchError = 0;
+    if (!runElevatedCmd(parts.join(" & "), &exitCode, &launchError)) {
+        if (launchError == ERROR_CANCELLED) {
+            VDD_LOG("VDD: Removal cancelled — administrator approval declined");
+            emit error("Removing virtual displays needs administrator approval.");
+        } else {
+            VDD_LOG(QString("VDD: ShellExecuteEx failed (error %1)").arg(launchError));
+            emit error(QString("Could not launch the removal helper (error %1).")
+                           .arg(launchError));
+        }
+        return false;
+    }
+    VDD_LOG(QString("VDD: Removal helper exit code %1").arg(static_cast<int>(exitCode)));
+
+    const VddNodeCounts left = countVddNodes();
+    const int remaining = left.present + left.disconnected;
+    VDD_LOG(QString("VDD: %1 present and %2 disconnected virtual display node(s) remain")
+                .arg(left.present).arg(left.disconnected));
+    m_createdDisplayCount = left.present;
+    emit virtualDisplayRemoved();
+    emit statusChanged(remaining == 0
+        ? QString("Virtual displays removed")
+        : QString("%1 virtual display(s) could not be removed — see the log").arg(remaining));
+    return remaining == 0;
+#else
     return false;
 #endif
 }

@@ -340,6 +340,9 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
     connect(s->network, &NetworkSender::inputPacket, s->input, &InputInjector::handlePacket);
 
     connect(s->input, &InputInjector::keyframeRequested, this, [s]() {
+        // Receivers ask after a decode error, so a run of these lines next to
+        // a flicker report points at corruption rather than display changes.
+        LogManager::instance().log("Sender: " + s->host + " requested a keyframe");
         if (s->encoder) s->encoder->requestKeyframe();
     });
     connect(s->input, &InputInjector::injectionBlocked, this, [this](const QString& msg) {
@@ -457,8 +460,12 @@ void SenderController::onFrameCaptured(Session* s, const QByteArray& nv12,
             return;
         }
         s->encoderReady = true;
-        emit statusChanged(QString("Streaming %1x%2 to %3 via %4")
-                               .arg(width).arg(height).arg(s->host, s->encoder->encoderName()));
+        const QString streaming = QString("Streaming %1x%2 to %3 via %4")
+                                      .arg(width).arg(height).arg(s->host, s->encoder->encoderName());
+        // Which encoder was picked decides most of the image-quality behaviour,
+        // and until now it only reached the status bar.
+        LogManager::instance().log("Sender: " + streaming);
+        emit statusChanged(streaming);
         s->encoder->requestKeyframe();
     }
 

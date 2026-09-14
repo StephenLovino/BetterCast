@@ -728,6 +728,8 @@ jobs:
           Copy-Item 'bettercast/spike/glass-app/installer.nsi' $stage
           Copy-Item 'out' "$stage/artifact" -Recurse
           Copy-Item 'out/appicon.ico' $stage           # MUI_ICON, beside the script
+          # Shared with the Qt installer, which finds it beside its own script.
+          Copy-Item 'bettercast/Sources/BetterCastReceiverDesktop/vdd-cleanup.ps1' $stage
           if (Test-Path 'vdd') { Copy-Item 'vdd' "$stage/vdd" -Recurse }
 
           # The unmodified reference build is for comparing against, not for

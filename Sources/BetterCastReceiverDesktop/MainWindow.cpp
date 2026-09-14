@@ -980,11 +980,26 @@ void MainWindow::setupSendPage() {
     connect(m_createVddBtn, &QPushButton::clicked, this, &MainWindow::onCreateVirtualDisplay);
     vddBtnRow->addWidget(m_createVddBtn);
 
-    m_removeVddBtn = new QPushButton("Remove");
-    m_removeVddBtn->setToolTip("Remove all virtual displays. Displays created by the "
-                               "installer are device nodes, so this asks for "
-                               "administrator approval once.");
-    m_removeVddBtn->setEnabled(false);
+    m_removeVddBtn = new QPushButton("Remove All");
+    m_removeVddBtn->setToolTip("Remove every BetterCast virtual display, including "
+                               "disconnected ones left behind by earlier installs. "
+                               "Asks for administrator approval once.");
+    // Enabled whenever there is anything to remove. It used to start disabled
+    // and enable only after a Create in this session, so the leftovers people
+    // actually wanted gone - from earlier installs and runs - could never be
+    // removed from here.
+    {
+        const auto nodes = (m_sender && m_sender->vdd())
+            ? m_sender->vdd()->countVddNodes() : VirtualDisplayVDD::VddNodeCounts{};
+        m_removeVddBtn->setEnabled(nodes.present + nodes.disconnected > 0);
+        if (vddInstalled && nodes.disconnected > 0) {
+            m_vddStatusLabel->setText(
+                QString("Virtual Display Driver detected — %1 disconnected virtual "
+                        "display(s) left over; Remove All clears them")
+                    .arg(nodes.disconnected));
+            m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #ff9800;");
+        }
+    }
     m_removeVddBtn->setStyleSheet(
         "QPushButton { background-color: #333; color: palette(mid); padding: 8px 18px; "
         "border-radius: 999px; font-size: 13px; border: 1px solid #555; }"
@@ -1992,19 +2007,30 @@ void MainWindow::onCreateVirtualDisplay() {
 void MainWindow::onRemoveVirtualDisplay() {
     if (!m_sender || !m_sender->vdd()) return;
 
+    // Removing a node takes its monitor away from under any capture using it.
+    if (m_sender->isSending()) {
+        m_vddStatusLabel->setText("Stop streaming before removing virtual displays");
+        m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #ff9800;");
+        return;
+    }
+
     m_removeVddBtn->setEnabled(false);
-    LogManager::instance().log("Removing virtual display...");
+    LogManager::instance().log("Removing all virtual displays...");
 
     std::thread([this]() {
-        bool ok = m_sender->vdd()->removeAllVirtualDisplays();
+        // purge, not removeAllVirtualDisplays(): that one only sees nodes that
+        // are present, so disconnected leftovers from earlier installs stayed.
+        bool ok = m_sender->vdd()->purgeVirtualDisplays();
         QMetaObject::invokeMethod(this, [this, ok]() {
             if (ok) {
-                m_vddStatusLabel->setText("Virtual display removed");
+                m_vddStatusLabel->setText("Virtual displays removed");
                 m_vddStatusLabel->setStyleSheet("font-size: 12px; color: palette(mid);");
-                LogManager::instance().log("Virtual display removed");
+                LogManager::instance().log("Virtual displays removed");
             } else {
                 m_removeVddBtn->setEnabled(true);
-                LogManager::instance().log("Failed to remove virtual display");
+                m_vddStatusLabel->setText("Some virtual displays could not be removed — check logs");
+                m_vddStatusLabel->setStyleSheet("font-size: 12px; color: #d32f2f;");
+                LogManager::instance().log("Failed to remove virtual displays");
             }
             onRefreshMonitors();
         });

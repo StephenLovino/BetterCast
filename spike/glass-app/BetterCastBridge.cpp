@@ -15,6 +15,7 @@
 #include "UpdateChecker.h"
 #ifdef ENABLE_SENDER
 #include "sender/SenderController.h"
+#include "sender/VirtualDisplayVDD.h"
 #endif
 
 #include <QApplication>
@@ -39,6 +40,7 @@
 #include <map>
 #include <QTimer>
 
+#include <chrono>
 #include <memory>
 #include <thread>
 
@@ -777,6 +779,46 @@ std::string appVersion() {
 
 std::string logFilePath() {
     return LogManager::instance().logFilePath().toStdString();
+}
+
+// SetupAPI walks every display device on the machine; not something to do sixty
+// times a second from the render loop.
+static VirtualDisplayNodes s_vddNodes;
+static std::chrono::steady_clock::time_point s_vddNodesReadAt{};
+
+VirtualDisplayNodes virtualDisplayNodes() {
+#ifdef ENABLE_SENDER
+    const auto now = std::chrono::steady_clock::now();
+    if (s_vddNodesReadAt == std::chrono::steady_clock::time_point{} ||
+        now - s_vddNodesReadAt > std::chrono::seconds(3)) {
+        s_vddNodesReadAt = now;
+        s_vddNodes = {};
+        if (g_sender && g_sender->vdd()) {
+            const auto counts = g_sender->vdd()->countVddNodes();
+            s_vddNodes.available = true;
+            s_vddNodes.present = counts.present;
+            s_vddNodes.disconnected = counts.disconnected;
+        }
+    }
+#endif
+    return s_vddNodes;
+}
+
+bool removeAllVirtualDisplays() {
+#ifdef ENABLE_SENDER
+    if (!g_sender || !g_sender->vdd()) return false;
+    if (g_sender->isSending()) {
+        LogManager::instance().log("Stop streaming before removing virtual displays - "
+                                   "removing them ends every capture running on one");
+        return false;
+    }
+    const bool ok = g_sender->vdd()->purgeVirtualDisplays();
+    s_vddNodesReadAt = {};   // show the result on the next frame, not in 3 seconds
+    requestRedraw();
+    return ok;
+#else
+    return false;
+#endif
 }
 
 const std::vector<std::string>& logLines() {

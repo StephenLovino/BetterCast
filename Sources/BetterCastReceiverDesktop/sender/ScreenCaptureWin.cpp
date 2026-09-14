@@ -298,7 +298,12 @@ bool ScreenCaptureWin::captureFrameDxgi() {
 
         if (FAILED(hr)) {
             if (hr == DXGI_ERROR_ACCESS_LOST) {
-                qDebug() << "Sender: Duplication access lost, reinitializing...";
+                // Into the log file, not just qDebug: this is what a display
+                // mode change, UAC prompt or Win+P does to a running capture,
+                // and it is the prime suspect when receivers flicker.
+                LogManager::instance().log(
+                    QString("Sender: Desktop duplication lost on %1 — reinitializing")
+                        .arg(m_displayName.isEmpty() ? QStringLiteral("primary") : m_displayName));
                 if (m_duplication) { m_duplication->Release(); m_duplication = nullptr; }
                 for (int i = 0; i < kStagingCount; i++) {
                     if (m_stagingTex[i]) { m_stagingTex[i]->Release(); m_stagingTex[i] = nullptr; }

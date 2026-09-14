@@ -106,6 +106,19 @@ Section "Virtual Display Driver (VDD)" SecVDD
 
     ; Copy VDD files (/nonfatal = don't fail if no files bundled)
     File /nonfatal /r "vdd\*.*"
+    File "vdd-cleanup.ps1"
+
+    ; Device nodes whose device is gone - left by earlier installs and by
+    ; uninstallers that could not remove them - stay registered as disconnected
+    ; monitors indefinitely. Clear those first. Nodes that are present and
+    ; working are left alone; "devcon update" below reuses them.
+    ;
+    ; Sysnative, because this installer is 32-bit: a bare "powershell" or
+    ; "pnputil" here resolves to SysWOW64, and pnputil does not exist there.
+    DetailPrint "Removing disconnected virtual displays left by earlier installs..."
+    nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\VirtualDisplayDriver\vdd-cleanup.ps1" -DisconnectedOnly'
+    Pop $0
+    DetailPrint "Leftover cleanup exit code: $0"
 
     ; Check if any VDD driver files were actually copied
     IfFileExists "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" 0 try_generic_inf
@@ -135,7 +148,7 @@ Section "Virtual Display Driver (VDD)" SecVDD
     try_pnputil:
     ; Fallback: add driver to store via pnputil
     DetailPrint "Installing VDD driver via pnputil..."
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /install'
+    nsExec::ExecToLog '"$WINDIR\Sysnative\pnputil.exe" /add-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /install'
     Pop $0
     DetailPrint "pnputil exit code: $0"
     StrCmp $0 "0" vdd_done
@@ -153,7 +166,7 @@ Section "Virtual Display Driver (VDD)" SecVDD
     Pop $0
     StrCmp $0 "0" vdd_done
     generic_pnputil:
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
+    nsExec::ExecToLog '"$WINDIR\Sysnative\pnputil.exe" /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
     Pop $0
     StrCmp $0 "0" vdd_done
     Goto vdd_manual
@@ -180,8 +193,14 @@ Section "Virtual Display Driver (VDD)" SecVDD
 
     vdd_done:
 
-    ; Write VDD install path to registry for BetterCast to detect
+    ; Write VDD install path to registry for BetterCast to detect.
+    ;
+    ; The 64-bit view: the app is 64-bit and reads it there. Written from this
+    ; 32-bit installer without SetRegView it landed in WOW6432Node, where the
+    ; app never looks.
+    SetRegView 64
     WriteRegStr HKLM "Software\${PRODUCT_NAME}" "VDDPath" "$INSTDIR\VirtualDisplayDriver"
+    SetRegView 32
 
     vdd_skip_registry:
 SectionEnd
@@ -203,28 +222,27 @@ Section "Uninstall"
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast Streaming"'
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast App"'
 
-    ; Remove VDD device nodes, then the driver (best effort).
+    ; Remove every virtual display device node - present or disconnected - then
+    ; the driver package, the driver's settings file and its registry key.
     ;
-    ; This used to test for VirtualDisplayDriver.inf, but the file actually shipped
-    ; is MttVDD.inf — so the test never matched, the branch was always skipped, and
-    ; uninstalling left every device node behind. Combined with install creating a
-    ; fresh node each time, install/uninstall cycles only ever accumulated monitors.
+    ; What this replaces never removed the driver and often not the nodes:
+    ;   - it only ran if MttVDD.inf and devcon.exe were still in $INSTDIR;
+    ;   - "devcon remove" does not touch disconnected nodes;
+    ;   - "pnputil" by bare name resolves to SysWOW64 from this 32-bit
+    ;     uninstaller, and pnputil.exe does not exist there;
+    ;   - /delete-driver was given an .inf path, when it wants the published
+    ;     oemNN.inf name.
     ;
-    ; Removing the device nodes has to come first: deleting the driver package while
-    ; nodes still reference it leaves them present but broken.
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" 0 skip_vdd_remove
-    DetailPrint "Removing Virtual Display Driver..."
-
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 vdd_delete_driver
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" remove Root\MttVDD'
+    ; The script is embedded in the uninstaller itself rather than run from
+    ; $INSTDIR, so it works even when the install folder is already damaged.
+    InitPluginsDir
+    SetOutPath "$PLUGINSDIR"
+    File "vdd-cleanup.ps1"
+    DetailPrint "Removing virtual displays and the Virtual Display Driver..."
+    nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\vdd-cleanup.ps1" -RemoveDriver -RemoveSettings'
     Pop $0
-    DetailPrint "devcon remove exit code: $0"
-
-    vdd_delete_driver:
-    nsExec::ExecToLog 'pnputil /delete-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /uninstall /force'
-    Pop $0
-    DetailPrint "pnputil delete-driver exit code: $0"
-    skip_vdd_remove:
+    DetailPrint "Virtual display cleanup exit code: $0"
+    SetOutPath "$TEMP"   ; do not hold a handle inside $INSTDIR while deleting it
 
     ; Remove files
     RMDir /r "$INSTDIR"
@@ -236,5 +254,10 @@ Section "Uninstall"
     ; Remove registry keys
     DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
     DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
+    ; Both views: VDDPath is written to the 64-bit one now, and to WOW6432Node
+    ; by every installer before that.
     DeleteRegKey HKLM "Software\${PRODUCT_NAME}"
+    SetRegView 64
+    DeleteRegKey HKLM "Software\${PRODUCT_NAME}"
+    SetRegView 32
 SectionEnd

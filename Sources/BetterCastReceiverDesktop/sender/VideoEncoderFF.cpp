@@ -1,8 +1,10 @@
 #include "VideoEncoderFF.h"
 #include "../LogManager.h"
+#include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 extern "C" {
@@ -240,7 +242,11 @@ QByteArray VideoEncoderFF::annexBtoAVCC(const uint8_t* data, int size) {
 void VideoEncoderFF::encode(const QByteArray& nv12Data, int width, int height, qint64 ptsNanos) {
     if (!m_ctx || !m_frame || !m_pkt) return;
     if (width != m_ctx->width || height != m_ctx->height) {
-        qWarning() << "Sender: Frame size mismatch, reinitializing encoder";
+        // Logged to the file: a capture that changes size mid-stream restarts
+        // the encoder and every receiver's decoder, which reads as flicker.
+        LogManager::instance().log(
+            QString("Sender: Frame size changed %1x%2 -> %3x%4, restarting encoder")
+                .arg(m_ctx->width).arg(m_ctx->height).arg(width).arg(height));
         init(width, height, m_fps);
         if (!m_ctx) return;
     }
@@ -281,7 +287,14 @@ void VideoEncoderFF::encode(const QByteArray& nv12Data, int width, int height, q
     if (ret < 0) {
         char errbuf[256];
         av_strerror(ret, errbuf, sizeof(errbuf));
-        qWarning() << "Sender: avcodec_send_frame failed:" << errbuf;
+        // At most one line every two seconds: this fails per frame when it fails.
+        static std::atomic<qint64> s_lastSendFailLogMs{0};
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (nowMs - s_lastSendFailLogMs.load() > 2000) {
+            s_lastSendFailLogMs = nowMs;
+            LogManager::instance().log(QString("Sender: avcodec_send_frame failed: %1")
+                                           .arg(QString::fromLatin1(errbuf)));
+        }
         return;
     }
 

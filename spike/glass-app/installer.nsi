@@ -108,6 +108,15 @@ Section "Virtual Display Driver (VDD)" SecVDD
     SetOutPath "$INSTDIR\VirtualDisplayDriver"
 
     File /nonfatal /r "vdd\*.*"
+    File "vdd-cleanup.ps1"
+
+    ; Disconnected nodes left by earlier installs and by uninstallers that could
+    ; not remove them. Present, working nodes are left for "devcon update".
+    ; Sysnative, because this installer is 32-bit and pnputil is not in SysWOW64.
+    DetailPrint "Removing disconnected virtual displays left by earlier installs..."
+    nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\VirtualDisplayDriver\vdd-cleanup.ps1" -DisconnectedOnly'
+    Pop $0
+    DetailPrint "Leftover cleanup exit code: $0"
 
     IfFileExists "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" 0 try_generic_inf
     IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 try_pnputil
@@ -130,7 +139,7 @@ Section "Virtual Display Driver (VDD)" SecVDD
 
     try_pnputil:
     DetailPrint "Installing VDD driver via pnputil..."
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /install'
+    nsExec::ExecToLog '"$WINDIR\Sysnative\pnputil.exe" /add-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /install'
     Pop $0
     DetailPrint "pnputil exit code: $0"
     StrCmp $0 "0" vdd_done
@@ -147,7 +156,7 @@ Section "Virtual Display Driver (VDD)" SecVDD
     Pop $0
     StrCmp $0 "0" vdd_done
     generic_pnputil:
-    nsExec::ExecToLog 'pnputil /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
+    nsExec::ExecToLog '"$WINDIR\Sysnative\pnputil.exe" /add-driver "$INSTDIR\VirtualDisplayDriver\$2" /install'
     Pop $0
     StrCmp $0 "0" vdd_done
     Goto vdd_manual
@@ -176,7 +185,12 @@ Section "Virtual Display Driver (VDD)" SecVDD
     ; driver detection, and it looks under Software\BetterCast. Writing it
     ; anywhere else means the app reports "VDD: Not installed" on a machine
     ; where this installer just installed it, which is exactly what happened.
+    ;
+    ; And the 64-bit view, which is where the 64-bit app reads it. From this
+    ; 32-bit installer without SetRegView it went to WOW6432Node instead.
+    SetRegView 64
     WriteRegStr HKLM "Software\BetterCast" "VDDPath" "$INSTDIR\VirtualDisplayDriver"
+    SetRegView 32
 
     vdd_skip_registry:
 SectionEnd
@@ -197,21 +211,19 @@ Section "Uninstall"
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast Glass Streaming"'
     nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast Glass App"'
 
-    ; Device nodes first: deleting the driver package while nodes still point at
-    ; it leaves them present but broken.
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" 0 skip_vdd_remove
-    DetailPrint "Removing Virtual Display Driver..."
-
-    IfFileExists "$INSTDIR\VirtualDisplayDriver\devcon.exe" 0 vdd_delete_driver
-    nsExec::ExecToLog '"$INSTDIR\VirtualDisplayDriver\devcon.exe" remove Root\MttVDD'
+    ; Every virtual display node, present or disconnected, then the driver
+    ; package, its settings file and registry key. Same script and same reasons
+    ; as the Qt installer's uninstaller: the old block depended on files in
+    ; $INSTDIR, skipped disconnected nodes, and called pnputil through SysWOW64
+    ; where it does not exist. Embedded, so it runs even if $INSTDIR is damaged.
+    InitPluginsDir
+    SetOutPath "$PLUGINSDIR"
+    File "vdd-cleanup.ps1"
+    DetailPrint "Removing virtual displays and the Virtual Display Driver..."
+    nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\vdd-cleanup.ps1" -RemoveDriver -RemoveSettings'
     Pop $0
-    DetailPrint "devcon remove exit code: $0"
-
-    vdd_delete_driver:
-    nsExec::ExecToLog 'pnputil /delete-driver "$INSTDIR\VirtualDisplayDriver\MttVDD.inf" /uninstall /force'
-    Pop $0
-    DetailPrint "pnputil delete-driver exit code: $0"
-    skip_vdd_remove:
+    DetailPrint "Virtual display cleanup exit code: $0"
+    SetOutPath "$TEMP"
 
     RMDir /r "$INSTDIR"
 
@@ -220,5 +232,8 @@ Section "Uninstall"
 
     DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
     DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
+    DeleteRegKey HKLM "Software\BetterCast"   ; WOW6432Node, from older installers
+    SetRegView 64
     DeleteRegKey HKLM "Software\BetterCast"
+    SetRegView 32
 SectionEnd
