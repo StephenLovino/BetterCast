@@ -469,6 +469,8 @@ jobs:
             "    `"$core/Language.h`"",
             "    `"$core/UpdateChecker.cpp`"",
             "    `"$core/UpdateChecker.h`"",
+            "    `"$core/DonatePrompt.cpp`"",
+            "    `"$core/DonatePrompt.h`"",
             "    `"$core/sender/SenderController.cpp`"",
             "    `"$core/sender/SenderController.h`"",
             "    `"$core/sender/VideoEncoderFF.cpp`"",

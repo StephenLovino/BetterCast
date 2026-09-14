@@ -122,7 +122,7 @@ private:
 
     void setupUi();
     void applyTheme();       // rebuild the stylesheet for the current OS theme
-    void maybeShowSupportPrompt();   // occasional, dismissible donation nudge
+    void maybeShowSupportPrompt();   // donation nudge each launch, until "already donated"
     void setupSidebar();
     void rebuildSidebar();          // re-run whenever the device list changes
     void setupDevicePage();

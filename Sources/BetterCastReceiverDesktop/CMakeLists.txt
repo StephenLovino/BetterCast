@@ -95,6 +95,7 @@ endif()
 set(SOURCES
     main.cpp
     MainWindow.cpp
+    DonatePrompt.cpp
     Language.cpp
     UpdateChecker.cpp
     Theme.cpp
@@ -112,6 +113,7 @@ set(SOURCES
 
 set(HEADERS
     MainWindow.h
+    DonatePrompt.h
     LogManager.h
     Language.h
     UpdateChecker.h

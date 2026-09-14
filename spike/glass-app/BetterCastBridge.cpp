@@ -13,6 +13,7 @@
 #include "VideoRenderer.h"
 #include "Language.h"
 #include "UpdateChecker.h"
+#include "DonatePrompt.h"
 #ifdef ENABLE_SENDER
 #include "sender/SenderController.h"
 #include "sender/VirtualDisplayVDD.h"
@@ -552,6 +553,13 @@ bool init(int argc, char** argv) {
                          LogManager::instance().log(status);
                          requestRedraw();
                      });
+
+    // The same launch-time donation prompt as the Qt app and the macOS app.
+    // Deferred past the welcome splash, and queued rather than shown here: the
+    // D3D window does not exist yet this early, and a timer only fires once
+    // pump() is running, which is after it does. No Qt parent, so the dialog
+    // keeps itself above the glass window.
+    QTimer::singleShot(3000, []() { DonatePrompt::showIfDue(nullptr); });
 
     LogManager::instance().log("Glass: BetterCast core running inside the D3D11 loop");
     return true;
