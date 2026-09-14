@@ -182,6 +182,17 @@ void setHotspot(bool on);
 // underneath the code it is showing.
 bool hotspotWanted();
 
+// The hotspot's join code, as QR modules for the page to draw: size x size,
+// row by row, 1 = dark. The payload is the standard WIFI: format, the same one
+// the Qt app shows, so a phone's own camera offers to join - nothing to type
+// and nothing to install. Empty while the hotspot is off. Regenerated only
+// when the network name or password changes, so safe to call every frame.
+struct QrModules {
+    int size = 0;
+    std::vector<uint8_t> modules;
+};
+const QrModules& hotspotQr();
+
 // ── Android over the cable ───────────────────────────────────────────────
 //
 // The opposite of the scrcpy panel below: this receives an Android phone's

@@ -14,6 +14,7 @@
 #include "Language.h"
 #include "UpdateChecker.h"
 #include "DonatePrompt.h"
+#include "QrImage.h"   // WIFI: payload and the qrcodegen encoder, shared with the Qt app
 #ifdef ENABLE_SENDER
 #include "sender/SenderController.h"
 #include "sender/VirtualDisplayVDD.h"
@@ -1286,6 +1287,45 @@ void setHotspot(bool on) {
 
 bool hotspotWanted() {
     return g_hotspotWanted;
+}
+
+const QrModules& hotspotQr() {
+    static QrModules cached;
+    static std::string cachedFor;
+
+    const HotspotInfo hs = hotspot();
+    if (!hs.on || hs.ssid.empty()) {
+        cached = {};
+        cachedFor.clear();
+        return cached;
+    }
+    const std::string key = hs.ssid + '\n' + hs.passphrase;
+    if (key == cachedFor) return cached;
+    cachedFor = key;
+    cached = {};
+
+    // Modules rather than an image: the page draws them as rectangles, which
+    // needs no texture upload into liquidDX11's renderer and stays sharp at
+    // any window scale.
+    try {
+        const QByteArray payload = QrImage::wifiPayload(QString::fromStdString(hs.ssid),
+                                                        QString::fromStdString(hs.passphrase))
+                                       .toUtf8();
+        const auto qr = qrcodegen::QrCode::encodeText(payload.constData(),
+                                                      qrcodegen::QrCode::Ecc::MEDIUM);
+        const int size = qr.getSize();
+        cached.size = size;
+        cached.modules.assign(static_cast<size_t>(size) * size, 0);
+        for (int y = 0; y < size; y++) {
+            for (int x = 0; x < size; x++) {
+                cached.modules[static_cast<size_t>(y) * size + x] = qr.getModule(x, y) ? 1 : 0;
+            }
+        }
+    } catch (...) {
+        cached = {};
+        LogManager::instance().log("Hotspot: could not encode the join code as a QR");
+    }
+    return cached;
 }
 
 // ── Android over the cable ───────────────────────────────────────────────

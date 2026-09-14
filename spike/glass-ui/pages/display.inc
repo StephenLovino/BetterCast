@@ -36,6 +36,52 @@
                 Glass::EndPanel();
 
                 if (bcHs.supported && bcHs.on) {
+                    // The join code. A standard Wi-Fi QR, so the phone's own
+                    // camera offers to join - no typing a password on a phone.
+                    const auto& bcQr = BetterCastBridge::hotspotQr();
+                    if (bcQr.size > 0) {
+                        Glass::BeginPanel("SCAN TO JOIN");
+                        ImGui::TextWrapped("Point the phone's camera at this code and tap to "
+                                           "join. Then open BetterCast on the phone - it shows "
+                                           "up on the Devices page within a few seconds.");
+                        ImGui::Dummy(ImVec2(0, 8));
+
+                        // Four modules of quiet zone, as the spec requires, and a
+                        // whole number of pixels per module: fractional sizes blur
+                        // the edges a scanner locks onto.
+                        const int bcQuiet = 4;
+                        const int bcTotal = bcQr.size + bcQuiet * 2;
+                        int bcModulePx = (int)((240.0f * scale) / (float)bcTotal);
+                        if (bcModulePx < 2) bcModulePx = 2;
+                        const float bcSide = (float)(bcModulePx * bcTotal);
+
+                        ImVec2 bcOrigin = ImGui::GetCursorScreenPos();
+                        const float bcAvail = ImGui::GetContentRegionAvail().x;
+                        if (bcAvail > bcSide) bcOrigin.x += (bcAvail - bcSide) * 0.5f;
+                        bcOrigin.x = (float)(int)bcOrigin.x;
+                        bcOrigin.y = (float)(int)bcOrigin.y;
+
+                        ImDrawList* bcDl = ImGui::GetWindowDrawList();
+                        // Always dark on white: scanners expect it, whatever the
+                        // app's theme.
+                        bcDl->AddRectFilled(bcOrigin,
+                                            ImVec2(bcOrigin.x + bcSide, bcOrigin.y + bcSide),
+                                            IM_COL32(255, 255, 255, 255));
+                        for (int qy = 0; qy < bcQr.size; qy++) {
+                            for (int qx = 0; qx < bcQr.size; qx++) {
+                                if (!bcQr.modules[(size_t)(qy * bcQr.size + qx)]) continue;
+                                const float px = bcOrigin.x + (float)((qx + bcQuiet) * bcModulePx);
+                                const float py = bcOrigin.y + (float)((qy + bcQuiet) * bcModulePx);
+                                bcDl->AddRectFilled(ImVec2(px, py),
+                                                    ImVec2(px + (float)bcModulePx,
+                                                           py + (float)bcModulePx),
+                                                    IM_COL32(0, 0, 0, 255));
+                            }
+                        }
+                        ImGui::Dummy(ImVec2(bcAvail > bcSide ? bcAvail : bcSide, bcSide));
+                        Glass::EndPanel();
+                    }
+
                     Glass::BeginPanel("NETWORK");
                     Glass::StatRow("Name", bcHs.ssid.empty() ? "-" : bcHs.ssid.c_str());
                     Glass::StatRow("Password",
