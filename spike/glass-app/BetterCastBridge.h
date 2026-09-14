@@ -87,8 +87,12 @@ const std::vector<Device>& devices();
 //
 // Returns false if no display could be claimed - see lastLogLine() for why,
 // since the reasons are worth reading rather than reducing to a bool.
+//
+// deviceName is the receiver's name, so the display is remembered as its own
+// and the same device gets it back next time.
 bool startExtending(const std::string& host, uint16_t port,
-                    int fps, int bitrateMbps, int width, int height);
+                    int fps, int bitrateMbps, int width, int height,
+                    const std::string& deviceName = std::string());
 
 // Mirror this PC's main screen onto a receiver, the way the macOS sender's
 // "Mirror Built-in" does. No virtual display is involved and nothing is
@@ -275,6 +279,26 @@ VirtualDisplayNodes virtualDisplayNodes();
 // UAC prompt. Blocks until the prompt is answered. Refuses while anything is
 // streaming, since it would end those captures; lastLogLine() says why.
 bool removeAllVirtualDisplays();
+
+// One entry per virtual display, with the receiver it belongs to. Windows names
+// them all "VDD by MTT"; the receiver name is BetterCast's own record.
+struct VirtualDisplay {
+    std::string instanceId;    // ROOT\DISPLAY\000N
+    std::string receiverName;  // empty when unassigned
+    std::string displayName;   // \\.\DISPLAYn, empty when detached or gone
+    bool present = true;       // false for a disconnected leftover
+    bool inUse   = false;      // being streamed right now
+};
+
+// Cached with virtualDisplayNodes(), so safe to call every frame.
+const std::vector<VirtualDisplay>& virtualDisplayList();
+
+// The node id of a receiver's own virtual display, empty if it has none.
+std::string virtualDisplayFor(const std::string& deviceName);
+
+// Removes one virtual display behind one UAC prompt. Refuses while anything
+// streams to a virtual display, for the same reason as removing all of them.
+bool removeVirtualDisplay(const std::string& instanceId);
 
 // ── Asking another device for its screen ─────────────────────────────────
 //

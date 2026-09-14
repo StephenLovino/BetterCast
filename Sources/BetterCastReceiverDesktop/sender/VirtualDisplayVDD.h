@@ -104,6 +104,19 @@ public:
     // cache it rather than calling it every frame.
     VddNodeCounts countVddNodes() const;
 
+    // The device node (e.g. "ROOT\\DISPLAY\\0001") behind a display name such
+    // as "\\\\.\\DISPLAY29", or empty when it is not a virtual display or Windows
+    // reports no monitor for it. \\.\DISPLAYn names are handed out again every
+    // time the driver re-enumerates; the node id survives that and reboots, so
+    // it is what receiver assignments and ownership are keyed by.
+    QString nodeForDisplay(const QString& displayName) const;
+    // The reverse: the display a node currently backs, empty if none.
+    QString displayForNode(const QString& instanceId) const;
+
+    // Remove one device node behind one UAC prompt. Like every node change it
+    // re-enumerates the driver's other monitors, so not while streaming.
+    bool removeVddDevice(const QString& instanceId);
+
     // Remove every node belonging to this driver, present or disconnected,
     // behind one UAC prompt. Unlike removeAllVirtualDisplays(), this also
     // clears leftovers from earlier installs. Ends any capture running on a
@@ -230,7 +243,12 @@ private:
     // streamed to. Only these are detached on exit: the Qt and glass builds can
     // run side by side, and one closing must not pull a display from under the
     // other's stream.
+    //
+    // Held as node ids, which survive re-enumeration; a display name is kept
+    // only when Windows would not say which node it belongs to.
+    QSet<QString> m_ownedNodes;
     QSet<QString> m_ownedDisplays;
+    void markOwned(const QString& displayName);
 
     /// Full path of the file the driver actually reads, which is not the copy
     /// sitting in whichever folder the driver package was installed from.

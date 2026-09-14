@@ -904,7 +904,7 @@ bool VirtualDisplayVDD::attachVirtualDisplay(const QString& deviceName,
     VDD_LOG(QString("VDD: Attached %1 at %2,0 (%3x%4)")
                 .arg(deviceName).arg(rightEdge)
                 .arg(dm.dmPelsWidth).arg(dm.dmPelsHeight));
-    m_ownedDisplays.insert(deviceName);
+    markOwned(deviceName);
     QThread::msleep(700);   // let the desktop settle before anything captures it
     return true;
 #else
@@ -1184,7 +1184,7 @@ bool VirtualDisplayVDD::setVirtualDisplayResolution(const QString& deviceName,
 
     // Only ever called for a virtual display about to be streamed, so it is
     // this process's to detach on exit even if Windows attached it earlier.
-    m_ownedDisplays.insert(deviceName);
+    markOwned(deviceName);
 
     DEVMODEW current = {};
     current.dmSize = sizeof(current);
@@ -1405,7 +1405,7 @@ bool VirtualDisplayVDD::positionVirtualDisplay() {
 
 void VirtualDisplayVDD::detachOwnedDisplays() {
 #ifdef _WIN32
-    if (m_ownedDisplays.isEmpty()) return;
+    if (m_ownedDisplays.isEmpty() && m_ownedNodes.isEmpty()) return;
 
     // Stage every detach with CDS_NORESET and commit once: one display change,
     // so one blink, however many displays are going.
@@ -1414,9 +1414,11 @@ void VirtualDisplayVDD::detachOwnedDisplays() {
     dd.cb = sizeof(dd);
     for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dd, 0); i++) {
         const QString name = QString::fromWCharArray(dd.DeviceName);
-        const bool owned = m_ownedDisplays.contains(name);
         const bool attached = (dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) != 0;
         const bool primary = (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
+        const bool owned = m_ownedDisplays.contains(name) ||
+                           (attached && !m_ownedNodes.isEmpty() &&
+                            m_ownedNodes.contains(nodeForDisplay(name)));
         // Belt and braces: never detach the primary or anything that is not a
         // virtual display, whatever ended up in the set.
         if (owned && attached && !primary &&
@@ -1436,6 +1438,7 @@ void VirtualDisplayVDD::detachOwnedDisplays() {
         dd.cb = sizeof(dd);
     }
     m_ownedDisplays.clear();
+    m_ownedNodes.clear();
     if (staged.isEmpty()) return;
 
     const LONG commit = ChangeDisplaySettingsExW(nullptr, nullptr, nullptr, 0, nullptr);
@@ -2098,7 +2101,7 @@ bool VirtualDisplayVDD::addVddDeviceNodes(int count) {
     // the driver's 800x600. They came from this install, so detach them on exit
     // too rather than leaving invisible screens behind.
     for (const auto& mon : enumerateMonitors()) {
-        if (mon.isVirtual && mon.attached) m_ownedDisplays.insert(mon.name);
+        if (mon.isVirtual && mon.attached) markOwned(mon.name);
     }
 
     m_createdDisplayCount = after;
@@ -2272,6 +2275,116 @@ bool VirtualDisplayVDD::purgeVirtualDisplays() {
         : QString("%1 virtual display(s) could not be removed — see the log").arg(remaining));
     return remaining == 0;
 #else
+    return false;
+#endif
+}
+
+void VirtualDisplayVDD::markOwned(const QString& displayName) {
+    const QString node = nodeForDisplay(displayName);
+    if (!node.isEmpty()) m_ownedNodes.insert(node);
+    else m_ownedDisplays.insert(displayName);   // fallback; may go stale on renumbering
+}
+
+QString VirtualDisplayVDD::nodeForDisplay(const QString& displayName) const {
+#ifdef _WIN32
+    if (displayName.isEmpty()) return QString();
+    const std::wstring wname = displayName.toStdWString();
+
+    // Child 0 of a display output is its monitor. With
+    // EDD_GET_DEVICE_INTERFACE_NAME its DeviceID is the monitor's interface
+    // path, e.g.
+    //   \\?\DISPLAY#MTT1337#1&15ecd195&3&UID256#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}
+    // whose middle is the monitor's instance id. The monitor's parent device
+    // node is what drives it - for a virtual display, the VDD node
+    // ROOT\DISPLAY\000N. Checked against Device Manager on a real machine:
+    // \\.\DISPLAY29 -> DISPLAY\MTT1337\1&15ECD195&3&UID256 -> ROOT\DISPLAY\0001.
+    DISPLAY_DEVICEW mon = {};
+    mon.cb = sizeof(mon);
+    if (!EnumDisplayDevicesW(wname.c_str(), 0, &mon, EDD_GET_DEVICE_INTERFACE_NAME)) {
+        return QString();
+    }
+    QString path = QString::fromWCharArray(mon.DeviceID);
+    if (!path.startsWith(QStringLiteral("\\\\?\\"))) return QString();
+    path = path.mid(4);
+    const int guidAt = path.indexOf(QStringLiteral("#{"));
+    if (guidAt <= 0) return QString();
+    std::wstring monitorId = path.left(guidAt).replace(QChar('#'), QChar('\\')).toStdWString();
+
+    DEVINST monitor = 0;
+    if (CM_Locate_DevNodeW(&monitor, monitorId.data(), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return QString();
+    }
+    DEVINST parent = 0;
+    if (CM_Get_Parent(&parent, monitor, 0) != CR_SUCCESS) return QString();
+    wchar_t parentId[MAX_DEVICE_ID_LEN] = {};
+    if (CM_Get_Device_IDW(parent, parentId, MAX_DEVICE_ID_LEN, 0) != CR_SUCCESS) {
+        return QString();
+    }
+    const QString id = QString::fromWCharArray(parentId).toUpper();
+    // A real GPU sits on PCI; only root-enumerated nodes are virtual displays.
+    return id.startsWith(QStringLiteral("ROOT\\")) ? id : QString();
+#else
+    Q_UNUSED(displayName);
+    return QString();
+#endif
+}
+
+QString VirtualDisplayVDD::displayForNode(const QString& instanceId) const {
+#ifdef _WIN32
+    if (instanceId.isEmpty()) return QString();
+    DISPLAY_DEVICEW dd = {};
+    dd.cb = sizeof(dd);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dd, 0); i++) {
+        const QString name = QString::fromWCharArray(dd.DeviceName);
+        if (looksVirtual(QString::fromWCharArray(dd.DeviceString)) &&
+            nodeForDisplay(name).compare(instanceId, Qt::CaseInsensitive) == 0) {
+            return name;
+        }
+        dd = {};
+        dd.cb = sizeof(dd);
+    }
+#else
+    Q_UNUSED(instanceId);
+#endif
+    return QString();
+}
+
+bool VirtualDisplayVDD::removeVddDevice(const QString& instanceId) {
+#ifdef _WIN32
+    if (instanceId.isEmpty()) return false;
+    VDD_LOG("VDD: Will remove " + instanceId);
+    emit statusChanged("Removing a virtual display — approve the administrator prompt");
+
+    DWORD exitCode = 0;
+    DWORD launchError = 0;
+    if (!runElevatedCmd(QString("pnputil /remove-device \"%1\"").arg(instanceId),
+                        &exitCode, &launchError)) {
+        if (launchError == ERROR_CANCELLED) {
+            VDD_LOG("VDD: Removal cancelled — administrator approval declined");
+            emit error("Removing a virtual display needs administrator approval.");
+        } else {
+            VDD_LOG(QString("VDD: ShellExecuteEx failed (error %1)").arg(launchError));
+            emit error(QString("Could not launch the removal helper (error %1).")
+                           .arg(launchError));
+        }
+        return false;
+    }
+    VDD_LOG(QString("VDD: Removal helper exit code %1").arg(static_cast<int>(exitCode)));
+
+    bool gone = true;
+    for (const auto& d : enumerateVddDevices(true)) {
+        if (d.instanceId.compare(instanceId, Qt::CaseInsensitive) == 0) gone = false;
+    }
+    m_ownedNodes.remove(instanceId.toUpper());
+    m_createdDisplayCount = countVddNodes().present;
+    VDD_LOG(gone ? "VDD: Removed " + instanceId
+                 : "VDD: " + instanceId + " is still present after removal");
+    emit virtualDisplayRemoved();
+    emit statusChanged(gone ? QString("Virtual display removed")
+                            : QString("The virtual display could not be removed — see the log"));
+    return gone;
+#else
+    Q_UNUSED(instanceId);
     return false;
 #endif
 }

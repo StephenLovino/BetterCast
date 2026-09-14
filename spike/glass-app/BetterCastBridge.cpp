@@ -784,24 +784,65 @@ std::string logFilePath() {
 // SetupAPI walks every display device on the machine; not something to do sixty
 // times a second from the render loop.
 static VirtualDisplayNodes s_vddNodes;
+static std::vector<VirtualDisplay> s_vdList;
 static std::chrono::steady_clock::time_point s_vddNodesReadAt{};
 
-VirtualDisplayNodes virtualDisplayNodes() {
+// One refresh feeds both the counts and the per-display list.
+static void refreshVirtualDisplays() {
 #ifdef ENABLE_SENDER
     const auto now = std::chrono::steady_clock::now();
-    if (s_vddNodesReadAt == std::chrono::steady_clock::time_point{} ||
-        now - s_vddNodesReadAt > std::chrono::seconds(3)) {
-        s_vddNodesReadAt = now;
-        s_vddNodes = {};
-        if (g_sender && g_sender->vdd()) {
-            const auto counts = g_sender->vdd()->countVddNodes();
-            s_vddNodes.available = true;
-            s_vddNodes.present = counts.present;
-            s_vddNodes.disconnected = counts.disconnected;
-        }
+    if (s_vddNodesReadAt != std::chrono::steady_clock::time_point{} &&
+        now - s_vddNodesReadAt <= std::chrono::seconds(3)) {
+        return;
+    }
+    s_vddNodesReadAt = now;
+    s_vddNodes = {};
+    s_vdList.clear();
+    if (!g_sender || !g_sender->vdd()) return;
+    s_vddNodes.available = true;
+    for (const auto& e : g_sender->virtualDisplays()) {
+        if (e.present) s_vddNodes.present++;
+        else s_vddNodes.disconnected++;
+        VirtualDisplay vd;
+        vd.instanceId   = e.instanceId.toStdString();
+        vd.receiverName = e.receiverName.toStdString();
+        vd.displayName  = e.displayName.toStdString();
+        vd.present      = e.present;
+        vd.inUse        = e.inUse;
+        s_vdList.push_back(vd);
     }
 #endif
+}
+
+VirtualDisplayNodes virtualDisplayNodes() {
+    refreshVirtualDisplays();
     return s_vddNodes;
+}
+
+const std::vector<VirtualDisplay>& virtualDisplayList() {
+    refreshVirtualDisplays();
+    return s_vdList;
+}
+
+std::string virtualDisplayFor(const std::string& deviceName) {
+    if (deviceName.empty()) return {};
+    for (const auto& vd : virtualDisplayList()) {
+        if (vd.receiverName == deviceName) return vd.instanceId;
+    }
+    return {};
+}
+
+bool removeVirtualDisplay(const std::string& instanceId) {
+#ifdef ENABLE_SENDER
+    if (!g_sender) return false;
+    const bool ok = g_sender->removeVirtualDisplay(QString::fromStdString(instanceId));
+    s_vddNodesReadAt = {};
+    requestRedraw();
+    return ok;
+#else
+    (void)instanceId;
+    return false;
+#endif
 }
 
 bool removeAllVirtualDisplays() {
@@ -813,6 +854,7 @@ bool removeAllVirtualDisplays() {
         return false;
     }
     const bool ok = g_sender->vdd()->purgeVirtualDisplays();
+    if (ok) g_sender->clearDisplayAssignments();   // nothing left to belong to anyone
     s_vddNodesReadAt = {};   // show the result on the next frame, not in 3 seconds
     requestRedraw();
     return ok;
@@ -1021,16 +1063,28 @@ void* appIconHandle() {
 // rather than let it look like a crash. A native box, because this runs from
 // the render loop; it blocks that loop while open, which is fine with nothing
 // streaming yet.
-static bool confirmDisplaySetup() {
-    if (!g_sender || !g_sender->displaySetupPending()) return true;
+static bool confirmDisplaySetup(const std::string& deviceName) {
+    if (!g_sender || !g_sender->displaySetupPending(QString::fromStdString(deviceName))) {
+        return true;
+    }
 #ifdef _WIN32
+    const QString who = deviceName.empty() ? QString("this device")
+                                           : QString::fromStdString(deviceName);
+    const QString text = g_sender->isSending()
+        ? QString("BetterCast needs to add a virtual display for %1.\n\n"
+                  "Windows restarts its virtual displays to do that, so your screens "
+                  "will flicker and devices already streaming will pause for a few "
+                  "seconds before carrying on. Windows may ask for administrator "
+                  "approval. This only happens the first time %1 needs a display.")
+              .arg(who)
+        : QString("BetterCast needs to set up a virtual display for %1.\n\n"
+                  "Your screens will go black and flicker a couple of times while "
+                  "Windows adds it, and Windows may ask for administrator approval. "
+                  "This is normal, nothing is wrong, and it only happens the first "
+                  "time.").arg(who);
     const int answer = MessageBoxW(
-        GetActiveWindow(),
-        L"Before the first stream, BetterCast sets up its virtual displays.\n\n"
-        L"Your screens will go black and flicker a few times while Windows adds them, "
-        L"and Windows may ask for administrator approval. This is normal, nothing is "
-        L"wrong, and it only happens once.",
-        L"Setting up virtual displays",
+        GetActiveWindow(), text.toStdWString().c_str(),
+        L"Setting up a virtual display",
         MB_OKCANCEL | MB_ICONINFORMATION | MB_SETFOREGROUND);
     if (answer != IDOK) {
         LogManager::instance().log("Glass: display setup declined - stream not started");
@@ -1042,18 +1096,22 @@ static bool confirmDisplaySetup() {
 #endif
 
 bool startExtending(const std::string& host, uint16_t port,
-                    int fps, int bitrateMbps, int width, int height) {
+                    int fps, int bitrateMbps, int width, int height,
+                    const std::string& deviceName) {
 #ifdef ENABLE_SENDER
     if (!g_sender) return false;
-    if (!confirmDisplaySetup()) return false;
+    if (!confirmDisplaySetup(deviceName)) return false;
     // Empty display name: the controller claims a virtual display for this
     // receiver, which is what extending means.
     const bool ok = g_sender->startSending(QString::fromStdString(host), port,
-                                           fps, bitrateMbps, QString(), width, height);
+                                           fps, bitrateMbps, QString(), width, height,
+                                           QString::fromStdString(deviceName));
+    s_vddNodesReadAt = {};   // it may own a display now
     requestRedraw();
     return ok;
 #else
     (void)host; (void)port; (void)fps; (void)bitrateMbps; (void)width; (void)height;
+    (void)deviceName;
     return false;
 #endif
 }
@@ -1068,7 +1126,7 @@ bool startMirroring(const std::string& host, uint16_t port,
                                    "one, so there is nothing to mirror");
         return false;
     }
-    if (!confirmDisplaySetup()) return false;
+    if (!confirmDisplaySetup(std::string())) return false;
     // Naming a real monitor is how the controller is told to mirror: it
     // captures that screen as it is, rather than claiming a virtual display
     // and resizing it. Size is deliberately not passed - the screen is already

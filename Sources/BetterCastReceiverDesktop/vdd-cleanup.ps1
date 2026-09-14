@@ -52,6 +52,20 @@ foreach ($node in $nodes) {
     if (-not (Test-PnpUtilOk $LASTEXITCODE)) { $failed++ }
 }
 
+# Monitor devices the virtual displays stranded. Every driver re-enumeration
+# gives each virtual display a fresh DISPLAY\MTT1337\... monitor and leaves the
+# old one behind, so Device Manager's Monitors list fills with disconnected
+# "Generic Monitor (VDD by MTT)" entries. Only ones that are not present: a
+# present monitor belongs to a working display.
+$monitors = @(Get-PnpDevice -Class Monitor -ErrorAction SilentlyContinue |
+              Where-Object { $_.InstanceId -like 'DISPLAY\MTT1337\*' -and -not $_.Present })
+Write-Output "Disconnected virtual monitor entries to remove: $($monitors.Count)"
+foreach ($mon in $monitors) {
+    Write-Output "Removing $($mon.InstanceId)"
+    & $pnputil /remove-device "$($mon.InstanceId)"
+    if (-not (Test-PnpUtilOk $LASTEXITCODE)) { $failed++ }
+}
+
 if ($RemoveDriver) {
     # /delete-driver wants the published name Windows gave the package
     # (oemNN.inf), not the path it was installed from. Find it by content,

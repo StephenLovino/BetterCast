@@ -125,7 +125,8 @@
                             BetterCastBridge::startExtending(
                                 target.host, target.port,
                                 (int)bcFps, (int)bcBitrate,
-                                bcResW[bcRes], bcResH[bcRes]);
+                                bcResW[bcRes], bcResH[bcRes],
+                                target.name);
                         }
                         if (mirrored) {
                             ImGui::TextDisabled("Your screen is already going to another "
@@ -134,6 +135,27 @@
                     }
                     ImGui::Dummy(ImVec2(0, 4));
                     ImGui::TextDisabled("%d streaming", BetterCastBridge::sessionCount());
+
+                    // This device's own virtual display. Windows names every
+                    // one "VDD by MTT", so this is where it says whose is whose.
+                    Glass::Divider();
+                    const std::string bcNode = BetterCastBridge::virtualDisplayFor(target.name);
+                    if (bcNode.empty()) {
+                        ImGui::TextDisabled("No virtual display yet - one is set up the "
+                                            "first time you extend here.");
+                    } else {
+                        std::string bcWhere = bcNode + "  (not attached)";
+                        for (const auto& vd : BetterCastBridge::virtualDisplayList()) {
+                            if (vd.instanceId == bcNode && !vd.displayName.empty())
+                                bcWhere = vd.displayName + "  (" + bcNode + ")";
+                        }
+                        Glass::StatRow("Virtual display", bcWhere.c_str());
+                        if (BetterCastBridge::sessionCount() > 0) {
+                            ImGui::TextDisabled("Stop streaming to remove it.");
+                        } else if (Glass::Button("Remove This Virtual Display", false)) {
+                            BetterCastBridge::removeVirtualDisplay(bcNode);
+                        }
+                    }
                 }
                 Glass::EndPanel();
 

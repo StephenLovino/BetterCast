@@ -1943,6 +1943,11 @@ void MainWindow::onSendScreenClicked() {
     // for devices that have not been customised.
     int fps = m_fpsSpinBox->value();
     int bitrate = m_bitrateSpinBox->value();
+    // The device's name, so its virtual display is remembered as its own.
+    QString receiverName;
+    for (const auto& dev : m_devices) {
+        if (dev.host == host) { receiverName = dev.name; break; }
+    }
     for (const auto& dev : m_devices) {
         if (dev.host == host && dev.settingsCustomised) {
             fps = dev.fps;
@@ -1958,18 +1963,28 @@ void MainWindow::onSendScreenClicked() {
     const QString chosenDisplay = m_monitorCombo && m_monitorCombo->currentIndex() >= 0
         ? m_monitorCombo->currentData().toMap().value("displayName").toString()
         : QString();
-    if (!confirmDisplaySetup()) return;
-    m_sender->startSending(host, m_selectedReceiverPort, fps, bitrate, chosenDisplay);
+    if (!confirmDisplaySetup(receiverName)) return;
+    m_sender->startSending(host, m_selectedReceiverPort, fps, bitrate, chosenDisplay,
+                           0, 0, receiverName);
 }
 
-bool MainWindow::confirmDisplaySetup() {
-    if (!m_sender || !m_sender->displaySetupPending()) return true;
+bool MainWindow::confirmDisplaySetup(const QString& receiverName) {
+    if (!m_sender || !m_sender->displaySetupPending(receiverName)) return true;
+    const QString who = receiverName.isEmpty() ? QString("this device") : receiverName;
+    const QString text = m_sender->isSending()
+        ? QString("BetterCast needs to add a virtual display for %1.\n\n"
+                  "Windows restarts its virtual displays to do that, so your screens "
+                  "will flicker and devices already streaming will pause for a few "
+                  "seconds before carrying on. Windows may ask for administrator "
+                  "approval. This only happens the first time %1 needs a display.")
+              .arg(who)
+        : QString("BetterCast needs to set up a virtual display for %1.\n\n"
+                  "Your screens will go black and flicker a couple of times while "
+                  "Windows adds it, and Windows may ask for administrator approval. "
+                  "This is normal, nothing is wrong, and it only happens the first "
+                  "time.").arg(who);
     const auto answer = QMessageBox::information(
-        this, "Setting up virtual displays",
-        "Before the first stream, BetterCast sets up its virtual displays.\n\n"
-        "Your screens will go black and flicker a few times while Windows adds "
-        "them, and Windows may ask for administrator approval. This is normal, "
-        "nothing is wrong, and it only happens once.",
+        this, "Setting up a virtual display", text,
         QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Ok);
     if (answer != QMessageBox::Ok) {
         LogManager::instance().log("Sender: Display setup declined — stream not started");
@@ -2042,6 +2057,7 @@ void MainWindow::onRemoveVirtualDisplay() {
             if (ok) {
                 m_vddStatusLabel->setText("Virtual displays removed");
                 m_vddStatusLabel->setStyleSheet("font-size: 12px; color: palette(mid);");
+                m_sender->clearDisplayAssignments();   // nothing left to belong to anyone
                 LogManager::instance().log("Virtual displays removed");
             } else {
                 m_removeVddBtn->setEnabled(true);
@@ -2173,9 +2189,9 @@ void MainWindow::populateDevicePage(const DeviceEntry& device) {
             const int idx = indexOfDevice(device.name);
             const int fps = idx >= 0 ? m_devices[idx].fps : device.fps;
             const int bitrate = idx >= 0 ? m_devices[idx].bitrateMbps : device.bitrateMbps;
-            if (!confirmDisplaySetup()) return;
+            if (!confirmDisplaySetup(device.name)) return;
             m_sender->startSending(device.host, device.port, fps, bitrate, QString(),
-                                   device.width, device.height);
+                                   device.width, device.height, device.name);
             onDeviceRowSelected(device.name);
         });
         btnRow->addWidget(sendBtn);
@@ -2190,6 +2206,58 @@ void MainWindow::populateDevicePage(const DeviceEntry& device) {
     btnRow->addWidget(configureBtn);
     btnRow->addStretch();
     cardLayout->addLayout(btnRow);
+
+    // This device's own virtual display. Windows calls every one of them
+    // "VDD by MTT", so this page is where it says whose is whose.
+    if (m_sender && m_sender->vdd()) {
+        const QString node = m_sender->virtualDisplayFor(device.name);
+        auto* vdRow = new QHBoxLayout();
+        QString vdText;
+        if (node.isEmpty()) {
+            vdText = "No virtual display yet — one is set up the first time you extend "
+                     "to this device.";
+        } else {
+            const QString disp = m_sender->vdd()->displayForNode(node);
+            vdText = disp.isEmpty()
+                ? QString("Virtual display: %1 (not attached)").arg(node)
+                : QString("Virtual display: %1 (%2)").arg(disp, node);
+        }
+        auto* vdLabel = new QLabel(vdText);
+        vdLabel->setWordWrap(true);
+        vdLabel->setStyleSheet("font-size: 12px; color: palette(mid);");
+        vdRow->addWidget(vdLabel, 1);
+
+        if (!node.isEmpty()) {
+            auto* removeVdBtn = new QPushButton("Remove Virtual Display");
+            const bool busy = m_sender->isSending();
+            removeVdBtn->setEnabled(!busy);
+            removeVdBtn->setToolTip(busy
+                ? QString("Stop streaming first — removing a virtual display restarts "
+                          "the driver's other displays too.")
+                : QString("Remove only this device's virtual display. Asks for "
+                          "administrator approval once."));
+            removeVdBtn->setStyleSheet(
+                "QPushButton { background-color: #333; color: palette(mid); padding: 6px 14px; "
+                "border-radius: 999px; font-size: 12px; border: 1px solid #555; }"
+                "QPushButton:hover { background-color: #444; }"
+                "QPushButton:disabled { background-color: #2a2a2a; color: palette(mid); }");
+            connect(removeVdBtn, &QPushButton::clicked, this, [this, device, node, removeVdBtn]() {
+                removeVdBtn->setEnabled(false);
+                std::thread([this, device, node]() {
+                    const bool ok = m_sender->removeVirtualDisplay(node);
+                    QMetaObject::invokeMethod(this, [this, device, ok]() {
+                        LogManager::instance().log(ok
+                            ? QString("Removed %1's virtual display").arg(device.name)
+                            : QString("Could not remove %1's virtual display").arg(device.name));
+                        onRefreshMonitors();
+                        onDeviceRowSelected(device.name);
+                    });
+                }).detach();
+            });
+            vdRow->addWidget(removeVdBtn);
+        }
+        cardLayout->addLayout(vdRow);
+    }
 
     bodyLayout->addWidget(card);
 
@@ -2376,7 +2444,10 @@ void MainWindow::onRefreshMonitors() {
             : QString("%1  %2x%3  (%4)").arg(mon.name)
                   .arg(mon.width).arg(mon.height).arg(mon.adapterName);
         if (mon.isVirtual) {
-            label += "  [Virtual]";
+            // Whose it is, since Windows names them all "VDD by MTT".
+            const QString owner = m_sender->receiverForDisplay(mon.name);
+            label += owner.isEmpty() ? QString("  [Virtual]")
+                                     : QString("  [Virtual — %1]").arg(owner);
         }
 
         QVariantMap data;
@@ -2422,15 +2493,13 @@ void MainWindow::onRefreshMonitors() {
 
     LogManager::instance().log(QString("Found %1 monitor(s), %2 virtual")
                                    .arg(monitors.size()).arg(virtualCount));
-    // Several virtual displays is the normal, intended state: one per receiver,
-    // created as a pool before the first stream because adding one later
-    // restarts the driver and kills any capture already running. The old advice
-    // here was to delete the extras, which would break multi-receiver streaming.
+    // One virtual display per receiver that has been extended to, created when
+    // that receiver first needed one. A device that is no longer used can have
+    // its own removed from its page, without touching anyone else's.
     if (virtualCount > 1) {
         LogManager::instance().log(
-            QString("Note: %1 virtual displays ready — one per receiver. Remove them "
-                    "only if you no longer stream to more than one device.")
-                .arg(virtualCount));
+            QString("Note: %1 virtual displays — one per receiver. Remove a device's "
+                    "display from that device's page.").arg(virtualCount));
     }
 }
 

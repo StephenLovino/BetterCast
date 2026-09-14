@@ -4,6 +4,8 @@
 #include "NetworkSender.h"
 #include "../LogManager.h"
 #include <QDebug>
+#include <QSettings>
+#include <QUrl>
 
 #ifdef _WIN32
 #include "ScreenCaptureWin.h"
@@ -85,28 +87,198 @@ QVector<QSize> SenderController::setupModes() {
     return modes;
 }
 
-bool SenderController::displaySetupPending() const {
+bool SenderController::displaySetupPending(const QString& receiverName) const {
 #ifdef _WIN32
-    if (!m_vdd || m_displaysPrepared || !m_sessions.isEmpty() || !m_vdd->isVddInstalled()) {
-        return false;
+    if (!m_vdd || !m_vdd->isVddInstalled()) return false;
+
+    // Advertising modes restarts the driver. Only checked on a first send.
+    if (m_sessions.isEmpty() && !m_displaysPrepared &&
+        m_vdd->resolutionsMissing(setupModes())) {
+        return true;
     }
-    return m_vdd->resolutionsMissing(setupModes()) ||
-           m_vdd->enumerateVddDevices().size() < qMax(m_desiredPoolSize, kDisplayPoolSize);
+
+    // A node install re-enumerates every virtual display. It is needed only
+    // when no present node is free - this receiver's own, or anyone's.
+    Q_UNUSED(receiverName);
+    for (const auto& d : m_vdd->enumerateVddDevices()) {
+        if (d.isVddDriver && !nodeInUse(d.instanceId)) return false;
+    }
+    return true;
 #else
+    Q_UNUSED(receiverName);
     return false;
 #endif
 }
 
-// Everything that disturbs the display driver, done once, before the first
-// stream exists.
+// ─── Receiver ↔ virtual display assignments ─────────────────────────────────
 //
-// Both steps restart the Virtual Display Driver: writing vdd_settings.xml makes
-// it reload its mode list, and installing a device node makes it tear down and
-// re-enumerate every monitor it owns, which renames each \\.\DISPLAYn and kills
-// any capture bound to one. That is survivable with nothing streaming and fatal
-// once something is, so it all happens here — on the first send, while the
-// session list is still empty. Later sends find the work already done and pass
-// straight through.
+// QSettings "BetterCast/BetterCast", the same store the glass bridge keeps
+// per-device stream settings in, so both builds agree on who owns what:
+//   virtualDisplays/<percent-encoded node id> = receiver name
+// Keyed by node, never by \\.\DISPLAYn, because those are reissued every time
+// the driver re-enumerates.
+
+static QString assignmentKey(const QString& instanceId) {
+    return QStringLiteral("virtualDisplays/") +
+           QString::fromLatin1(QUrl::toPercentEncoding(instanceId.toUpper()));
+}
+
+void SenderController::assignDisplay(const QString& receiverName, const QString& instanceId) {
+    if (receiverName.isEmpty() || instanceId.isEmpty()) return;
+    QSettings settings("BetterCast", "BetterCast");
+    // One display per receiver, and one receiver per display.
+    settings.beginGroup("virtualDisplays");
+    for (const QString& key : settings.childKeys()) {
+        if (settings.value(key).toString() == receiverName) settings.remove(key);
+    }
+    settings.endGroup();
+    if (settings.value(assignmentKey(instanceId)).toString() != receiverName) {
+        LogManager::instance().log(QString("Sender: %1 is now %2's virtual display")
+                                       .arg(instanceId.toUpper(), receiverName));
+    }
+    settings.setValue(assignmentKey(instanceId), receiverName);
+}
+
+QString SenderController::receiverForNode(const QString& instanceId) const {
+    if (instanceId.isEmpty()) return QString();
+    return QSettings("BetterCast", "BetterCast").value(assignmentKey(instanceId)).toString();
+}
+
+QString SenderController::receiverForDisplay(const QString& displayName) const {
+    return m_vdd ? receiverForNode(m_vdd->nodeForDisplay(displayName)) : QString();
+}
+
+QString SenderController::virtualDisplayFor(const QString& receiverName) const {
+    if (receiverName.isEmpty()) return QString();
+    QSettings settings("BetterCast", "BetterCast");
+    settings.beginGroup("virtualDisplays");
+    for (const QString& key : settings.childKeys()) {
+        if (settings.value(key).toString() == receiverName) {
+            return QUrl::fromPercentEncoding(key.toLatin1()).toUpper();
+        }
+    }
+    return QString();
+}
+
+void SenderController::clearDisplayAssignments() {
+    QSettings("BetterCast", "BetterCast").remove("virtualDisplays");
+}
+
+bool SenderController::nodeInUse(const QString& instanceId) const {
+    if (instanceId.isEmpty()) return false;
+    for (auto* s : m_sessions) {
+        if (s->nodeId.compare(instanceId, Qt::CaseInsensitive) == 0) return true;
+    }
+    return false;
+}
+
+bool SenderController::streamingToVirtualDisplay() const {
+    for (auto* s : m_sessions) {
+        if (!s->nodeId.isEmpty()) return true;
+    }
+    return false;
+}
+
+QVector<SenderController::VirtualDisplayEntry> SenderController::virtualDisplays() const {
+    QVector<VirtualDisplayEntry> out;
+#ifdef _WIN32
+    if (!m_vdd) return out;
+    for (const auto& d : m_vdd->enumerateVddDevices(true)) {
+        if (!d.isVddDriver) continue;
+        VirtualDisplayEntry e;
+        e.instanceId = d.instanceId.toUpper();
+        e.present = d.present;
+        e.receiverName = receiverForNode(e.instanceId);
+        e.displayName = d.present ? m_vdd->displayForNode(e.instanceId) : QString();
+        e.inUse = nodeInUse(e.instanceId);
+        out.append(e);
+    }
+#endif
+    return out;
+}
+
+bool SenderController::removeVirtualDisplay(const QString& instanceId) {
+#ifdef _WIN32
+    if (!m_vdd || instanceId.isEmpty()) return false;
+    if (streamingToVirtualDisplay()) {
+        emit error("Stop streaming before removing a virtual display. Removing one makes "
+                   "the display driver restart all of its displays, which interrupts "
+                   "the streams running on them.");
+        return false;
+    }
+    const bool ok = m_vdd->removeVddDevice(instanceId);
+    if (ok) QSettings("BetterCast", "BetterCast").remove(assignmentKey(instanceId));
+    return ok;
+#else
+    Q_UNUSED(instanceId);
+    return false;
+#endif
+}
+
+#ifdef _WIN32
+// A node install makes the driver tear down and re-enumerate every monitor it
+// owns. Each \\.\DISPLAYn is reissued, so a capture bound to one dies: DXGI
+// reports ACCESS_LOST and the reinit that follows either fails or duplicates
+// whatever output now sits at the old index. A session's node does not change,
+// so look its display up again by node and restart the capture there. The
+// receiver sees a pause of a few seconds instead of a dead stream.
+void SenderController::rebindSessionsAfterReenumeration() {
+    if (!m_vdd) return;
+    for (auto* s : m_sessions) {
+        if (s->nodeId.isEmpty() || !s->capture) continue;
+
+        const QString host = s->host;
+        const QString name = m_vdd->displayForNode(s->nodeId);
+        if (name.isEmpty()) {
+            LogManager::instance().log(
+                QString("Sender: %1's display (%2) did not come back after the driver "
+                        "re-enumerated — stopping that stream").arg(host, s->nodeId));
+            QMetaObject::invokeMethod(this, [this, host]() { stopSending(host); },
+                                      Qt::QueuedConnection);
+            continue;
+        }
+
+        const QSize size = (s->width > 0 && s->height > 0)
+            ? QSize(s->width, s->height) : VirtualDisplayVDD::primaryResolution();
+        bool attached = false;
+        for (const auto& mon : m_vdd->enumerateMonitors()) {
+            if (mon.name.compare(name, Qt::CaseInsensitive) == 0) attached = mon.attached;
+        }
+        if (!attached && !m_vdd->attachVirtualDisplay(name, size.width(), size.height())) {
+            LogManager::instance().log(
+                QString("Sender: could not re-attach %1 for %2 — stopping that stream")
+                    .arg(name, host));
+            QMetaObject::invokeMethod(this, [this, host]() { stopSending(host); },
+                                      Qt::QueuedConnection);
+            continue;
+        }
+        m_vdd->setVirtualDisplayResolution(name, size.width(), size.height());
+
+        LogManager::instance().log(
+            QString("Sender: %1 moved from %2 to %3 when the driver re-enumerated — "
+                    "restarting its capture").arg(host, s->displayName, name));
+        s->capture->stop();   // joins the dead capture thread
+        s->displayName = name;
+        if (auto* cap = qobject_cast<ScreenCaptureWin*>(s->capture)) cap->setDisplayName(name);
+        if (s->input) s->input->setTargetDisplayName(name);
+        if (s->network && s->network->isConnected() && !s->capture->start()) {
+            emit error(QString("Could not restart the capture for %1").arg(host));
+            QMetaObject::invokeMethod(this, [this, host]() { stopSending(host); },
+                                      Qt::QueuedConnection);
+            continue;
+        }
+        // The encoder restarts itself if the size changed; a keyframe gets the
+        // receiver's picture back straight away either way.
+        if (s->encoder) s->encoder->requestKeyframe();
+    }
+}
+#endif
+
+// The one-time driver setup: make sure every size a virtual display may run at
+// is in vdd_settings.xml. Writing it restarts the Virtual Display Driver, which
+// is survivable with nothing streaming, so it happens on the first send while
+// the session list is still empty. Displays themselves are no longer created
+// here - see claimDisplayFor().
 void SenderController::prepareDisplays() {
     if (!m_vdd || m_displaysPrepared) return;
     m_displaysPrepared = true;
@@ -122,76 +294,76 @@ void SenderController::prepareDisplays() {
     // Writing every offered size once means switching a device's resolution
     // later is a plain mode change — no UAC prompt, no flicker.
     m_vdd->ensureResolutionsAdvertised(setupModes());
-
-    m_vdd->ensureDisplayNodes(qMax(m_desiredPoolSize, kDisplayPoolSize));
 }
 
 // Give each receiver a display of its own. Two receivers sharing one display
 // would mirror rather than extend, which is the opposite of the point.
-QString SenderController::claimDisplayFor(const QString& host, const QSize& target) {
+QString SenderController::claimDisplayFor(const QString& host, const QString& receiverName,
+                                          const QSize& target) {
     Q_UNUSED(host);
     if (!m_vdd) return QString();
 
-    // A VDD device node can exist while its monitor is detached from the
-    // desktop; it then reports 0x0 and has no framebuffer at all. Handing one
-    // of those to capture is what made every receiver after the first show the
-    // primary panel — capture failed and fell through to the whole desktop.
-    // Only ever claim a display that is actually attached.
-    auto attachedAndFree = [this](const VirtualDisplayVDD::MonitorInfo& m) {
-        return m.isVirtual && m.attached && !displayInUse(m.name);
+    // Attach a detached display at the stream's size and confirm it took.
+    // A VDD node can exist while its monitor is detached, reporting 0x0 with no
+    // framebuffer; handing one of those to capture is what once made receivers
+    // show the primary panel. Only ever return a display that is attached.
+    auto attachAt = [this, &target](const QString& name) -> QString {
+        LogManager::instance().log("Sender: " + name + " exists but is detached — attaching it");
+        if (!m_vdd->attachVirtualDisplay(name, target.width(), target.height())) return QString();
+        for (const auto& refreshed : m_vdd->enumerateMonitors()) {
+            if (refreshed.name.compare(name, Qt::CaseInsensitive) == 0 && refreshed.attached) {
+                return refreshed.name;
+            }
+        }
+        return QString();
     };
 
-    // One already at the wanted size first: streaming it needs no mode change,
-    // and every mode change blanks every screen on the machine.
-    const auto monitors = m_vdd->enumerateMonitors();
-    for (const auto& mon : monitors) {
-        if (attachedAndFree(mon) && mon.width == target.width() &&
-            mon.height == target.height()) {
-            return mon.name;
-        }
-    }
-    for (const auto& mon : monitors) {
-        if (attachedAndFree(mon)) return mon.name;
-    }
-
-    // Nothing attached and free. Prefer waking a detached node we already have
-    // over adding another one — the machine accumulates monitors otherwise.
-    for (const auto& mon : m_vdd->enumerateMonitors()) {
-        if (!mon.isVirtual || displayInUse(mon.name)) continue;
-        if (mon.attached) continue;   // already handled above
-
-        LogManager::instance().log(
-            "Sender: " + mon.name + " exists but is detached — attaching it");
-        if (m_vdd->attachVirtualDisplay(mon.name, target.width(), target.height())) {
-            for (const auto& refreshed : m_vdd->enumerateMonitors()) {
-                if (refreshed.name.compare(mon.name, Qt::CaseInsensitive) == 0 &&
-                    refreshed.attached) {
-                    return refreshed.name;
-                }
+    // 1. This receiver's own display, so a device comes back to the same one.
+    const QString ownNode = virtualDisplayFor(receiverName);
+    if (!ownNode.isEmpty() && !nodeInUse(ownNode)) {
+        const QString name = m_vdd->displayForNode(ownNode);
+        if (!name.isEmpty()) {
+            for (const auto& mon : m_vdd->enumerateMonitors()) {
+                if (mon.name.compare(name, Qt::CaseInsensitive) != 0) continue;
+                if (mon.attached) return mon.name;
+                const QString attached = attachAt(mon.name);
+                if (!attached.isEmpty()) return attached;
+                break;
             }
         }
     }
 
-    // Out of nodes. Adding one here is what broke the third receiver: installing
-    // a VDD device node makes the driver tear down and re-enumerate every
-    // monitor it owns, so the \\.\DISPLAYn name each live session was capturing
-    // stops existing ("Failed to reinitialize desktop duplication") and the new
-    // monitor is not ready for several seconds either, so the attach that
-    // follows returns DISP_CHANGE_FAILED. The pool is built up front in
-    // startSending() instead, while nothing is streaming. Never grow it under a
-    // live stream.
-    if (!m_sessions.isEmpty()) {
-        LogManager::instance().log(
-            "Sender: Every virtual display is in use and more cannot be added while "
-            "streaming — adding one restarts the driver and would interrupt the "
-            "streams already running.");
-        // Remember that a bigger pool is wanted, and let it be built the next
-        // time the session list is empty.
-        m_desiredPoolSize = m_sessions.size() + 1;
-        m_displaysPrepared = false;
-        return QString();
+    // 2. A free existing display. Unassigned ones before another receiver's,
+    // and within that, one already at the wanted size - streaming it needs no
+    // mode change, and every mode change blanks every screen on the machine.
+    // Reusing another receiver's display beats adding a node: that costs a UAC
+    // prompt and re-enumerates every virtual display.
+    const auto monitors = m_vdd->enumerateMonitors();
+    auto isFree = [this](const VirtualDisplayVDD::MonitorInfo& m) {
+        return m.isVirtual && !displayInUse(m.name) && !nodeInUse(m_vdd->nodeForDisplay(m.name));
+    };
+    auto unassigned = [this](const VirtualDisplayVDD::MonitorInfo& m) {
+        return receiverForDisplay(m.name).isEmpty();
+    };
+    for (int pass = 0; pass < 2; pass++) {
+        const bool wantUnassigned = (pass == 0);
+        for (const auto& mon : monitors) {
+            if (isFree(mon) && mon.attached && unassigned(mon) == wantUnassigned &&
+                mon.width == target.width() && mon.height == target.height()) {
+                return mon.name;
+            }
+        }
+        for (const auto& mon : monitors) {
+            if (isFree(mon) && mon.attached && unassigned(mon) == wantUnassigned) return mon.name;
+        }
+        for (const auto& mon : monitors) {
+            if (!isFree(mon) || mon.attached || unassigned(mon) != wantUnassigned) continue;
+            const QString attached = attachAt(mon.name);
+            if (!attached.isEmpty()) return attached;
+        }
     }
 
+    // 3. None free: add one for this receiver.
     if (m_autoAddFailed) {
         LogManager::instance().log(
             "Sender: Not retrying the automatic display add — it already failed once "
@@ -199,23 +371,26 @@ QString SenderController::claimDisplayFor(const QString& host, const QSize& targ
         return QString();
     }
 
-    LogManager::instance().log(
-        "Sender: No attached virtual display is free — adding one for this receiver");
+    const bool othersLive = streamingToVirtualDisplay();
+    LogManager::instance().log(othersLive
+        ? QString("Sender: No virtual display is free — adding one for %1. Streams on "
+                  "other virtual displays pause while the driver re-enumerates, then "
+                  "resume on their renumbered displays.").arg(receiverName.isEmpty() ? host : receiverName)
+        : QString("Sender: No virtual display is free — adding one for %1")
+              .arg(receiverName.isEmpty() ? host : receiverName));
+
     if (m_vdd->addVddDeviceNode()) {
-        for (const auto& mon : m_vdd->enumerateMonitors()) {
-            if (attachedAndFree(mon)) return mon.name;
+        // Every \\.\DISPLAYn the driver owns has just been reissued.
+        rebindSessionsAfterReenumeration();
+
+        const auto fresh = m_vdd->enumerateMonitors();
+        for (const auto& mon : fresh) {
+            if (isFree(mon) && mon.attached && unassigned(mon)) return mon.name;
         }
-        // Created but not attached yet — wake it the same way as any other.
-        for (const auto& mon : m_vdd->enumerateMonitors()) {
-            if (!mon.isVirtual || mon.attached || displayInUse(mon.name)) continue;
-            if (m_vdd->attachVirtualDisplay(mon.name, target.width(), target.height())) {
-                for (const auto& refreshed : m_vdd->enumerateMonitors()) {
-                    if (refreshed.name.compare(mon.name, Qt::CaseInsensitive) == 0 &&
-                        refreshed.attached) {
-                        return refreshed.name;
-                    }
-                }
-            }
+        for (const auto& mon : fresh) {
+            if (!isFree(mon) || mon.attached) continue;
+            const QString attached = attachAt(mon.name);
+            if (!attached.isEmpty()) return attached;
         }
     }
     m_autoAddFailed = true;
@@ -225,7 +400,8 @@ QString SenderController::claimDisplayFor(const QString& host, const QSize& targ
 bool SenderController::startSending(const QString& receiverHost, uint16_t port,
                                     int fps, int bitrateMbps,
                                     const QString& displayName,
-                                    int width, int height) {
+                                    int width, int height,
+                                    const QString& receiverName) {
     if (receiverHost.isEmpty()) {
         emit error("No receiver address given");
         return false;
@@ -254,6 +430,7 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
 
     auto* s = new Session();
     s->host = receiverHost;
+    s->receiverName = receiverName;
     s->port = port;
     s->fps = fps;
     s->bitrateMbps = bitrateMbps;
@@ -292,15 +469,11 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
         : VirtualDisplayVDD::primaryResolution();
 
     if (!mirroring && (s->displayName.isEmpty() || displayInUse(s->displayName))) {
-        const QString claimed = claimDisplayFor(receiverHost, target);
+        const QString claimed = claimDisplayFor(receiverHost, receiverName, target);
         if (claimed.isEmpty()) {
-            emit error(m_sessions.isEmpty()
-                ? QString("No display available for %1. Press \"Create Virtual "
-                          "Display\".").arg(receiverHost)
-                : QString("No spare virtual display for %1. Stop every stream and "
-                          "start again — BetterCast can only add displays when "
-                          "nothing is streaming, because adding one restarts the "
-                          "display driver.").arg(receiverHost));
+            emit error(QString("No virtual display could be set up for %1 — the log "
+                               "says why. \"Create Virtual Display\" adds one by hand.")
+                           .arg(receiverName.isEmpty() ? receiverHost : receiverName));
             delete s;
             return false;
         }
@@ -329,6 +502,11 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
     // A no-op when the display was attached at `target` above.
     if (m_vdd && !mirroring) {
         m_vdd->setVirtualDisplayResolution(s->displayName, target.width(), target.height());
+
+        // Remember the node rather than the name: the name is reissued if the
+        // driver re-enumerates, and the node is how this session is found again.
+        s->nodeId = m_vdd->nodeForDisplay(s->displayName);
+        assignDisplay(receiverName, s->nodeId);
     }
 
     LogManager::instance().log(

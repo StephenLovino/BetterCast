@@ -122,14 +122,33 @@
                         std::to_string(vddNodes.disconnected) + " disconnected";
                     Glass::StatRow("Virtual displays", vddCounts.c_str());
                     if (vddNodes.present + vddNodes.disconnected > 0) {
-                        ImGui::TextWrapped("Disconnected ones are left over from earlier "
-                                           "installs. Removing all of them is safe: "
-                                           "BetterCast adds what it needs the next time "
-                                           "you extend. Asks for administrator approval.");
+                        const bool vdBusy = BetterCastBridge::sessionCount() > 0;
+                        // One row per display, named for the device it belongs
+                        // to, each removable on its own.
+                        for (const auto& vd : BetterCastBridge::virtualDisplayList()) {
+                            ImGui::PushID(vd.instanceId.c_str());
+                            std::string vdLabel = !vd.receiverName.empty() ? vd.receiverName
+                                                : vd.present ? std::string("Unassigned")
+                                                             : std::string("Disconnected leftover");
+                            std::string vdValue = vd.displayName.empty() ? vd.instanceId
+                                                : vd.displayName + "  (" + vd.instanceId + ")";
+                            if (vd.inUse) vdValue += "  - streaming";
+                            Glass::StatRow(vdLabel.c_str(), vdValue.c_str());
+                            if (!vdBusy && Glass::Button("Remove", false)) {
+                                BetterCastBridge::removeVirtualDisplay(vd.instanceId);
+                            }
+                            ImGui::PopID();
+                        }
                         ImGui::Dummy(ImVec2(0, 6));
-                        if (BetterCastBridge::sessionCount() > 0) {
-                            ImGui::TextDisabled("Stop streaming first - removing them ends "
-                                                "every capture.");
+                        ImGui::TextWrapped("Disconnected ones are left over from earlier "
+                                           "installs. Removing any of them is safe: "
+                                           "BetterCast adds a display for a device again "
+                                           "the next time you extend to it. Each removal "
+                                           "asks for administrator approval.");
+                        ImGui::Dummy(ImVec2(0, 6));
+                        if (vdBusy) {
+                            ImGui::TextDisabled("Stop streaming first - removing a virtual "
+                                                "display restarts the others too.");
                         } else if (Glass::Button("Remove All Virtual Displays", false)) {
                             BetterCastBridge::removeAllVirtualDisplays();
                         }

@@ -33,10 +33,15 @@ public:
     // Naming a display the user is actually looking at means mirroring rather
     // than extending: that display is captured as-is, never resized, and never
     // swapped for a spare virtual one.
+    //
+    // receiverName is the device's human-readable name. When given, the
+    // virtual display created or claimed for it is remembered under that name,
+    // so the same device gets the same display back next time.
     bool startSending(const QString& receiverHost, uint16_t port = 51820,
                       int fps = 30, int bitrateMbps = 8,
                       const QString& displayName = QString(),
-                      int width = 0, int height = 0);
+                      int width = 0, int height = 0,
+                      const QString& receiverName = QString());
 
     // Stop one receiver, or every receiver.
     void stopSending(const QString& receiverHost);
@@ -61,7 +66,38 @@ public:
     // advertising modes restarts the driver and adding nodes re-enumerates every
     // monitor, so every screen blanks several times. Front ends ask this first
     // so they can warn before it happens instead of it looking like a crash.
-    bool displaySetupPending() const;
+    //
+    // With a receiver name, also true when no existing virtual display is free
+    // for that receiver, so one would have to be added.
+    bool displaySetupPending(const QString& receiverName = QString()) const;
+
+    // ── Virtual displays, one per receiver ─────────────────────────────────
+    //
+    // Each receiver that has been extended to owns a virtual display, kept by
+    // its device node id. Windows itself names every one of them "VDD by MTT"
+    // - the driver shares one EDID - so these names live in BetterCast.
+
+    struct VirtualDisplayEntry {
+        QString instanceId;    // ROOT\DISPLAY\000N, stable across renumbering
+        QString receiverName;  // empty when no receiver has claimed it
+        QString displayName;   // current \\.\DISPLAYn, empty when detached or gone
+        bool present = true;   // false for a disconnected leftover
+        bool inUse = false;    // a live session is capturing it
+    };
+    // Every node of the driver, disconnected leftovers included.
+    QVector<VirtualDisplayEntry> virtualDisplays() const;
+
+    QString virtualDisplayFor(const QString& receiverName) const;  // node id or empty
+    QString receiverForNode(const QString& instanceId) const;      // name or empty
+    QString receiverForDisplay(const QString& displayName) const;  // name or empty
+
+    // Remove one receiver's virtual display and forget the assignment.
+    // Refused while anything streams to a virtual display: removing a node
+    // re-enumerates every monitor the driver owns.
+    bool removeVirtualDisplay(const QString& instanceId);
+
+    // Forget every receiver assignment, after all displays were removed.
+    void clearDisplayAssignments();
 
     QString encoderInfo() const;
 
@@ -80,6 +116,8 @@ private:
     struct Session {
         QString host;
         uint16_t port = 51820;
+        QString receiverName;   // human-readable device name, may be empty
+        QString nodeId;         // VDD node behind displayName; empty when mirroring
         QString displayName;
         int adapterIndex = 0;
         int outputIndex = 0;
@@ -105,7 +143,18 @@ private:
     // none is free. Returns an empty string when nothing suitable exists.
     // `target` is the size the stream wants, so a detached display is attached
     // at it in one display change instead of attached and then resized.
-    QString claimDisplayFor(const QString& host, const QSize& target);
+    // The receiver's own display comes first; a new one is added only when no
+    // existing display is free.
+    QString claimDisplayFor(const QString& host, const QString& receiverName,
+                            const QSize& target);
+
+    void assignDisplay(const QString& receiverName, const QString& instanceId);
+    bool nodeInUse(const QString& instanceId) const;
+    bool streamingToVirtualDisplay() const;
+
+    // After a node install re-enumerates the driver, find each live session's
+    // display again by its node and restart its capture there.
+    void rebindSessionsAfterReenumeration();
 
     // One-time display-driver setup, run on the first send while nothing is
     // streaming. Safe to call repeatedly.
@@ -125,14 +174,14 @@ private:
     // failing for the same reason, so stop trying and let the user decide -
     // five prompts in a row was the observed behaviour otherwise.
     bool m_autoAddFailed = false;
-    bool m_displaysPrepared = false;
-    int  m_desiredPoolSize = 0;   // set from kDisplayPoolSize, grows on demand
+    bool m_displaysPrepared = false;   // the driver's mode list has been checked
 
-    // How many virtual displays to have ready before the first stream starts.
-    // Growing the pool later restarts the driver and kills any live capture, so
-    // it is built once, up front, big enough for the usual phone + tablet +
-    // laptop case.
-    static constexpr int kDisplayPoolSize = 3;
+    // There used to be a pool of three displays built before the first stream,
+    // so a second or third receiver would never need a node added mid-stream.
+    // With one receiver - the usual case - that was two extra device installs,
+    // each blanking every screen, and two idle 800x600 monitors on the
+    // desktop. Displays are now added one at a time, when a receiver needs
+    // one, and live sessions are moved onto their renumbered displays.
     VirtualDisplayVDD* m_vdd = nullptr;
 
     // Defaults applied to the next session started without explicit values.

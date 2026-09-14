@@ -89,7 +89,7 @@ private slots:
     void onRemoveVirtualDisplay();
     // Warns before the one-time display setup blanks the screens. False if the
     // user cancelled, in which case nothing is started.
-    bool confirmDisplaySetup();
+    bool confirmDisplaySetup(const QString& receiverName);
     void onExtendDisplays();
     void onDeviceRowSelected(const QString& deviceName);
     void onRefreshMonitors();
