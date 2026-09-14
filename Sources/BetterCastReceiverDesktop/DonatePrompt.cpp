@@ -27,6 +27,20 @@ void DonatePrompt::setSilenced(bool silenced) {
 
 bool DonatePrompt::shouldPresentOnLaunch() {
     QSettings settings(kSettingsOrg, kSettingsApp);
+
+    // "The first launch passes unasked" is meant for someone brand new. This
+    // counter did not exist before the prompt did, so without this everyone
+    // who installed the update had their first launch of it treated as their
+    // first launch ever and saw nothing - which is how it looked broken on a
+    // real machine. Settings left by earlier versions mean they have used
+    // BetterCast before: start them past the grace launch.
+    if (!settings.contains("donatePrompt/launchCount")) {
+        const bool usedBefore = settings.value("support/launchCount", 0).toInt() > 0 ||
+                                !settings.childGroups().filter("virtualDisplays").isEmpty() ||
+                                !settings.childGroups().filter("devices").isEmpty();
+        if (usedBefore) settings.setValue("donatePrompt/launchCount", 1);
+    }
+
     const int launches = settings.value("donatePrompt/launchCount", 0).toInt() + 1;
     settings.setValue("donatePrompt/launchCount", launches);
     if (silenced()) return false;
