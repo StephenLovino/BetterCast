@@ -221,30 +221,40 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: |
-          # Use portable NSIS ZIP from nsis.sourceforge.io (no installer needed)
-          $nsisVersion = "3.10"
-          $nsisUrl = "https://github.com/nicehash/NSIS/releases/download/v${nsisVersion}/nsis-${nsisVersion}.zip"
-          try {
-            Invoke-WebRequest -Uri $nsisUrl -OutFile "nsis.zip"
-          } catch {
-            # Fallback: try winget
-            Write-Host "GitHub download failed, trying winget..."
-            winget install NSIS.NSIS --accept-source-agreements --accept-package-agreements --silent
+          # The same approach as build-glass-spike.yml, which stopped failing
+          # once it moved to it.
+          #
+          # This step used to download from the nicehash/NSIS mirror and fall
+          # back to winget. The mirror is unreliable, and the winget fallback
+          # failed a build on 2026-09-15: the msstore source timed out, and
+          # with no --source given winget refused to choose between sources
+          # and exited 1. Use NSIS if the image already has it, install it from
+          # Chocolatey (preinstalled on GitHub's Windows runners) if not, and
+          # only then try winget - pinned to its own source so a Store outage
+          # cannot break it.
+          $makensis = (Get-Command makensis.exe -ErrorAction SilentlyContinue).Source
+          $nsisDir = 'C:\Program Files (x86)\NSIS'
+          if (-not $makensis -and (Test-Path "$nsisDir\makensis.exe")) {
+            $makensis = "$nsisDir\makensis.exe"
           }
-
-          if (Test-Path "nsis.zip") {
-            Expand-Archive -Path "nsis.zip" -DestinationPath "C:/nsis"
-            # Find the extracted folder (may be nsis-3.10/)
-            $nsisDir = Get-ChildItem "C:/nsis" -Directory | Select-Object -First 1
-            if ($nsisDir) {
-              echo "$($nsisDir.FullName)" >> $env:GITHUB_PATH
-              Write-Host "NSIS portable extracted to $($nsisDir.FullName)"
-            } else {
-              echo "C:/nsis" >> $env:GITHUB_PATH
+          if (-not $makensis) {
+            Write-Host "NSIS is not on this runner image - installing it with Chocolatey"
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "choco install nsis failed with $LASTEXITCODE - trying winget"
+              winget install --id NSIS.NSIS --exact --source winget --silent `
+                --accept-source-agreements --accept-package-agreements
             }
-          } else {
-            echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+            if (Test-Path "$nsisDir\makensis.exe") { $makensis = "$nsisDir\makensis.exe" }
           }
+          if (-not $makensis) { throw "Could not install NSIS: makensis.exe not found in $nsisDir" }
+
+          (Split-Path $makensis -Parent) >> $env:GITHUB_PATH
+
+          # Assert it runs, not merely that a file exists.
+          & $makensis /VERSION
+          if ($LASTEXITCODE -ne 0) { throw "makensis is present at $makensis but would not run" }
+          Write-Host "makensis: $makensis"
 
       - name: Build installer
         shell: pwsh
