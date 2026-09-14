@@ -142,4 +142,5 @@ private:
     // reported in desktop coordinates can be made relative to the capture.
     int m_gdiOriginX = 0;
     int m_gdiOriginY = 0;
+    bool m_loggedGdiCursor = false;   // one cursor diagnostic line per capture
 };

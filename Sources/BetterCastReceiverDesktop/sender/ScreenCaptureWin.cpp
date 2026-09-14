@@ -3,6 +3,7 @@
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <dxgi1_5.h>   // IDXGIOutput5::DuplicateOutput1
 #include <Windows.h>
 #include <timeapi.h>   // timeBeginPeriod — not pulled in when WIN32_LEAN_AND_MEAN is set
 #include <QDebug>
@@ -153,13 +154,55 @@ bool ScreenCaptureWin::initDuplication() {
 
     IDXGIOutput1* output1 = nullptr;
     hr = output->QueryInterface(__uuidof(IDXGIOutput1), (void**)&output1);
-    output->Release();
-    if (FAILED(hr)) { qWarning() << "Sender: QueryInterface IDXGIOutput1 failed"; return false; }
-
-    hr = output1->DuplicateOutput(m_device, &m_duplication);
-    output1->Release();
     if (FAILED(hr)) {
-        qWarning() << "Sender: DuplicateOutput failed, hr=" << Qt::hex << hr;
+        output->Release();
+        LogManager::instance().log("Sender: QueryInterface IDXGIOutput1 failed");
+        return false;
+    }
+    // IDXGIOutput5 is only there on Windows 10 1703+; absent is fine.
+    IDXGIOutput5* output5 = nullptr;
+    output->QueryInterface(__uuidof(IDXGIOutput5), (void**)&output5);
+    output->Release();
+
+    // Mirroring the main screen fell back to GDI on a real machine ("DXGI
+    // Desktop Duplication unavailable") while the virtual display on the same
+    // GPU duplicated fine - and the only record of why was a qWarning nobody
+    // could see. So: say why, in the log file; retry the refusals that are
+    // commonly transient (a display that was just reconfigured, or another
+    // duplication of this output still being torn down); and try
+    // DuplicateOutput1, which some outputs accept when the legacy call does
+    // not. Staging textures are BGRA either way.
+    constexpr int kAttempts = 3;
+    for (int attempt = 0; attempt < kAttempts && !m_duplication; attempt++) {
+        if (attempt > 0) Sleep(300);
+
+        hr = output1->DuplicateOutput(m_device, &m_duplication);
+        if (SUCCEEDED(hr)) break;
+        LogManager::instance().log(
+            QString("Sender: DuplicateOutput on %1 failed (attempt %2, hr=0x%3)")
+                .arg(m_displayName.isEmpty() ? QStringLiteral("primary") : m_displayName)
+                .arg(attempt + 1).arg(static_cast<quint32>(hr), 8, 16, QChar('0')));
+
+        if (output5) {
+            const DXGI_FORMAT formats[] = {DXGI_FORMAT_B8G8R8A8_UNORM};
+            HRESULT hr1 = output5->DuplicateOutput1(m_device, 0, 1, formats, &m_duplication);
+            if (SUCCEEDED(hr1)) {
+                LogManager::instance().log("Sender: DuplicateOutput1 succeeded where "
+                                           "DuplicateOutput did not");
+                hr = hr1;
+                break;
+            }
+            LogManager::instance().log(
+                QString("Sender: DuplicateOutput1 failed too (hr=0x%1)")
+                    .arg(static_cast<quint32>(hr1), 8, 16, QChar('0')));
+        }
+
+        // Not worth retrying: unsupported stays unsupported.
+        if (hr != DXGI_ERROR_NOT_CURRENTLY_AVAILABLE && hr != E_ACCESSDENIED) break;
+    }
+    if (output5) output5->Release();
+    output1->Release();
+    if (!m_duplication) {
         return false;
     }
 
@@ -575,6 +618,7 @@ bool ScreenCaptureWin::initGdiFallback() {
     // Left at the origin for the primary-display DC, which starts at 0,0.
     m_gdiOriginX = 0;
     m_gdiOriginY = 0;
+    m_loggedGdiCursor = false;
     if (!m_displayName.isEmpty()) {
         DEVMODEA dm = {};
         dm.dmSize = sizeof(dm);
@@ -608,17 +652,33 @@ void ScreenCaptureWin::captureFrameGdi() {
     // m_memDC is rebuilt by the next BitBlt, so nothing needs restoring.
     CURSORINFO ci = {};
     ci.cbSize = sizeof(ci);
-    if (GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING) && ci.hCursor) {
+    const BOOL haveCursorInfo = GetCursorInfo(&ci);
+    const bool showing = haveCursorInfo && (ci.flags & CURSOR_SHOWING) && ci.hCursor;
+    int cx = 0, cy = 0;
+    BOOL drawn = FALSE;
+    if (showing) {
+        // The hotspot is only a refinement. The previous version skipped the
+        // cursor entirely whenever GetIconInfo failed, which is one way a
+        // mirrored screen could stream with no pointer at all.
         ICONINFO ii = {};
-        if (GetIconInfo(ci.hCursor, &ii)) {
-            // ptScreenPos is in virtual-desktop coordinates; the DC starts at
-            // this display's origin.
-            const int cx = ci.ptScreenPos.x - m_gdiOriginX - static_cast<int>(ii.xHotspot);
-            const int cy = ci.ptScreenPos.y - m_gdiOriginY - static_cast<int>(ii.yHotspot);
-            DrawIconEx(m_memDC, cx, cy, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
-            if (ii.hbmMask)  DeleteObject(ii.hbmMask);
-            if (ii.hbmColor) DeleteObject(ii.hbmColor);
-        }
+        const bool haveIconInfo = GetIconInfo(ci.hCursor, &ii) != FALSE;
+        // ptScreenPos is in virtual-desktop coordinates; the DC starts at
+        // this display's origin.
+        cx = ci.ptScreenPos.x - m_gdiOriginX - (haveIconInfo ? static_cast<int>(ii.xHotspot) : 0);
+        cy = ci.ptScreenPos.y - m_gdiOriginY - (haveIconInfo ? static_cast<int>(ii.yHotspot) : 0);
+        drawn = DrawIconEx(m_memDC, cx, cy, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
+        if (ii.hbmMask)  DeleteObject(ii.hbmMask);
+        if (ii.hbmColor) DeleteObject(ii.hbmColor);
+    }
+    // Once per capture: enough to tell "no cursor" apart from "drawn off-frame".
+    if (!m_loggedGdiCursor) {
+        m_loggedGdiCursor = true;
+        LogManager::instance().log(
+            QString("Sender: GDI cursor — info=%1 showing=%2 screen=%3,%4 frame=%5,%6 "
+                    "(%7x%8) drawn=%9")
+                .arg(haveCursorInfo ? "yes" : "no", showing ? "yes" : "no")
+                .arg(ci.ptScreenPos.x).arg(ci.ptScreenPos.y).arg(cx).arg(cy)
+                .arg(w).arg(h).arg(drawn ? "yes" : "no"));
     }
 
     BITMAPINFOHEADER bi = {};
