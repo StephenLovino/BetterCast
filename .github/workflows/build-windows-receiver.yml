@@ -271,6 +271,9 @@ jobs:
           Move-Item "BetterCast-Setup-*.exe" "${{ github.workspace }}/"
 
       - name: Upload portable artifact
+        # Independent of the installer: a failing NSIS step should not withhold
+        # a portable build that packaged fine.
+        if: always() && hashFiles('artifact/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: BetterCastReceiver-Windows-x64

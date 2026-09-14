@@ -6,12 +6,15 @@
 #include <Windows.h>
 #include <timeapi.h>   // timeBeginPeriod — not pulled in when WIN32_LEAN_AND_MEAN is set
 #include <QDebug>
+#include <algorithm>
 #include <chrono>
+#include <cstring>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "winmm.lib")   // timeBeginPeriod
+#pragma comment(lib, "user32.lib")  // GetCursorInfo / GetIconInfo / DrawIconEx for the GDI cursor
 
 namespace {
 
@@ -176,13 +179,17 @@ bool ScreenCaptureWin::initDuplication() {
     texDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     texDesc.SampleDesc.Count = 1;
     texDesc.Usage = D3D11_USAGE_STAGING;
-    texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    // WRITE as well as READ: the cursor is composited into the mapped texture
+    // in place before the BGRA -> NV12 conversion, then taken back out.
+    texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE;
 
     for (int i = 0; i < kStagingCount; i++) {
         hr = m_device->CreateTexture2D(&texDesc, nullptr, &m_stagingTex[i]);
         if (FAILED(hr)) { qWarning() << "Sender: CreateTexture2D staging failed"; return false; }
     }
     m_stagingIndex = 0;
+    m_haveDesktop = false;
+    m_ptrSavedW = 0;
     return true;
 }
 
@@ -305,12 +312,24 @@ bool ScreenCaptureWin::captureFrameDxgi() {
             return false;
         }
 
-        // LastPresentTime == 0 means only the pointer moved — the desktop image
-        // is unchanged, so re-encoding it would burn bitrate for nothing.
+        // The pointer rides along with the frame and has to be read while the
+        // frame is still held.
+        const bool pointerChanged = updatePointer(frameInfo);
+
+        // LastPresentTime == 0 means the desktop image is unchanged. These used
+        // to be dropped outright to save bitrate, but they are exactly the
+        // frames where only the mouse moved — dropping them is what kept the
+        // cursor frozen while hovering. Keep the ones that changed the pointer
+        // and re-encode the newest staging texture, which still holds the
+        // desktop; nothing needs copying. Pacing below still applies, so fast
+        // mouse movement cannot spike the bitrate.
         if (frameInfo.LastPresentTime.QuadPart == 0) {
-            desktopResource->Release();
+            if (desktopResource) desktopResource->Release();
             m_duplication->ReleaseFrame();
-            continue;
+            if (!pointerChanged || !m_haveDesktop) continue;
+            havePending = true;
+            if (nowNanos() < m_lastEmitNs + m_minFrameIntervalNs) continue;
+            break;
         }
 
         ID3D11Texture2D* desktopTex = nullptr;
@@ -326,6 +345,7 @@ bool ScreenCaptureWin::captureFrameDxgi() {
         m_context->CopyResource(m_stagingTex[m_stagingIndex], desktopTex);
         desktopTex->Release();
         m_duplication->ReleaseFrame();
+        m_haveDesktop = true;
         havePending = true;
 
         // Under the frame budget? Keep draining so we encode only the newest
@@ -336,14 +356,175 @@ bool ScreenCaptureWin::captureFrameDxgi() {
 
     if (!havePending || !m_running) return m_running;
 
+    ID3D11Texture2D* staging = m_stagingTex[m_stagingIndex];
     D3D11_MAPPED_SUBRESOURCE mapped;
-    if (FAILED(m_context->Map(m_stagingTex[m_stagingIndex], 0, D3D11_MAP_READ, 0, &mapped))) {
+    if (FAILED(m_context->Map(staging, 0, D3D11_MAP_READ_WRITE, 0, &mapped))) {
         return true;
     }
-    convertAndEmit(static_cast<const uint8_t*>(mapped.pData),
-                   static_cast<int>(mapped.RowPitch), nowNanos());
-    m_context->Unmap(m_stagingTex[m_stagingIndex], 0);
+    const int w = m_resolution.width();
+    const int h = m_resolution.height();
+    auto* bgra = static_cast<uint8_t*>(mapped.pData);
+    const int pitch = static_cast<int>(mapped.RowPitch);
+
+    // A later pointer-only frame maps this same texture again without a fresh
+    // desktop copy, so the cursor must not be left behind in it — otherwise it
+    // smears a trail across the receiver as it moves.
+    savePointerArea(bgra, pitch, w, h);
+    compositePointer(bgra, pitch, w, h);
+    convertAndEmit(bgra, pitch, nowNanos());
+    restorePointerArea(bgra, pitch);
+
+    m_context->Unmap(staging, 0);
     return true;
+}
+
+bool ScreenCaptureWin::updatePointer(const DXGI_OUTDUPL_FRAME_INFO& frameInfo) {
+    bool changed = false;
+
+    // PointerPosition is only valid on a frame where the mouse actually
+    // updated. Reading it unconditionally parks the cursor at the top-left
+    // corner on every other frame.
+    if (frameInfo.LastMouseUpdateTime.QuadPart != 0) {
+        const bool visible = frameInfo.PointerPosition.Visible != 0;
+        const int x = frameInfo.PointerPosition.Position.x;
+        const int y = frameInfo.PointerPosition.Position.y;
+        // Hidden-to-hidden moves are the cursor travelling across ANOTHER
+        // monitor; re-encoding this one for them would be wasted bitrate.
+        if (visible != m_ptrVisible || (visible && (x != m_ptrX || y != m_ptrY))) {
+            changed = true;
+        }
+        m_ptrVisible = visible;
+        m_ptrX = x;
+        m_ptrY = y;
+    }
+
+    // The shape arrives only when it changes, so it has to be kept. Asking for
+    // it every frame returns nothing and the cursor flickers.
+    if (frameInfo.PointerShapeBufferSize > 0) {
+        m_ptrShape.resize(frameInfo.PointerShapeBufferSize);
+        DXGI_OUTDUPL_POINTER_SHAPE_INFO shapeInfo = {};
+        UINT required = 0;
+        if (SUCCEEDED(m_duplication->GetFramePointerShape(
+                static_cast<UINT>(m_ptrShape.size()), m_ptrShape.data(),
+                &required, &shapeInfo))) {
+            m_ptrShapeType = static_cast<int>(shapeInfo.Type);
+            m_ptrWidth     = static_cast<int>(shapeInfo.Width);
+            m_ptrHeight    = static_cast<int>(shapeInfo.Height);
+            m_ptrPitch     = static_cast<int>(shapeInfo.Pitch);
+        } else {
+            m_ptrShape.clear();
+        }
+        if (m_ptrVisible) changed = true;
+    }
+
+    return changed;
+}
+
+void ScreenCaptureWin::savePointerArea(const uint8_t* bgra, int pitch, int w, int h) {
+    m_ptrSavedW = 0;
+    if (!m_ptrVisible || m_ptrShape.empty() || m_ptrWidth <= 0 || m_ptrHeight <= 0) return;
+
+    const bool mono = (m_ptrShapeType == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME);
+    const int ch = mono ? m_ptrHeight / 2 : m_ptrHeight;
+
+    const int x0 = (std::max)(0, m_ptrX);
+    const int y0 = (std::max)(0, m_ptrY);
+    const int x1 = (std::min)(w, m_ptrX + m_ptrWidth);
+    const int y1 = (std::min)(h, m_ptrY + ch);
+    if (x1 <= x0 || y1 <= y0) return;
+
+    const int rw = x1 - x0;
+    const int rh = y1 - y0;
+    m_ptrSaved.resize(static_cast<size_t>(rw) * rh * 4);
+    for (int row = 0; row < rh; ++row) {
+        memcpy(m_ptrSaved.data() + static_cast<size_t>(row) * rw * 4,
+               bgra + static_cast<size_t>(y0 + row) * pitch + static_cast<size_t>(x0) * 4,
+               static_cast<size_t>(rw) * 4);
+    }
+    m_ptrSavedX = x0;
+    m_ptrSavedY = y0;
+    m_ptrSavedW = rw;
+    m_ptrSavedH = rh;
+}
+
+void ScreenCaptureWin::restorePointerArea(uint8_t* bgra, int pitch) {
+    if (m_ptrSavedW <= 0) return;
+    for (int row = 0; row < m_ptrSavedH; ++row) {
+        memcpy(bgra + static_cast<size_t>(m_ptrSavedY + row) * pitch
+                    + static_cast<size_t>(m_ptrSavedX) * 4,
+               m_ptrSaved.data() + static_cast<size_t>(row) * m_ptrSavedW * 4,
+               static_cast<size_t>(m_ptrSavedW) * 4);
+    }
+    m_ptrSavedW = 0;
+}
+
+void ScreenCaptureWin::compositePointer(uint8_t* bgra, int pitch, int w, int h) {
+    if (!m_ptrVisible || m_ptrShape.empty() || m_ptrWidth <= 0 || m_ptrHeight <= 0) return;
+    if (m_ptrPitch <= 0) return;
+
+    // A monochrome pointer packs two 1bpp masks stacked vertically, so the
+    // reported height covers both and the real cursor is half of it.
+    const bool mono = (m_ptrShapeType == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME);
+    const int ch = mono ? m_ptrHeight / 2 : m_ptrHeight;
+    const int cw = m_ptrWidth;
+    if (ch <= 0) return;
+
+    const size_t shapeBytes = m_ptrShape.size();
+
+    for (int row = 0; row < ch; ++row) {
+        const int dy = m_ptrY + row;
+        if (dy < 0 || dy >= h) continue;
+
+        for (int col = 0; col < cw; ++col) {
+            const int dx = m_ptrX + col;
+            if (dx < 0 || dx >= w) continue;
+
+            uint8_t* dst = bgra + static_cast<size_t>(dy) * pitch + static_cast<size_t>(dx) * 4;
+
+            if (mono) {
+                // AND mask first, XOR mask below it. Where AND is set the
+                // background shows through, and XOR then inverts it — which is
+                // how the I-beam stays visible over both light and dark text.
+                const size_t andIdx = static_cast<size_t>(row) * m_ptrPitch + col / 8;
+                const size_t xorIdx = static_cast<size_t>(row + ch) * m_ptrPitch + col / 8;
+                if (xorIdx >= shapeBytes) continue;
+                const uint8_t bit = 0x80 >> (col % 8);
+                const bool andBit = (m_ptrShape[andIdx] & bit) != 0;
+                const bool xorBit = (m_ptrShape[xorIdx] & bit) != 0;
+                for (int c = 0; c < 3; ++c) {
+                    uint8_t v = andBit ? dst[c] : 0;
+                    if (xorBit) v = static_cast<uint8_t>(~v);
+                    dst[c] = v;
+                }
+                continue;
+            }
+
+            const size_t srcIdx = static_cast<size_t>(row) * m_ptrPitch + static_cast<size_t>(col) * 4;
+            if (srcIdx + 3 >= shapeBytes) continue;
+            const uint8_t* src = m_ptrShape.data() + srcIdx;
+
+            if (m_ptrShapeType == DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR) {
+                // Here the alpha byte is a flag rather than a blend factor:
+                // 0 means replace the pixel, 0xFF means XOR it with the screen.
+                if (src[3] == 0) {
+                    dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+                } else {
+                    dst[0] ^= src[0]; dst[1] ^= src[1]; dst[2] ^= src[2];
+                }
+            } else {
+                // Ordinary colour pointer: straight alpha blend.
+                const int a = src[3];
+                if (a == 0) continue;
+                if (a == 255) {
+                    dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+                } else {
+                    for (int c = 0; c < 3; ++c) {
+                        dst[c] = static_cast<uint8_t>((src[c] * a + dst[c] * (255 - a)) / 255);
+                    }
+                }
+            }
+        }
+    }
 }
 
 bool ScreenCaptureWin::initGdiFallback() {
@@ -384,6 +565,22 @@ bool ScreenCaptureWin::initGdiFallback() {
     m_bitmap = CreateCompatibleBitmap(m_gdiDC, w, h);
     SelectObject(m_memDC, m_bitmap);
 
+    // Where this display sits on the virtual desktop, so a cursor position
+    // reported in desktop coordinates can be shifted into capture coordinates.
+    // Left at the origin for the primary-display DC, which starts at 0,0.
+    m_gdiOriginX = 0;
+    m_gdiOriginY = 0;
+    if (!m_displayName.isEmpty()) {
+        DEVMODEA dm = {};
+        dm.dmSize = sizeof(dm);
+        if (EnumDisplaySettingsA(m_displayName.toLocal8Bit().constData(),
+                                 ENUM_CURRENT_SETTINGS, &dm)
+            && (dm.dmFields & DM_POSITION)) {
+            m_gdiOriginX = dm.dmPosition.x;
+            m_gdiOriginY = dm.dmPosition.y;
+        }
+    }
+
     m_resolution = QSize(w, h);
     m_useGdiFallback = true;
 
@@ -400,6 +597,24 @@ void ScreenCaptureWin::captureFrameGdi() {
     const int h = m_resolution.height();
 
     BitBlt(m_memDC, 0, 0, w, h, m_gdiDC, 0, 0, SRCCOPY);
+
+    // SRCCOPY leaves the cursor out as well, so draw it on. DrawIconEx handles
+    // all the mask arithmetic that the duplication path has to do by hand, and
+    // m_memDC is rebuilt by the next BitBlt, so nothing needs restoring.
+    CURSORINFO ci = {};
+    ci.cbSize = sizeof(ci);
+    if (GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING) && ci.hCursor) {
+        ICONINFO ii = {};
+        if (GetIconInfo(ci.hCursor, &ii)) {
+            // ptScreenPos is in virtual-desktop coordinates; the DC starts at
+            // this display's origin.
+            const int cx = ci.ptScreenPos.x - m_gdiOriginX - static_cast<int>(ii.xHotspot);
+            const int cy = ci.ptScreenPos.y - m_gdiOriginY - static_cast<int>(ii.yHotspot);
+            DrawIconEx(m_memDC, cx, cy, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
+            if (ii.hbmMask)  DeleteObject(ii.hbmMask);
+            if (ii.hbmColor) DeleteObject(ii.hbmColor);
+        }
+    }
 
     BITMAPINFOHEADER bi = {};
     bi.biSize = sizeof(bi);
