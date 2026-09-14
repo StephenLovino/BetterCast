@@ -2,6 +2,7 @@
 // Note: this file is only compiled on Windows (gated by ENABLE_SENDER + WIN32).
 
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QSize>
 #include <QVector>
@@ -170,6 +171,15 @@ public:
     // whole menu goes in once, before anything streams.
     bool ensureResolutionsAdvertised(const QVector<QSize>& modes);
 
+    // Whether ensureResolutionsAdvertised() would have to write the file and
+    // restart the driver for these modes, so a front end can warn first.
+    bool resolutionsMissing(const QVector<QSize>& modes) const;
+
+    // Detach every virtual display this process attached or streamed to, in
+    // one display change. Nodes and the mode list are kept, so the next stream
+    // needs no driver setup. Called on exit.
+    void detachOwnedDisplays();
+
     // The sizes offered in the per-device resolution picker.
     static QVector<QSize> commonResolutions();
 
@@ -214,6 +224,13 @@ private:
     bool m_havePrimaryMode = false;
     bool writeVddSettings(const QVector<VddResolution>& displays);
     QVector<VddResolution> readVddSettings() const;
+    QVector<QSize> missingResolutions(const QVector<QSize>& modes) const;
+
+    // Virtual displays this process attached, got from its own node install, or
+    // streamed to. Only these are detached on exit: the Qt and glass builds can
+    // run side by side, and one closing must not pull a display from under the
+    // other's stream.
+    QSet<QString> m_ownedDisplays;
 
     /// Full path of the file the driver actually reads, which is not the copy
     /// sitting in whichever folder the driver package was installed from.

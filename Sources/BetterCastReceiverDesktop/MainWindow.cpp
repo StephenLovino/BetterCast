@@ -1958,7 +1958,24 @@ void MainWindow::onSendScreenClicked() {
     const QString chosenDisplay = m_monitorCombo && m_monitorCombo->currentIndex() >= 0
         ? m_monitorCombo->currentData().toMap().value("displayName").toString()
         : QString();
+    if (!confirmDisplaySetup()) return;
     m_sender->startSending(host, m_selectedReceiverPort, fps, bitrate, chosenDisplay);
+}
+
+bool MainWindow::confirmDisplaySetup() {
+    if (!m_sender || !m_sender->displaySetupPending()) return true;
+    const auto answer = QMessageBox::information(
+        this, "Setting up virtual displays",
+        "Before the first stream, BetterCast sets up its virtual displays.\n\n"
+        "Your screens will go black and flicker a few times while Windows adds "
+        "them, and Windows may ask for administrator approval. This is normal, "
+        "nothing is wrong, and it only happens once.",
+        QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Ok);
+    if (answer != QMessageBox::Ok) {
+        LogManager::instance().log("Sender: Display setup declined — stream not started");
+        return false;
+    }
+    return true;
 }
 
 void MainWindow::onCreateVirtualDisplay() {
@@ -2156,6 +2173,7 @@ void MainWindow::populateDevicePage(const DeviceEntry& device) {
             const int idx = indexOfDevice(device.name);
             const int fps = idx >= 0 ? m_devices[idx].fps : device.fps;
             const int bitrate = idx >= 0 ? m_devices[idx].bitrateMbps : device.bitrateMbps;
+            if (!confirmDisplaySetup()) return;
             m_sender->startSending(device.host, device.port, fps, bitrate, QString(),
                                    device.width, device.height);
             onDeviceRowSelected(device.name);

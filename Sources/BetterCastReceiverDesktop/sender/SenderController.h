@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSize>
 #include <QString>
 #include <QVector>
 #include <cstdint>
@@ -56,6 +57,12 @@ public:
     // VDD virtual display management
     VirtualDisplayVDD* vdd() const { return m_vdd; }
 
+    // True when the next startSending() will run the one-time display setup:
+    // advertising modes restarts the driver and adding nodes re-enumerates every
+    // monitor, so every screen blanks several times. Front ends ask this first
+    // so they can warn before it happens instead of it looking like a crash.
+    bool displaySetupPending() const;
+
     QString encoderInfo() const;
 
 signals:
@@ -96,11 +103,15 @@ private:
     bool isVirtualDisplay(const QString& displayName) const;
     // Choose a virtual display no other session is streaming, creating one if
     // none is free. Returns an empty string when nothing suitable exists.
-    QString claimDisplayFor(const QString& host);
+    // `target` is the size the stream wants, so a detached display is attached
+    // at it in one display change instead of attached and then resized.
+    QString claimDisplayFor(const QString& host, const QSize& target);
 
     // One-time display-driver setup, run on the first send while nothing is
     // streaming. Safe to call repeatedly.
     void prepareDisplays();
+    // Every size the driver must advertise before displays can run at it.
+    static QVector<QSize> setupModes();
     bool displayInUse(const QString& displayName) const;
 
     void onFrameCaptured(Session* s, const QByteArray& nv12, int width, int height,

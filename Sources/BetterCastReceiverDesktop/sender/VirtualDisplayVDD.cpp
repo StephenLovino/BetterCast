@@ -228,10 +228,17 @@ VirtualDisplayVDD::VirtualDisplayVDD(QObject* parent)
 }
 
 VirtualDisplayVDD::~VirtualDisplayVDD() {
-    // Clean up any virtual displays we created
-    if (m_createdDisplayCount > 0) {
-        removeAllVirtualDisplays();
-    }
+    // Detach, do not delete.
+    //
+    // This used to remove every virtual display and empty the driver's mode
+    // list on exit. The first stream of the next launch then had to put it all
+    // back - a driver restart, a device-node install and a mode change, each of
+    // which blanks every screen - so the one-time setup ran on every launch,
+    // with UAC prompts at both ends. Keeping nodes and modes makes that setup
+    // genuinely one-time; detaching the displays this process used means no
+    // invisible monitors are left on the desktop once the app has closed.
+    // Leftovers are cleared by "Remove All" and by the uninstaller.
+    detachOwnedDisplays();
 }
 
 bool VirtualDisplayVDD::isVddInstalled() const {
@@ -706,10 +713,8 @@ QVector<QSize> VirtualDisplayVDD::commonResolutions() {
     };
 }
 
-bool VirtualDisplayVDD::ensureResolutionsAdvertised(const QVector<QSize>& modes) {
-    if (!m_vddInstalled) return false;
-
-    auto existing = readVddSettings();
+QVector<QSize> VirtualDisplayVDD::missingResolutions(const QVector<QSize>& modes) const {
+    const auto existing = readVddSettings();
     auto alreadyListed = [&existing](const QSize& size) {
         for (const auto& d : existing) {
             if (d.width == size.width() && d.height == size.height()) return true;
@@ -728,8 +733,20 @@ bool VirtualDisplayVDD::ensureResolutionsAdvertised(const QVector<QSize>& modes)
         }
         if (!dupe) missing.append(size);
     }
+    return missing;
+}
 
+bool VirtualDisplayVDD::resolutionsMissing(const QVector<QSize>& modes) const {
+    return m_vddInstalled && !missingResolutions(modes).isEmpty();
+}
+
+bool VirtualDisplayVDD::ensureResolutionsAdvertised(const QVector<QSize>& modes) {
+    if (!m_vddInstalled) return false;
+
+    const QVector<QSize> missing = missingResolutions(modes);
     if (missing.isEmpty()) return true;   // nothing to do, no driver restart
+
+    auto existing = readVddSettings();
 
     VDD_LOG(QString("VDD: Adding %1 display mode(s) to vdd_settings.xml so virtual "
                     "displays can run at any of them without another restart")
@@ -887,6 +904,7 @@ bool VirtualDisplayVDD::attachVirtualDisplay(const QString& deviceName,
     VDD_LOG(QString("VDD: Attached %1 at %2,0 (%3x%4)")
                 .arg(deviceName).arg(rightEdge)
                 .arg(dm.dmPelsWidth).arg(dm.dmPelsHeight));
+    m_ownedDisplays.insert(deviceName);
     QThread::msleep(700);   // let the desktop settle before anything captures it
     return true;
 #else
@@ -1164,6 +1182,10 @@ bool VirtualDisplayVDD::setVirtualDisplayResolution(const QString& deviceName,
     if (deviceName.isEmpty() || width <= 0 || height <= 0) return false;
     const std::wstring wname = deviceName.toStdWString();
 
+    // Only ever called for a virtual display about to be streamed, so it is
+    // this process's to detach on exit even if Windows attached it earlier.
+    m_ownedDisplays.insert(deviceName);
+
     DEVMODEW current = {};
     current.dmSize = sizeof(current);
     if (EnumDisplaySettingsW(wname.c_str(), ENUM_CURRENT_SETTINGS, &current) &&
@@ -1378,6 +1400,47 @@ bool VirtualDisplayVDD::positionVirtualDisplay() {
     return moved;
 #else
     return false;
+#endif
+}
+
+void VirtualDisplayVDD::detachOwnedDisplays() {
+#ifdef _WIN32
+    if (m_ownedDisplays.isEmpty()) return;
+
+    // Stage every detach with CDS_NORESET and commit once: one display change,
+    // so one blink, however many displays are going.
+    QStringList staged;
+    DISPLAY_DEVICEW dd = {};
+    dd.cb = sizeof(dd);
+    for (DWORD i = 0; EnumDisplayDevicesW(nullptr, i, &dd, 0); i++) {
+        const QString name = QString::fromWCharArray(dd.DeviceName);
+        const bool owned = m_ownedDisplays.contains(name);
+        const bool attached = (dd.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) != 0;
+        const bool primary = (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
+        // Belt and braces: never detach the primary or anything that is not a
+        // virtual display, whatever ended up in the set.
+        if (owned && attached && !primary &&
+            looksVirtual(QString::fromWCharArray(dd.DeviceString))) {
+            DEVMODEW dm = {};
+            dm.dmSize = sizeof(dm);
+            dm.dmFields = DM_POSITION | DM_PELSWIDTH | DM_PELSHEIGHT;   // all zero = detach
+            if (ChangeDisplaySettingsExW(dd.DeviceName, &dm, nullptr,
+                                         CDS_UPDATEREGISTRY | CDS_NORESET, nullptr)
+                == DISP_CHANGE_SUCCESSFUL) {
+                staged << name;
+            } else {
+                VDD_LOG("VDD: Could not stage detaching " + name);
+            }
+        }
+        dd = {};
+        dd.cb = sizeof(dd);
+    }
+    m_ownedDisplays.clear();
+    if (staged.isEmpty()) return;
+
+    const LONG commit = ChangeDisplaySettingsExW(nullptr, nullptr, nullptr, 0, nullptr);
+    VDD_LOG(QString("VDD: Detached %1 on exit — %2")
+                .arg(staged.join(", "), dispChangeName(commit)));
 #endif
 }
 
@@ -2030,6 +2093,13 @@ bool VirtualDisplayVDD::addVddDeviceNodes(int count) {
     // attach right after an install came back DISP_CHANGE_FAILED — the driver
     // was still bringing its monitors up. Wait for them to actually appear.
     waitForVirtualMonitors(after, 20000);
+
+    // Windows attaches freshly installed monitors to the desktop by itself, at
+    // the driver's 800x600. They came from this install, so detach them on exit
+    // too rather than leaving invisible screens behind.
+    for (const auto& mon : enumerateMonitors()) {
+        if (mon.isVirtual && mon.attached) m_ownedDisplays.insert(mon.name);
+    }
 
     m_createdDisplayCount = after;
     emit virtualDisplayCreated(-1);

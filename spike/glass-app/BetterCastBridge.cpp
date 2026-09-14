@@ -1015,10 +1015,37 @@ void* appIconHandle() {
 
 // ── Streaming ────────────────────────────────────────────────────────────
 
+#ifdef ENABLE_SENDER
+// The first stream's display setup restarts the display driver and adds
+// monitors, so every screen goes black a few times. Say so before it happens
+// rather than let it look like a crash. A native box, because this runs from
+// the render loop; it blocks that loop while open, which is fine with nothing
+// streaming yet.
+static bool confirmDisplaySetup() {
+    if (!g_sender || !g_sender->displaySetupPending()) return true;
+#ifdef _WIN32
+    const int answer = MessageBoxW(
+        GetActiveWindow(),
+        L"Before the first stream, BetterCast sets up its virtual displays.\n\n"
+        L"Your screens will go black and flicker a few times while Windows adds them, "
+        L"and Windows may ask for administrator approval. This is normal, nothing is "
+        L"wrong, and it only happens once.",
+        L"Setting up virtual displays",
+        MB_OKCANCEL | MB_ICONINFORMATION | MB_SETFOREGROUND);
+    if (answer != IDOK) {
+        LogManager::instance().log("Glass: display setup declined - stream not started");
+        return false;
+    }
+#endif
+    return true;
+}
+#endif
+
 bool startExtending(const std::string& host, uint16_t port,
                     int fps, int bitrateMbps, int width, int height) {
 #ifdef ENABLE_SENDER
     if (!g_sender) return false;
+    if (!confirmDisplaySetup()) return false;
     // Empty display name: the controller claims a virtual display for this
     // receiver, which is what extending means.
     const bool ok = g_sender->startSending(QString::fromStdString(host), port,
@@ -1041,6 +1068,7 @@ bool startMirroring(const std::string& host, uint16_t port,
                                    "one, so there is nothing to mirror");
         return false;
     }
+    if (!confirmDisplaySetup()) return false;
     // Naming a real monitor is how the controller is told to mirror: it
     // captures that screen as it is, rather than claiming a virtual display
     // and resizing it. Size is deliberately not passed - the screen is already

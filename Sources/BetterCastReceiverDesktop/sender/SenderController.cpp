@@ -79,6 +79,24 @@ bool SenderController::displayInUse(const QString& displayName) const {
     return false;
 }
 
+QVector<QSize> SenderController::setupModes() {
+    QVector<QSize> modes = VirtualDisplayVDD::commonResolutions();
+    modes.prepend(VirtualDisplayVDD::primaryResolution());
+    return modes;
+}
+
+bool SenderController::displaySetupPending() const {
+#ifdef _WIN32
+    if (!m_vdd || m_displaysPrepared || !m_sessions.isEmpty() || !m_vdd->isVddInstalled()) {
+        return false;
+    }
+    return m_vdd->resolutionsMissing(setupModes()) ||
+           m_vdd->enumerateVddDevices().size() < qMax(m_desiredPoolSize, kDisplayPoolSize);
+#else
+    return false;
+#endif
+}
+
 // Everything that disturbs the display driver, done once, before the first
 // stream exists.
 //
@@ -103,16 +121,14 @@ void SenderController::prepareDisplays() {
     // lists, and updating that file needs elevation and restarts the driver.
     // Writing every offered size once means switching a device's resolution
     // later is a plain mode change — no UAC prompt, no flicker.
-    QVector<QSize> modes = VirtualDisplayVDD::commonResolutions();
-    modes.prepend(VirtualDisplayVDD::primaryResolution());
-    m_vdd->ensureResolutionsAdvertised(modes);
+    m_vdd->ensureResolutionsAdvertised(setupModes());
 
     m_vdd->ensureDisplayNodes(qMax(m_desiredPoolSize, kDisplayPoolSize));
 }
 
 // Give each receiver a display of its own. Two receivers sharing one display
 // would mirror rather than extend, which is the opposite of the point.
-QString SenderController::claimDisplayFor(const QString& host) {
+QString SenderController::claimDisplayFor(const QString& host, const QSize& target) {
     Q_UNUSED(host);
     if (!m_vdd) return QString();
 
@@ -125,7 +141,16 @@ QString SenderController::claimDisplayFor(const QString& host) {
         return m.isVirtual && m.attached && !displayInUse(m.name);
     };
 
-    for (const auto& mon : m_vdd->enumerateMonitors()) {
+    // One already at the wanted size first: streaming it needs no mode change,
+    // and every mode change blanks every screen on the machine.
+    const auto monitors = m_vdd->enumerateMonitors();
+    for (const auto& mon : monitors) {
+        if (attachedAndFree(mon) && mon.width == target.width() &&
+            mon.height == target.height()) {
+            return mon.name;
+        }
+    }
+    for (const auto& mon : monitors) {
         if (attachedAndFree(mon)) return mon.name;
     }
 
@@ -137,7 +162,7 @@ QString SenderController::claimDisplayFor(const QString& host) {
 
         LogManager::instance().log(
             "Sender: " + mon.name + " exists but is detached — attaching it");
-        if (m_vdd->attachVirtualDisplay(mon.name)) {
+        if (m_vdd->attachVirtualDisplay(mon.name, target.width(), target.height())) {
             for (const auto& refreshed : m_vdd->enumerateMonitors()) {
                 if (refreshed.name.compare(mon.name, Qt::CaseInsensitive) == 0 &&
                     refreshed.attached) {
@@ -183,7 +208,7 @@ QString SenderController::claimDisplayFor(const QString& host) {
         // Created but not attached yet — wake it the same way as any other.
         for (const auto& mon : m_vdd->enumerateMonitors()) {
             if (!mon.isVirtual || mon.attached || displayInUse(mon.name)) continue;
-            if (m_vdd->attachVirtualDisplay(mon.name)) {
+            if (m_vdd->attachVirtualDisplay(mon.name, target.width(), target.height())) {
                 for (const auto& refreshed : m_vdd->enumerateMonitors()) {
                     if (refreshed.name.compare(mon.name, Qt::CaseInsensitive) == 0 &&
                         refreshed.attached) {
@@ -259,8 +284,15 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
         return false;
     }
 
+    // Decided before a display is claimed, so a detached one can be attached at
+    // this size in one display change. Per-device size when one was chosen,
+    // otherwise match the primary.
+    const QSize target = (s->width > 0 && s->height > 0)
+        ? QSize(s->width, s->height)
+        : VirtualDisplayVDD::primaryResolution();
+
     if (!mirroring && (s->displayName.isEmpty() || displayInUse(s->displayName))) {
-        const QString claimed = claimDisplayFor(receiverHost);
+        const QString claimed = claimDisplayFor(receiverHost, target);
         if (claimed.isEmpty()) {
             emit error(m_sessions.isEmpty()
                 ? QString("No display available for %1. Press \"Create Virtual "
@@ -280,7 +312,8 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
             if (mon.name.compare(s->displayName, Qt::CaseInsensitive) != 0) continue;
             if (mon.isVirtual && !mon.attached) {
                 emit statusChanged("Attaching " + s->displayName + "...");
-                if (!m_vdd->attachVirtualDisplay(s->displayName)) {
+                if (!m_vdd->attachVirtualDisplay(s->displayName, target.width(),
+                                                 target.height())) {
                     emit error(s->displayName + " could not be attached to the desktop, "
                                                 "so there is nothing to capture.");
                     delete s;
@@ -293,11 +326,8 @@ bool SenderController::startSending(const QString& receiverHost, uint16_t port,
 
     // Windows brings an extended virtual display up at the driver's 800x600
     // default. Raise it before capture starts, or the stream goes out at 800x600.
+    // A no-op when the display was attached at `target` above.
     if (m_vdd && !mirroring) {
-        // Per-device size when one was chosen, otherwise match the primary.
-        const QSize target = (s->width > 0 && s->height > 0)
-            ? QSize(s->width, s->height)
-            : VirtualDisplayVDD::primaryResolution();
         m_vdd->setVirtualDisplayResolution(s->displayName, target.width(), target.height());
     }
 
