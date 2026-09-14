@@ -323,10 +323,9 @@ MainWindow::~MainWindow() {
 
 // ─── UI Setup ───────────────────────────────────────────────────────────────────
 
-// Launch-time nudge towards the donation page, matching the macOS app: the
-// first launch passes unasked, then every launch asks until "I already
-// donated" is pressed. This used to be every fifth launch; it now behaves the
-// same on both platforms. See DonatePrompt for the rules and why.
+// Launch-time nudge towards the donation page: every launch asks until "I
+// already donated" is pressed. This used to be every fifth launch. See
+// DonatePrompt for the rules and why.
 void MainWindow::maybeShowSupportPrompt() {
     DonatePrompt::showIfDue(this);
 }

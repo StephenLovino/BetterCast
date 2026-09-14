@@ -13,12 +13,11 @@ static constexpr const char* kSettingsOrg = "BetterCast";
 static constexpr const char* kSettingsApp = "BetterCast";
 
 bool DonatePrompt::silenced() {
-    QSettings settings(kSettingsOrg, kSettingsApp);
-    // "support/dismissedForever" is what the every-fifth-launch prompt this
-    // replaced stored. Someone who already told that one they had donated is
-    // not asked again.
-    return settings.value("donatePrompt/silenced", false).toBool() ||
-           settings.value("support/dismissedForever", false).toBool();
+    // Only this key. The every-fifth-launch prompt this replaced stored
+    // "support/dismissedForever", but it set that from "Buy me a coffee" as
+    // well as from "I've already donated", so it cannot stand for the one
+    // answer that is allowed to stop the prompt.
+    return QSettings(kSettingsOrg, kSettingsApp).value("donatePrompt/silenced", false).toBool();
 }
 
 void DonatePrompt::setSilenced(bool silenced) {
@@ -26,25 +25,11 @@ void DonatePrompt::setSilenced(bool silenced) {
 }
 
 bool DonatePrompt::shouldPresentOnLaunch() {
-    QSettings settings(kSettingsOrg, kSettingsApp);
-
-    // "The first launch passes unasked" is meant for someone brand new. This
-    // counter did not exist before the prompt did, so without this everyone
-    // who installed the update had their first launch of it treated as their
-    // first launch ever and saw nothing - which is how it looked broken on a
-    // real machine. Settings left by earlier versions mean they have used
-    // BetterCast before: start them past the grace launch.
-    if (!settings.contains("donatePrompt/launchCount")) {
-        const bool usedBefore = settings.value("support/launchCount", 0).toInt() > 0 ||
-                                !settings.childGroups().filter("virtualDisplays").isEmpty() ||
-                                !settings.childGroups().filter("devices").isEmpty();
-        if (usedBefore) settings.setValue("donatePrompt/launchCount", 1);
-    }
-
-    const int launches = settings.value("donatePrompt/launchCount", 0).toInt() + 1;
-    settings.setValue("donatePrompt/launchCount", launches);
-    if (silenced()) return false;
-    return launches > 1;   // the first launch passes unasked
+    // Every launch, the first included, until "I already donated" is pressed.
+    // An earlier version skipped the first launch the way the macOS prompt
+    // does; that silently swallowed the first launch of the update for
+    // everyone upgrading, and the rule here is simpler: it asks each open.
+    return !silenced();
 }
 
 void DonatePrompt::showIfDue(QWidget* parent) {
@@ -71,6 +56,20 @@ DonatePrompt::DonatePrompt(QWidget* parent)
     }
     setFixedWidth(380);
 
+    // Secondary text, borders and the link are the window's own text colour at
+    // reduced opacity. palette(mid) was used before and is a fixed mid grey:
+    // readable on a light window, close to invisible on Windows' dark theme,
+    // which is where the body text and "I already donated" vanished.
+    const QColor text = palette().color(QPalette::WindowText);
+    auto withAlpha = [&text](int alpha) {
+        return QString("rgba(%1, %2, %3, %4)")
+            .arg(text.red()).arg(text.green()).arg(text.blue()).arg(alpha);
+    };
+    const QString secondary = withAlpha(190);
+    const QString subtle    = withAlpha(150);
+    const QString border    = withAlpha(90);
+    const QString hoverFill = withAlpha(30);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(24, 22, 24, 16);
     layout->setSpacing(14);
@@ -93,7 +92,7 @@ DonatePrompt::DonatePrompt(QWidget* parent)
                                "goes a long way."));
     body->setAlignment(Qt::AlignCenter);
     body->setWordWrap(true);
-    body->setStyleSheet("font-size: 13px; color: palette(mid);");
+    body->setStyleSheet(QString("font-size: 13px; color: %1;").arg(secondary));
     layout->addWidget(body);
 
     auto* buttons = new QVBoxLayout();
@@ -111,9 +110,9 @@ DonatePrompt::DonatePrompt(QWidget* parent)
     auto* later = new QPushButton(tr("Maybe later"));
     later->setCursor(Qt::PointingHandCursor);
     later->setStyleSheet(
-        "QPushButton { padding: 9px; border-radius: 8px; border: 1px solid palette(mid); "
-        "background: transparent; font-size: 13px; }"
-        "QPushButton:hover { background: rgba(127, 127, 127, 0.14); }");
+        QString("QPushButton { padding: 9px; border-radius: 8px; border: 1px solid %1; "
+                "background: transparent; font-size: 13px; }"
+                "QPushButton:hover { background: %2; }").arg(border, hoverFill));
     buttons->addWidget(later);
     layout->addLayout(buttons);
 
@@ -123,9 +122,9 @@ DonatePrompt::DonatePrompt(QWidget* parent)
     already->setFlat(true);
     already->setCursor(Qt::PointingHandCursor);
     already->setStyleSheet(
-        "QPushButton { border: none; background: transparent; padding: 2px; "
-        "font-size: 11px; color: palette(mid); text-decoration: underline; }"
-        "QPushButton:hover { color: palette(link); }");
+        QString("QPushButton { border: none; background: transparent; padding: 2px; "
+                "font-size: 12px; color: %1; text-decoration: underline; }"
+                "QPushButton:hover { color: %2; }").arg(subtle, secondary));
     layout->addWidget(already, 0, Qt::AlignHCenter);
 
     connect(donate, &QPushButton::clicked, this, [this]() {
