@@ -420,10 +420,12 @@ jobs:
           # would let the spike drift from the installer and claim an update
           # that is already installed. Split rather than regex: a pattern for
           # this needs backslashes, which have not survived this repo's tooling.
+          # The Windows version, not the macOS project version: Windows releases
+          # are tagged windows-<x.y.z> and the update checker compares this.
           $verLine = Get-Content "$core/CMakeLists.txt" |
-                     Where-Object { $_ -like 'project(BetterCastReceiver VERSION*' }
-          if (-not $verLine) { throw "could not read the version out of CMakeLists.txt" }
-          $bcVersion = ($verLine -split ' ')[2].TrimEnd(')')
+                     Where-Object { $_ -like 'set(BETTERCAST_WINDOWS_VERSION *' }
+          if (-not $verLine) { throw "could not read BETTERCAST_WINDOWS_VERSION out of CMakeLists.txt" }
+          $bcVersion = ($verLine -split ' ')[1].TrimEnd(')')
           Write-Host "spike version: $bcVersion"
 
           # An array joined with newlines, not a here-string: a PowerShell
@@ -745,9 +747,9 @@ jobs:
           # update checker read, so an installer can never claim a version the
           # app disagrees with.
           $verLine = Get-Content 'bettercast/Sources/BetterCastReceiverDesktop/CMakeLists.txt' |
-                     Where-Object { $_ -like 'project(BetterCastReceiver VERSION*' }
-          if (-not $verLine) { throw "could not read the version out of CMakeLists.txt" }
-          $bcVersion = ($verLine -split ' ')[2].TrimEnd(')')
+                     Where-Object { $_ -like 'set(BETTERCAST_WINDOWS_VERSION *' }
+          if (-not $verLine) { throw "could not read BETTERCAST_WINDOWS_VERSION out of CMakeLists.txt" }
+          $bcVersion = ($verLine -split ' ')[1].TrimEnd(')')
 
           Push-Location $stage
           makensis /DPRODUCT_VERSION="$bcVersion" installer.nsi

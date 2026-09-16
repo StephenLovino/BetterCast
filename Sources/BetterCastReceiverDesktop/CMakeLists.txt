@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(BetterCastReceiver VERSION 17.0.0 LANGUAGES CXX)
 
+# The Windows app's own version. Windows releases are tagged windows-<x.y.z>,
+# a line of their own beside the macOS vNN tags, and on Windows this is the
+# version the app reports and the update checker compares. CI reads the
+# installer version from this line too - keep it on one line in this form.
+set(BETTERCAST_WINDOWS_VERSION 1.1.0)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -200,8 +206,13 @@ target_include_directories(BetterCastReceiver PRIVATE
 # this file, in main.cpp and in the CI makensis line, and they had already
 # drifted: the app reported 1.0.0 while the published release said 1.0.1. The
 # update checker compares against exactly this, so a drift would make it lie.
+if(WIN32)
+    set(BETTERCAST_APP_VERSION "${BETTERCAST_WINDOWS_VERSION}")
+else()
+    set(BETTERCAST_APP_VERSION "${PROJECT_VERSION}")
+endif()
 target_compile_definitions(BetterCastReceiver PRIVATE
-    BETTERCAST_VERSION="${PROJECT_VERSION}"
+    BETTERCAST_VERSION="${BETTERCAST_APP_VERSION}"
 )
 
 if(DEFINED FFMPEG_ALL_LIBRARY_DIRS)

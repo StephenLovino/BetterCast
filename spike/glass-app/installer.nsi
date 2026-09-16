@@ -10,9 +10,9 @@
 ;
 ; It installs into the same C:\Program Files\BetterCast as the older Qt build,
 ; deliberately: the display driver lives there, the app already looks for it
-; there, and one machine should not carry two copies of a kernel driver. The
-; consequence is that uninstalling removes that folder, and an older Qt build
-; sitting in it goes too.
+; there, and one machine should not carry two copies of a kernel driver. An
+; older Qt build found there is taken over at install time (see SecCore), so
+; there is one BetterCast to uninstall rather than two sharing a folder.
 ;
 ; The registry key and the firewall rule names below still carry "Glass". They
 ; are never shown as a product name — they exist so that installing or removing
@@ -67,6 +67,25 @@ ShowInstDetails show
 
 Section "BetterCast (required)" SecCore
     SectionIn RO
+
+    ; Take over from the earlier Windows installer (the Qt app: releases v17
+    ; and windows-1.0.1). It used the same folder and shortcut names but its own
+    ; uninstall entry, "BetterCast", so installing this one over it left two
+    ; BetterCast entries in Add/Remove Programs - and whichever was uninstalled
+    ; deleted the shared folder out from under the other. This build replaces
+    ; it: its entry, its App Paths key, its executable and its firewall rules go,
+    ; and the shortcuts below are rewritten to point here. Its uninstall.exe is
+    ; overwritten by this installer's own, in the same place.
+    ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BetterCast" "UninstallString"
+    StrCmp $0 "" bc_no_legacy
+    DetailPrint "Replacing the earlier BetterCast for Windows..."
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast mDNS"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast Streaming"'
+    nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="BetterCast App"'
+    Delete "$INSTDIR\BetterCastReceiver.exe"
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BetterCast"
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\BetterCastReceiver.exe"
+    bc_no_legacy:
 
     SetOutPath "$INSTDIR"
 
