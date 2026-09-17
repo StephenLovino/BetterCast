@@ -23,6 +23,12 @@ QString AdbHelper::findAdb() {
 #ifdef _WIN32
     // Bundled with app (preferred — ships with the exe)
     candidates << QCoreApplication::applicationDirPath() + "/adb.exe";
+    // The glass build ships adb inside its scrcpy folder, next to the scrcpy
+    // that needs that exact adb. Without this candidate "Connect to Android
+    // over USB" reported adb missing on every glass install that had no
+    // Android SDK - and sharing one adb also avoids two adb servers of
+    // different versions fighting over the device.
+    candidates << QCoreApplication::applicationDirPath() + "/scrcpy/adb.exe";
     // Android SDK in AppData
     QString localAppData = qEnvironmentVariable("LOCALAPPDATA");
     if (!localAppData.isEmpty()) {

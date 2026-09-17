@@ -90,6 +90,8 @@ QTimer*                           g_hotspotTimer = nullptr;
 bool                              g_hotspotWanted = false;
 std::string                       g_cableStatus;
 bool                              g_cableBusy = false;
+std::string                       g_androidWifiStatus;
+std::string                       g_androidWifiHost;   // the address being dialled, if any
 // Something is sending us a screen right now. The event pump has to keep up
 // with it, which it will not do on the idle cadence.
 bool                              g_receiving = false;
@@ -501,6 +503,33 @@ bool init(int argc, char** argv) {
                      });
     QObject::connect(g_network.get(), &NetworkListener::statusChanged,
                      [](const QString& m) { LogManager::instance().log(m); });
+
+    // Outgoing dials report back to whichever panel started them: the cable
+    // path dials localhost through adb, the Wi-Fi path dials the phone.
+    QObject::connect(g_network.get(), &NetworkListener::connectFailed,
+                     [](const QString& host, const QString& reason) {
+                         const bool viaCable = host == QLatin1String("localhost");
+                         const std::string hint = viaCable
+                             ? " - is BetterCast on the phone sharing its screen?"
+                             : " - check the address, and that BetterCast on the phone "
+                               "is sharing its screen on the same network";
+                         const std::string text = "could not connect: " + reason.toStdString() + hint;
+                         if (viaCable) {
+                             g_cableStatus = text;
+                         } else if (!g_androidWifiHost.empty() &&
+                                    host == QString::fromStdString(g_androidWifiHost)) {
+                             g_androidWifiStatus = text;
+                             g_androidWifiHost.clear();
+                         }
+                         requestRedraw();
+                     });
+    QObject::connect(g_network.get(), &NetworkListener::connectionEstablished, []() {
+        if (!g_androidWifiHost.empty()) {
+            g_androidWifiStatus = "connected to " + g_androidWifiHost;
+            g_androidWifiHost.clear();
+            requestRedraw();
+        }
+    });
 
     LogManager::instance().log(
         QString("Glass: listening on port %1 and advertising to the network").arg(port));
@@ -1370,6 +1399,57 @@ bool receiveFromAndroidOverCable() {
         }, Qt::QueuedConnection);
     }).detach();
 
+    return true;
+}
+
+// ── Android over Wi-Fi ───────────────────────────────────────────────────
+
+std::string androidWifiAddress() {
+    return QSettings("BetterCast", "BetterCast")
+               .value("android/wifiAddress").toString().toStdString();
+}
+
+std::string androidWifiStatus() {
+    return g_androidWifiStatus;
+}
+
+bool receiveFromAndroidOverWifi(const std::string& address) {
+    if (!g_network) return false;
+
+    const QString typed = QString::fromStdString(address).trimmed();
+    QString hostText = typed;
+    uint16_t port = 51820;   // TcpSender.DEFAULT_PORT in the Android app
+
+    // "192.168.1.23:51820" - exactly one colon, so an IPv6 literal is not
+    // mistaken for host:port (and is rejected below instead).
+    if (typed.count(QLatin1Char(':')) == 1) {
+        const int colon = typed.indexOf(QLatin1Char(':'));
+        bool ok = false;
+        const int p = typed.mid(colon + 1).toInt(&ok);
+        if (!ok || p <= 0 || p > 65535) {
+            g_androidWifiStatus = "that port is not a number between 1 and 65535";
+            requestRedraw();
+            return false;
+        }
+        port = static_cast<uint16_t>(p);
+        hostText = typed.left(colon).trimmed();
+    }
+
+    QHostAddress parsed;
+    if (hostText.isEmpty() || !parsed.setAddress(hostText) ||
+        parsed.protocol() != QAbstractSocket::IPv4Protocol) {
+        g_androidWifiStatus = "enter the phone's IP address, for example 192.168.1.23";
+        requestRedraw();
+        return false;
+    }
+
+    QSettings("BetterCast", "BetterCast").setValue("android/wifiAddress", typed);
+    g_androidWifiHost = hostText.toStdString();
+    g_androidWifiStatus = "connecting to " + g_androidWifiHost + ":" + std::to_string(port) + "...";
+    LogManager::instance().log(
+        QString("Android over Wi-Fi: dialling %1:%2").arg(hostText).arg(port));
+    g_network->connectTo(hostText, port);
+    requestRedraw();
     return true;
 }
 

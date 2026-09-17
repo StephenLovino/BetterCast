@@ -15,6 +15,40 @@
                                BetterCastBridge::isReceiving() ? "yes" : "not right now");
                 Glass::EndPanel();
 
+                Glass::BeginPanel("ANDROID OVER WI-FI");
+                ImGui::TextWrapped("Shows an Android phone's screen on this PC without a "
+                                   "cable. On the phone, open BetterCast, switch to Send and "
+                                   "start sharing. Then enter the phone's IP address here - "
+                                   "it is in the phone's Wi-Fi network details, or under "
+                                   "Settings > About phone > Status.");
+                ImGui::Dummy(ImVec2(0, 8));
+                {
+                    static char bcPhoneAddr[64] = {};
+                    static bool bcPhoneAddrLoaded = false;
+                    if (!bcPhoneAddrLoaded) {
+                        bcPhoneAddrLoaded = true;
+                        std::snprintf(bcPhoneAddr, sizeof(bcPhoneAddr), "%s",
+                                      BetterCastBridge::androidWifiAddress().c_str());
+                    }
+                    Glass::TextField("Phone address", bcPhoneAddr, sizeof(bcPhoneAddr),
+                                     "192.168.1.23");
+                    ImGui::Dummy(ImVec2(0, 6));
+                    if (Glass::Button("Connect to Android over Wi-Fi", true)) {
+                        BetterCastBridge::receiveFromAndroidOverWifi(bcPhoneAddr);
+                    }
+                }
+                {
+                    const std::string bcWifiSt = BetterCastBridge::androidWifiStatus();
+                    if (!bcWifiSt.empty()) {
+                        ImGui::Dummy(ImVec2(0, 6));
+                        Glass::StatRow("Status", bcWifiSt.c_str());
+                    }
+                }
+                ImGui::TextDisabled("Both need the same network - or put the phone on this "
+                                    "PC's hotspot. View only: the phone does not take taps "
+                                    "back from here.");
+                Glass::EndPanel();
+
                 Glass::BeginPanel("ANDROID OVER THE CABLE");
                 ImGui::TextWrapped("For when the phone and this PC cannot find each other "
                                    "over Wi-Fi. Forwards a port through the USB cable and "

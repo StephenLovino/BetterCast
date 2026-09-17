@@ -92,7 +92,33 @@ void NetworkListener::connectTo(const QString& host, uint16_t port) {
     socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
-    connect(socket, &QTcpSocket::connected, this, [this, socket]() {
+    // A dial that fails used to fail silently: no error handler, no timeout,
+    // and the socket left behind. Typing a wrong phone address, or dialling a
+    // phone that is not sharing, looked exactly like waiting. Now both a
+    // refusal and a no-answer are logged, reported, and cleaned up - once.
+    constexpr int kConnectTimeoutMs = 8000;
+    auto* timeout = new QTimer(socket);
+    timeout->setSingleShot(true);
+    auto fail = [this, socket, host, port, timeout](const QString& reason) {
+        if (socket->property("bcDialFailed").toBool() || m_clients.contains(socket)) return;
+        socket->setProperty("bcDialFailed", true);
+        timeout->stop();
+        LogManager::instance().log(
+            QString("Could not connect to %1:%2 — %3").arg(host).arg(port).arg(reason));
+        emit statusChanged(QString("Could not connect to %1:%2").arg(host).arg(port));
+        emit connectFailed(host, reason);
+        socket->abort();
+        socket->deleteLater();
+    };
+    connect(timeout, &QTimer::timeout, this, [fail]() {
+        fail(QStringLiteral("no answer within 8 seconds"));
+    });
+    connect(socket, &QAbstractSocket::errorOccurred, this,
+            [socket, fail](QAbstractSocket::SocketError) { fail(socket->errorString()); });
+    timeout->start(kConnectTimeoutMs);
+
+    connect(socket, &QTcpSocket::connected, this, [this, socket, timeout]() {
+        timeout->stop();
         LogManager::instance().log("Connected to " + socket->peerAddress().toString());
         m_clients.append(socket);
         m_tcpBuffers[socket] = QByteArray();

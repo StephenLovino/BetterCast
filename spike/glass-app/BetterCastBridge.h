@@ -203,6 +203,19 @@ bool androidCableAvailable();
 std::string androidCableStatus();
 bool receiveFromAndroidOverCable();
 
+// ── Android over Wi-Fi ───────────────────────────────────────────────────
+//
+// The same stream without the cable. The phone's Send mode listens on port
+// 51820 and waits to be dialled, and it does not announce itself on the
+// network, so its address is typed in - which is also how the macOS receiver
+// does it. "192.168.1.23" or "192.168.1.23:51820". Remembered between runs.
+// The stream is view-only: the phone's Send mode does not take input back.
+
+std::string androidWifiAddress();
+// False, with androidWifiStatus() saying why, if the address is not usable.
+bool receiveFromAndroidOverWifi(const std::string& address);
+std::string androidWifiStatus();
+
 // ── Android over USB ─────────────────────────────────────────────────────
 //
 // The one feature that runs the other way. Everything else here sends this

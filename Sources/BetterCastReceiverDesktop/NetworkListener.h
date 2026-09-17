@@ -34,6 +34,9 @@ signals:
     void connectionEstablished();
     void connectionLost();
     void statusChanged(const QString& status);
+    // An outgoing connectTo() that never connected: refused, unreachable, or
+    // no answer within the timeout. Reason is readable as-is.
+    void connectFailed(const QString& host, const QString& reason);
 
 public slots:
     void sendInputEvent(const InputEvent& event);
