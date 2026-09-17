@@ -60,14 +60,22 @@
                     ImGui::TextWrapped("The bundled copy lives beside BetterCast; if this "
                                        "says otherwise, the install is missing it.");
                 } else {
-                    if (Glass::Button("Connect to Android over USB", true)) {
+                    if (BetterCastBridge::androidCableActive()) {
+                        if (Glass::Button("Stop", false)) {
+                            BetterCastBridge::stopAndroidCable();
+                        }
+                    } else if (Glass::Button("Connect to Android over USB", true)) {
                         BetterCastBridge::receiveFromAndroidOverCable();
                     }
                     ImGui::Dummy(ImVec2(0, 6));
                     const std::string st = BetterCastBridge::androidCableStatus();
                     if (!st.empty()) Glass::StatRow("Status", st.c_str());
                     ImGui::TextDisabled("Needs USB debugging turned on, and the phone to "
-                                        "have allowed this computer.");
+                                        "have allowed this computer. Over the cable the "
+                                        "phone can be controlled from the window: click, "
+                                        "drag, right-click for Back, scroll and type. "
+                                        "Wireless adb turns on after a few seconds, so the "
+                                        "cable can then be unplugged.");
                 }
                 Glass::EndPanel();
             }

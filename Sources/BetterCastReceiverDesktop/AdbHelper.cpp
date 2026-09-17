@@ -253,6 +253,27 @@ bool AdbHelper::setupForward(uint16_t remotePort) {
     return false;
 }
 
+QSize AdbHelper::screenSize() {
+    QStringList args;
+    if (!m_deviceSerial.isEmpty()) args << "-s" << m_deviceSerial;
+    args << "shell" << "wm" << "size";
+    const QString output = runAdb(args, 5000);
+
+    // "Physical size: 1080x2400", then "Override size: 720x1600" when the user
+    // lowered the resolution - input coordinates follow the override.
+    QSize physical;
+    QSize override;
+    QRegularExpression re("(Physical|Override) size:\\s*(\\d+)x(\\d+)");
+    auto it = re.globalMatch(output);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const QSize size(m.captured(2).toInt(), m.captured(3).toInt());
+        if (m.captured(1) == QLatin1String("Override")) override = size;
+        else physical = size;
+    }
+    return override.isValid() ? override : physical;
+}
+
 QString AdbHelper::runAdb(const QStringList& args, int timeoutMs) {
     QString adb = findAdb();
     if (adb.isEmpty()) return {};

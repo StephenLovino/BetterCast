@@ -115,6 +115,7 @@ set(SOURCES
     AudioDecoder.cpp
     AudioPlayer.cpp
     AdbHelper.cpp
+    AdbInputInjector.cpp
 )
 
 set(HEADERS
@@ -136,6 +137,7 @@ set(HEADERS
     AudioDecoder.h
     AudioPlayer.h
     AdbHelper.h
+    AdbInputInjector.h
 )
 
 # Windows Mobile Hotspot control. Not sender-only: a receiver may want to host

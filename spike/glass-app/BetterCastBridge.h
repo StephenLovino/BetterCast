@@ -201,7 +201,14 @@ const QrModules& hotspotQr();
 
 bool androidCableAvailable();
 std::string androidCableStatus();
+// Forwards the port through adb and dials it. While that stream is live the
+// phone can be controlled from the receive window (taps, drags, Back, scroll,
+// keys) through `adb shell input`; a few seconds in, adb is switched to
+// wireless so the cable can be unplugged; and a dropped stream is redialled
+// every 3 s, up to 15 times - the macOS receiver's behaviour.
 bool receiveFromAndroidOverCable();
+bool androidCableActive();
+void stopAndroidCable();
 
 // ── Android over Wi-Fi ───────────────────────────────────────────────────
 //

@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QSize>
 #include <QProcess>
 
 class AdbHelper : public QObject {
@@ -32,6 +33,14 @@ public:
 
     /// Last local port used for ADB forward tunnel
     uint16_t lastLocalPort() const { return m_lastLocalPort; }
+
+    /// Serial chosen by the last findDevice(); empty when adb had one device.
+    QString deviceSerial() const { return m_deviceSerial; }
+
+    /// The phone's screen in portrait pixels (`adb shell wm size`, preferring
+    /// an override size). Invalid if adb could not say. Blocks - call off the
+    /// GUI thread.
+    QSize screenSize();
 
     /// Enable wireless ADB (call AFTER streaming connection is established).
     /// Runs adb tcpip 5555 + adb connect, which temporarily drops USB.

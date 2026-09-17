@@ -1,6 +1,7 @@
 #include "BetterCastBridge.h"
 
 #include "AdbHelper.h"
+#include "AdbInputInjector.h"
 #include "AudioDecoder.h"
 #include "AudioPlayer.h"
 #include "HotspotManager.h"
@@ -44,6 +45,7 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <thread>
 
 #ifdef _WIN32
@@ -90,6 +92,22 @@ QTimer*                           g_hotspotTimer = nullptr;
 bool                              g_hotspotWanted = false;
 std::string                       g_cableStatus;
 bool                              g_cableBusy = false;
+
+// A cable (adb) stream is running or being brought back. While it is, clicks in
+// the receive window also go to the phone through adb, and a dropped stream is
+// redialled - the way the macOS receiver does both.
+bool                              g_cableSession = false;
+bool                              g_cableDialling = false;  // a connectTo() in flight
+bool                              g_wirelessAdbTried = false;
+int                               g_cableReconnects = 0;
+QTimer*                           g_cableReconnectTimer = nullptr;
+std::unique_ptr<AdbInputInjector> g_adbInput;
+QSize                             g_streamSize;
+// AdbHelper is not thread-safe and three worker threads can use it: connect,
+// reconnect and the wireless-adb switch.
+std::mutex                        g_adbMutex;
+constexpr int                     kCableReconnectMax = 15;
+constexpr int                     kCableReconnectMs = 3000;
 std::string                       g_androidWifiStatus;
 std::string                       g_androidWifiHost;   // the address being dialled, if any
 // Something is sending us a screen right now. The event pump has to keep up
@@ -348,6 +366,11 @@ QString deviceKey(const std::string& name) {
 
 } // namespace
 
+// Android-over-the-cable helpers, defined with the rest of that section below
+// and called from init()'s signal handlers.
+static void startCableReconnect();
+static void enableWirelessAdbOnce();
+
 bool init(int argc, char** argv) {
     if (g_app) return true;
 
@@ -463,12 +486,37 @@ bool init(int argc, char** argv) {
     // second screen you can work on.
     QObject::connect(g_input.get(), &InputHandler::inputEvent,
                      g_network.get(), &NetworkListener::sendInputEvent);
+    // An Android phone in Send mode ignores the events above. Over the cable it
+    // can still be driven through adb, so while a cable stream is live the same
+    // events go there as well.
+    QObject::connect(g_input.get(), &InputHandler::inputEvent,
+                     g_input.get(), [](const InputEvent& event) {
+                         if (g_cableSession && g_adbInput &&
+                             event.type != InputEventType::Command) {
+                             g_adbInput->inject(event);
+                         }
+                     });
     QObject::connect(g_decoder.get(), &VideoDecoder::dimensionsChanged,
                      g_input.get(), [](int w, int h) {
                          // Pointer positions are sent in the stream's
                          // coordinates, so the handler has to know them or
                          // every click lands somewhere else.
                          if (w > 0 && h > 0) g_input->setContentSize(QSize(w, h));
+                         if (w > 0 && h > 0) {
+                             g_streamSize = QSize(w, h);
+                             if (g_adbInput) g_adbInput->setStreamSize(w, h);
+                         }
+                     });
+    // Picture arriving is what proves a reconnect worked; a tunnel that accepts
+    // and then closes does not.
+    QObject::connect(g_decoder.get(), &VideoDecoder::frameDecoded,
+                     g_input.get(), [](AVFrame*) {
+                         if (g_cableSession && g_cableReconnects != 0) {
+                             g_cableReconnects = 0;
+                             g_cableStatus = "connected over USB";
+                             LogManager::instance().log("ADB: stream recovered");
+                             requestRedraw();
+                         }
                      });
 
     g_videoWindow = std::make_unique<VideoWindow>(g_renderer.get(), g_input.get());
@@ -529,6 +577,24 @@ bool init(int argc, char** argv) {
             g_androidWifiHost.clear();
             requestRedraw();
         }
+        if (g_cableSession && g_cableDialling) {
+            g_cableDialling = false;
+            if (g_cableReconnectTimer) g_cableReconnectTimer->stop();
+            g_cableStatus = "connected over USB - click and type in the window to control the phone";
+            enableWirelessAdbOnce();
+            requestRedraw();
+        }
+    });
+    QObject::connect(g_network.get(), &NetworkListener::connectFailed,
+                     [](const QString& host, const QString&) {
+                         if (host == QLatin1String("localhost")) g_cableDialling = false;
+                     });
+    QObject::connect(g_network.get(), &NetworkListener::connectionLost, []() {
+        // Redial a dropped cable stream: the tunnel goes when the cable is
+        // pulled, when adb switches to wireless, or when the phone's app
+        // restarts. Not while a dial is already under way - connectTo() drops
+        // the old socket first, which reports as a loss too.
+        if (g_cableSession && !g_cableDialling) startCableReconnect();
     });
 
     LogManager::instance().log(
@@ -1367,39 +1433,155 @@ std::string androidCableStatus() {
     return g_cableStatus;
 }
 
-bool receiveFromAndroidOverCable() {
-    if (!g_adbHelper || !g_network || g_cableBusy) return false;
-
+// Forward the port, then dial it - and set up adb control of the phone for the
+// stream. `retry` is a reconnect attempt, which keeps the session alive when it
+// fails rather than reporting a first-time failure.
+static void startCableConnection(bool retry) {
+    if (!g_adbHelper || !g_network || g_cableBusy) return;
     g_cableBusy = true;
-    g_cableStatus = "looking for a phone on the cable...";
-    requestRedraw();
+    if (!retry) {
+        g_cableStatus = "looking for a phone on the cable...";
+        requestRedraw();
+    }
 
-    // Off the loop, because setupForward runs adb and waits on it - up to ten
-    // seconds. On this thread that is ten seconds of frozen window and, worse,
-    // ten seconds during which nothing pumps the sockets.
-    std::thread([]() {
-        const bool ok = g_adbHelper->setupForward(51820);
-        const uint16_t local = g_adbHelper->lastLocalPort();
+    // Off the loop, because adb is run and waited on - up to ten seconds per
+    // command. On this thread that is a frozen window and, worse, nothing
+    // pumping the sockets.
+    std::thread([retry]() {
+        bool ok = false;
+        uint16_t local = 0;
+        QString adbPath;
+        QString serial;
+        QSize screen;
+        {
+            std::lock_guard<std::mutex> lock(g_adbMutex);
+            ok = g_adbHelper->setupForward(51820);
+            local = g_adbHelper->lastLocalPort();
+            if (ok) {
+                adbPath = g_adbHelper->findAdb();
+                serial = g_adbHelper->deviceSerial();
+                screen = g_adbHelper->screenSize();
+            }
+        }
 
         // Back to the Qt thread to touch the listener. g_network is the
         // context object, so if it is gone by then the call is simply dropped.
-        QMetaObject::invokeMethod(g_network.get(), [ok, local]() {
+        QMetaObject::invokeMethod(g_network.get(), [ok, local, adbPath, serial, screen, retry]() {
             g_cableBusy = false;
-            if (ok) {
-                g_cableStatus = "tunnel ready on localhost:" + std::to_string(local);
-                LogManager::instance().log(
-                    QString("ADB: tunnel established, dialling localhost:%1").arg(local));
-                g_network->connectTo("localhost", local);
-            } else {
+            if (!retry && !ok) {
                 g_cableStatus = "no Android device answered adb";
                 LogManager::instance().log(
                     "ADB: no device answered - check the cable and that USB debugging is on");
+                requestRedraw();
+                return;
             }
+            if (!ok) return;   // a failed retry; the reconnect timer tries again
+            if (retry && !g_cableSession) return;   // stopped while adb was running
+
+            g_cableSession = true;
+            // A new injector each time: after the switch to wireless adb the
+            // phone is a different adb device (ip:5555).
+            g_adbInput = std::make_unique<AdbInputInjector>(adbPath, serial, screen);
+            if (g_streamSize.isValid()) {
+                g_adbInput->setStreamSize(g_streamSize.width(), g_streamSize.height());
+            }
+            if (!retry) {
+                g_cableStatus = "tunnel ready on localhost:" + std::to_string(local);
+            }
+            LogManager::instance().log(
+                QString("ADB: tunnel established, dialling localhost:%1").arg(local));
+            g_cableDialling = true;
+            g_network->connectTo("localhost", local);
             requestRedraw();
         }, Qt::QueuedConnection);
     }).detach();
+}
 
+static void endCableSession() {
+    g_cableSession = false;
+    g_cableDialling = false;
+    g_cableReconnects = 0;
+    if (g_cableReconnectTimer) g_cableReconnectTimer->stop();
+    g_adbInput.reset();
+}
+
+static void startCableReconnect() {
+    if (!g_cableReconnectTimer) {
+        g_cableReconnectTimer = new QTimer();
+        g_cableReconnectTimer->setInterval(kCableReconnectMs);
+        QObject::connect(g_cableReconnectTimer, &QTimer::timeout, []() {
+            if (!g_cableSession) {
+                g_cableReconnectTimer->stop();
+                return;
+            }
+            if (g_cableReconnects >= kCableReconnectMax) {
+                LogManager::instance().log(
+                    QString("ADB: auto-reconnect gave up after %1 attempts").arg(kCableReconnectMax));
+                endCableSession();
+                g_cableStatus = "reconnect failed - press Connect to try again";
+                requestRedraw();
+                return;
+            }
+            g_cableReconnects++;
+            g_cableStatus = "reconnecting over adb (" + std::to_string(g_cableReconnects) +
+                            "/" + std::to_string(kCableReconnectMax) + ")...";
+            LogManager::instance().log(
+                QString("ADB: reconnect attempt %1/%2").arg(g_cableReconnects).arg(kCableReconnectMax));
+            requestRedraw();
+            startCableConnection(true);
+        });
+    }
+    if (g_cableReconnectTimer->isActive()) return;
+    LogManager::instance().log("ADB: stream lost - will reconnect over adb");
+    g_cableReconnectTimer->start();
+}
+
+// Once per session, a few seconds after the first cable stream connects:
+// `adb tcpip 5555` + `adb connect`, so the cable can be unplugged and adb (and
+// with it the stream and control) carries on over Wi-Fi. The switch drops the
+// USB tunnel for a moment; the reconnect above picks the stream back up.
+static void enableWirelessAdbOnce() {
+    if (g_wirelessAdbTried || !g_adbHelper) return;
+    g_wirelessAdbTried = true;
+    QTimer::singleShot(5000, []() {
+        if (!g_cableSession) return;
+        std::thread([]() {
+            bool ok = false;
+            {
+                std::lock_guard<std::mutex> lock(g_adbMutex);
+                ok = g_adbHelper->enableWirelessAdb();
+            }
+            QMetaObject::invokeMethod(g_network.get(), [ok]() {
+                LogManager::instance().log(ok
+                    ? "ADB: wireless adb enabled - the cable can be unplugged"
+                    : "ADB: wireless adb not enabled (is the phone on Wi-Fi?) - staying on the cable");
+                if (ok && g_cableSession) {
+                    g_cableStatus = "wireless adb on - you can unplug the cable";
+                }
+                requestRedraw();
+            }, Qt::QueuedConnection);
+        }).detach();
+    });
+}
+
+bool receiveFromAndroidOverCable() {
+    if (!g_adbHelper || !g_network || g_cableBusy) return false;
+    endCableSession();
+    g_wirelessAdbTried = false;
+    startCableConnection(false);
     return true;
+}
+
+void stopAndroidCable() {
+    const bool wasActive = g_cableSession;
+    endCableSession();
+    if (wasActive && g_network) g_network->disconnectAll();
+    g_cableStatus = wasActive ? "stopped" : "";
+    requestRedraw();
+}
+
+bool androidCableActive() {
+    return g_cableSession;
 }
 
 // ── Android over Wi-Fi ───────────────────────────────────────────────────
@@ -1415,6 +1597,7 @@ std::string androidWifiStatus() {
 
 bool receiveFromAndroidOverWifi(const std::string& address) {
     if (!g_network) return false;
+    endCableSession();   // a Wi-Fi stream is not a cable stream: no adb control, no redial
 
     const QString typed = QString::fromStdString(address).trimmed();
     QString hostText = typed;

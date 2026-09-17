@@ -470,6 +470,8 @@ jobs:
             "    `"$core/thirdparty/qrcodegen.hpp`"",
             "    `"$core/AdbHelper.cpp`"",
             "    `"$core/AdbHelper.h`"",
+            "    `"$core/AdbInputInjector.cpp`"",
+            "    `"$core/AdbInputInjector.h`"",
             "    `"$core/Language.cpp`"",
             "    `"$core/Language.h`"",
             "    `"$core/UpdateChecker.cpp`"",
