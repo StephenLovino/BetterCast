@@ -63,6 +63,26 @@ ShowInstDetails show
 
 !insertmacro MUI_LANGUAGE "English"
 
+; ─── Helpers ────────────────────────────────────────────────────────────────────
+
+; Ask the bundled adb's background server to exit, then give it a moment to
+; release its files. Harmless when adb is not installed or not running.
+!macro StopBundledAdbBody
+    IfFileExists "$INSTDIR\scrcpy\adb.exe" 0 +5
+    DetailPrint "Stopping the adb server from the previous install..."
+    nsExec::ExecToLog '"$INSTDIR\scrcpy\adb.exe" kill-server'
+    Pop $0   ; exit code, ignored - "no server running" is fine
+    Sleep 1500
+!macroend
+
+Function StopBundledAdb
+    !insertmacro StopBundledAdbBody
+FunctionEnd
+
+Function un.StopBundledAdb
+    !insertmacro StopBundledAdbBody
+FunctionEnd
+
 ; ─── Install ────────────────────────────────────────────────────────────────────
 
 Section "BetterCast (required)" SecCore
@@ -86,6 +106,13 @@ Section "BetterCast (required)" SecCore
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\BetterCast"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\BetterCastReceiver.exe"
     bc_no_legacy:
+
+    ; Stop the adb server a previous install left running. BetterCast starts
+    ; adb from $INSTDIR\scrcpy for USB streaming and the scrcpy panel, and adb
+    ; keeps a background server alive after the app closes - holding
+    ; scrcpy\AdbWinApi.dll open, so copying the new files failed with "Error
+    ; opening file for writing". kill-server asks it to exit cleanly.
+    Call StopBundledAdb
 
     SetOutPath "$INSTDIR"
 
@@ -243,6 +270,10 @@ Section "Uninstall"
     Pop $0
     DetailPrint "Virtual display cleanup exit code: $0"
     SetOutPath "$TEMP"
+
+    ; Same reason as at install: a running adb server keeps files in
+    ; scrcpy\ open and RMDir would leave them behind.
+    Call un.StopBundledAdb
 
     RMDir /r "$INSTDIR"
 
