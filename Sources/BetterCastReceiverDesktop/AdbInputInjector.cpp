@@ -110,7 +110,9 @@ void AdbInputInjector::inject(const InputEvent& event) {
         } else {
             // A drag replays as one swipe over the time it took, so a slow drag
             // stays slow; a still hold is a swipe that goes nowhere - a long press.
-            const int duration = int(qBound<qint64>(kMinSwipeMs, held, kMaxSwipeMs));
+            // std::clamp on one type: Qt 6's mixed-type qBound overloads make
+            // qBound<qint64>(int, qint64, int) ambiguous (C2666).
+            const int duration = int(std::clamp<qint64>(held, qint64(kMinSwipeMs), qint64(kMaxSwipeMs)));
             const QPoint to = moved <= kTapSlopPx ? m_pressAt : end;
             send(QString("input swipe %1 %2 %3 %4 %5")
                      .arg(m_pressAt.x()).arg(m_pressAt.y())
