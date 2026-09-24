@@ -53,6 +53,7 @@
     <string name="menu_hide_nav">Hide Navigation</string>
     <string name="menu_show_nav">Show Navigation</string>
     <string name="menu_hide_controls">Hide Controls</string>
+    <string name="menu_picture_in_picture">Picture in Picture</string>
 
     <!-- Error -->
     <string name="error_title">Something went wrong</string>
@@ -98,6 +99,8 @@
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="setting_auto_pip">Auto Picture-in-Picture</string>
+    <string name="setting_auto_pip_desc">Keep the stream in a small window when you leave the app.</string>
     <string name="section_input">INPUT</string>
     <string name="setting_mode">Mode</string>
     <string name="setting_mode_desc">Touch maps taps directly. Cursor moves a trackpad-style pointer.</string>

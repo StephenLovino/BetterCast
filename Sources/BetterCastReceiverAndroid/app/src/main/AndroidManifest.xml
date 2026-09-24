@@ -32,10 +32,16 @@
              instance builds its own ReceiverViewModel, the second fails to bind port
              51820, and the user is left looking at "Failed to start server" while the
              first instance quietly holds the port and the stream. -->
+        <!-- PiP: a live stream keeps running in a small window when the user leaves.
+             supportsPictureInPicture is what makes enterPictureInPictureMode() legal;
+             the configChanges below are what keep the activity — and with it the
+             decoder's surface — alive across the transition instead of being torn
+             down and rebuilt mid-stream. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.BetterCastReceiver">

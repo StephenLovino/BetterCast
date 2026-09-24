@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.TouchApp
@@ -94,6 +95,7 @@ fun ReceiverShell(viewModel: ReceiverViewModel) {
 
     var tab by remember { mutableStateOf(ReceiverTab.CONNECT) }
     var navVisible by remember { mutableStateOf(true) }
+    val inPip by viewModel.inPictureInPicture.collectAsState()
 
     // A live stream takes the whole panel: the phone is a display at that point, and
     // chrome over the video is in the way. The user can bring the bar back from the
@@ -105,7 +107,9 @@ fun ReceiverShell(viewModel: ReceiverViewModel) {
     // Box rather than Column: the nav floats over the content instead of taking a slice
     // of the layout, so screens run the full height and scroll underneath it.
     Box(modifier = Modifier.fillMaxSize().background(BC.background)) {
-        when (tab) {
+        // PiP is entered from whatever screen is open, but a settings list shrunk to
+        // 200dp is useless — the stream is the only thing worth showing in that window.
+        when (if (inPip) ReceiverTab.CONNECT else tab) {
             // ReceiverScreen already picks the right view for the current state, so
             // Connect can host it directly.
             ReceiverTab.CONNECT -> ReceiverScreen(
@@ -126,7 +130,8 @@ fun ReceiverShell(viewModel: ReceiverViewModel) {
         }
 
         AnimatedVisibility(
-            visible = navVisible,
+            // Nothing but the video fits in a PiP window.
+            visible = navVisible && !inPip,
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -308,6 +313,7 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
     val audioEnabled by settings.audioEnabled.collectAsState()
     val cursorMode by settings.cursorMode.collectAsState()
     val themeMode by settings.themeMode.collectAsState()
+    val autoPipEnabled by settings.autoPipEnabled.collectAsState()
     val state by viewModel.state.collectAsState()
 
     var nameDraft by remember(deviceName) { mutableStateOf(deviceName) }
@@ -409,6 +415,15 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
                         }
                     )
                 }
+            )
+            RowDivider()
+            ToggleRow(
+                icon = Icons.Filled.PictureInPicture,
+                iconColor = BC.secondaryDim,
+                title = stringResource(R.string.setting_auto_pip),
+                description = stringResource(R.string.setting_auto_pip_desc),
+                checked = autoPipEnabled,
+                onCheckedChange = { settings.setAutoPipEnabled(it) }
             )
         }
 

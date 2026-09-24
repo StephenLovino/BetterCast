@@ -39,6 +39,7 @@
     <string name="menu_hide_nav">隐藏导航栏</string>
     <string name="menu_show_nav">显示导航栏</string>
     <string name="menu_hide_controls">隐藏控件</string>
+    <string name="menu_picture_in_picture">画中画</string>
 
     <string name="error_title">出现问题</string>
     <string name="action_try_again">重试</string>
@@ -81,6 +82,8 @@
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
+    <string name="setting_auto_pip">自动画中画</string>
+    <string name="setting_auto_pip_desc">离开应用时，让串流继续在小窗中播放。</string>
     <string name="section_input">输入</string>
     <string name="setting_mode">模式</string>
     <string name="setting_mode_desc">触控直接映射点按位置，指针则像触控板一样移动光标。</string>
