@@ -71,7 +71,9 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
         // The system refuses PiP aspect ratios outside roughly 1:2.39 .. 2.39:1, so a
         // very wide Mac desktop is clamped rather than throwing on transition.
-        private const val MIN_PIP_RATIO = 0.4184f
+        // 0.419, not 0.4184: the ratio is passed on as a Rational in thousandths, which
+        // truncates 0.4184 to 418/1000, just below the system's 1/2.39 floor.
+        private const val MIN_PIP_RATIO = 0.419f
         private const val MAX_PIP_RATIO = 2.39f
     }
 
