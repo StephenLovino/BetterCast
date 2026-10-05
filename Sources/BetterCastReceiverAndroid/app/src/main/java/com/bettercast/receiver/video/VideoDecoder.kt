@@ -87,7 +87,20 @@ class VideoDecoder {
     fun setSurface(surface: Surface?) {
         val oldSurface = this.surface
         this.surface = surface
-        if (surface != null && cachedSps != null && cachedPps != null && !isConfigured) {
+        if (surface == null) {
+            // The screen showing the stream is gone: the app was closed with the session
+            // kept alive, or sent to the background without PiP. Rendering on into the
+            // abandoned surface only burns power and invites codec errors, so stop the
+            // codec. The parameter sets stay cached, and frames are dropped until a new
+            // surface arrives, at which point the branch below rebuilds the codec and
+            // asks the sender for a keyframe.
+            if (isConfigured || isStarted) {
+                stop()
+                Log.d(TAG, "Surface released, decoder paused until a new one arrives")
+            }
+            return
+        }
+        if (cachedSps != null && cachedPps != null && !isConfigured) {
             configureCodec(cachedSps!!, cachedPps!!)
             // IDR frame likely arrived before surface was ready — request new one
             onKeyframeNeeded?.invoke()

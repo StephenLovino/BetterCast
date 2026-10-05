@@ -112,6 +112,10 @@
     <string name="section_connection">CONNECTION</string>
     <string name="action_disconnect">Disconnect</string>
     <string name="action_disconnect_desc">End the current stream and go back to waiting.</string>
+    <string name="notif_channel_session">Active stream</string>
+    <string name="notif_session_title">Streaming from %1$s</string>
+    <string name="notif_session_title_generic">Streaming</string>
+    <string name="notif_session_text">The stream keeps running while the app is closed. Tap to open.</string>
     <string name="section_help">HELP</string>
     <string name="help_setup_guide">Setup Guide</string>
     <string name="help_setup_guide_desc">Walk through pairing and streaming.</string>

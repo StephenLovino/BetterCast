@@ -17,8 +17,15 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Receiver session service: keeps a stream alive after the app is swiped away.
+         connectedDevice is the type for a session with another device over the network;
+         its prerequisite is met by CHANGE_WIFI_STATE above. POST_NOTIFICATIONS lets the
+         Disconnect notification show on Android 13+. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".BetterCastApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -50,6 +57,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".ReceiverSessionService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
 
         <service
             android:name=".sender.ScreenCaptureService"

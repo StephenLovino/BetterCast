@@ -39,6 +39,7 @@
     <string name="menu_hide_nav">Navigation ausblenden</string>
     <string name="menu_show_nav">Navigation einblenden</string>
     <string name="menu_hide_controls">Bedienelemente ausblenden</string>
+    <string name="menu_picture_in_picture">Bild-im-Bild</string>
 
     <string name="error_title">Etwas ist schiefgelaufen</string>
     <string name="action_try_again">Erneut versuchen</string>
@@ -81,6 +82,8 @@
     <string name="theme_system">System</string>
     <string name="theme_light">Hell</string>
     <string name="theme_dark">Dunkel</string>
+    <string name="setting_auto_pip">Automatisches Bild-im-Bild</string>
+    <string name="setting_auto_pip_desc">Den Stream in einem kleinen Fenster weiterlaufen lassen, wenn du die App verlässt.</string>
     <string name="section_input">EINGABE</string>
     <string name="setting_mode">Modus</string>
     <string name="setting_mode_desc">Touch überträgt Tippen direkt. Zeiger bewegt einen Mauszeiger wie ein Trackpad.</string>
@@ -92,6 +95,10 @@
     <string name="section_connection">VERBINDUNG</string>
     <string name="action_disconnect">Trennen</string>
     <string name="action_disconnect_desc">Beendet den aktuellen Stream und kehrt zum Wartezustand zurück.</string>
+    <string name="notif_channel_session">Aktiver Stream</string>
+    <string name="notif_session_title">Stream von %1$s</string>
+    <string name="notif_session_title_generic">Stream läuft</string>
+    <string name="notif_session_text">Der Stream läuft weiter, auch wenn die App geschlossen ist. Zum Öffnen tippen.</string>
     <string name="section_help">HILFE</string>
     <string name="help_setup_guide">Einrichtungsanleitung</string>
     <string name="help_setup_guide_desc">Koppeln und Streamen Schritt für Schritt.</string>

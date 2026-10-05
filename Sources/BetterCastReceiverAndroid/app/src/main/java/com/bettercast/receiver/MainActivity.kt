@@ -1,5 +1,6 @@
 package com.bettercast.receiver
 
+import android.Manifest
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
@@ -85,6 +86,24 @@ class MainActivity : ComponentActivity() {
         packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
     }
 
+    /**
+     * The session notification carries the Disconnect button, and on Android 13+ it is
+     * hidden unless the user allows notifications. Asked once, at the first stream, when
+     * the reason is obvious. The service runs either way; a refusal only hides the card.
+     */
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    private var askedForNotifications = false
+
+    private fun askForNotificationsOnce() {
+        if (askedForNotifications || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        askedForNotifications = true
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -115,8 +134,28 @@ class MainActivity : ComponentActivity() {
         }
         applyImmersive(false)
 
-        receiverViewModel = ViewModelProvider(this)[ReceiverViewModel::class.java]
+        // The receiver belongs to the app, not to this screen, so a stream survives the
+        // activity being closed. See BetterCastApp and ReceiverSessionService.
+        val app = application as BetterCastApp
+        app.activityCreated()
+        receiverViewModel = app.receiverViewModel
+        // A PiP window dismissed to its X is destroyed without ever being told it left
+        // PiP, so a fresh screen must not inherit the flag and hide its own chrome.
+        receiverViewModel.setInPictureInPicture(false)
         senderViewModel = ViewModelProvider(this)[SenderViewModel::class.java]
+
+        // While a stream is running, keep it alive past this screen: the foreground
+        // service is what stops Android killing the process when the app is swiped away.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                receiverViewModel.state.collect { state ->
+                    if (state == ReceiverState.CONNECTED) {
+                        askForNotificationsOnce()
+                        ReceiverSessionService.start(this@MainActivity)
+                    }
+                }
+            }
+        }
 
         // PiP parameters are published while the activity is on screen: the system reads
         // the aspect ratio and source rect when it animates the window out, and on 12+
@@ -165,6 +204,21 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onDestroy() {
+        val app = application as BetterCastApp
+        app.activityDestroyed()
+        // Closed for good with no stream running: stop listening rather than leave a
+        // cached process advertising itself with no UI. With a stream running, the
+        // session service owns that decision instead.
+        if (isFinishing && !isChangingConfigurations) {
+            val state = receiverViewModel.state.value
+            if (state != ReceiverState.CONNECTED && state != ReceiverState.RECONNECTING && !app.activityAlive) {
+                app.releaseReceiver()
+            }
+        }
+        super.onDestroy()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

@@ -39,6 +39,7 @@
     <string name="menu_hide_nav">ナビゲーションを隠す</string>
     <string name="menu_show_nav">ナビゲーションを表示</string>
     <string name="menu_hide_controls">コントロールを隠す</string>
+    <string name="menu_picture_in_picture">ピクチャー・イン・ピクチャー</string>
 
     <string name="error_title">問題が発生しました</string>
     <string name="action_try_again">再試行</string>
@@ -81,6 +82,8 @@
     <string name="theme_system">システムに従う</string>
     <string name="theme_light">ライト</string>
     <string name="theme_dark">ダーク</string>
+    <string name="setting_auto_pip">自動ピクチャー・イン・ピクチャー</string>
+    <string name="setting_auto_pip_desc">アプリを離れたとき、ストリームを小さなウインドウで表示し続けます。</string>
     <string name="section_input">入力</string>
     <string name="setting_mode">モード</string>
     <string name="setting_mode_desc">タッチはタップ位置をそのまま反映し、カーソルはトラックパッドのようにポインタを動かします。</string>
@@ -92,6 +95,10 @@
     <string name="section_connection">接続</string>
     <string name="action_disconnect">切断</string>
     <string name="action_disconnect_desc">現在のストリームを終了し、待機状態に戻ります。</string>
+    <string name="notif_channel_session">進行中のストリーム</string>
+    <string name="notif_session_title">%1$s からストリーミング中</string>
+    <string name="notif_session_title_generic">ストリーミング中</string>
+    <string name="notif_session_text">アプリを閉じてもストリームは続きます。タップして開きます。</string>
     <string name="section_help">ヘルプ</string>
     <string name="help_setup_guide">セットアップガイド</string>
     <string name="help_setup_guide_desc">ペアリングとストリーミングの手順を確認します。</string>
