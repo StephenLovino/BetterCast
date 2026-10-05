@@ -23,6 +23,7 @@ class SettingsStore(context: Context) {
         private const val KEY_ASPECT_FILL = "aspectFill"
         private const val KEY_AUDIO_ENABLED = "audioEnabled"
         private const val KEY_CURSOR_MODE = "cursorMode"
+        private const val KEY_AUTO_PIP = "autoPipEnabled"
         private const val KEY_THEME = "themeMode"
         private const val KEY_DONATE_SILENCED = "donatePromptSilenced"
         private const val KEY_LAUNCH_COUNT = "donatePromptLaunchCount"
@@ -52,6 +53,15 @@ class SettingsStore(context: Context) {
     private val _cursorMode = MutableStateFlow(prefs.getBoolean(KEY_CURSOR_MODE, false))
     val cursorMode: StateFlow<Boolean> = _cursorMode.asStateFlow()
 
+    /**
+     * Whether leaving the app drops a live stream into a PiP window.
+     *
+     * On by default: that is what someone watching a second display expects when they hit
+     * home, and the manual menu entry works either way.
+     */
+    private val _autoPipEnabled = MutableStateFlow(prefs.getBoolean(KEY_AUTO_PIP, true))
+    val autoPipEnabled: StateFlow<Boolean> = _autoPipEnabled.asStateFlow()
+
     private val _themeMode = MutableStateFlow(
         runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, null) ?: "") }
             .getOrDefault(ThemeMode.SYSTEM)
@@ -77,6 +87,11 @@ class SettingsStore(context: Context) {
     fun setCursorMode(value: Boolean) {
         _cursorMode.value = value
         prefs.edit().putBoolean(KEY_CURSOR_MODE, value).apply()
+    }
+
+    fun setAutoPipEnabled(value: Boolean) {
+        _autoPipEnabled.value = value
+        prefs.edit().putBoolean(KEY_AUTO_PIP, value).apply()
     }
 
     fun setThemeMode(value: ThemeMode) {

@@ -1,11 +1,16 @@
 package com.bettercast.receiver
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -41,7 +46,12 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import com.bettercast.receiver.sender.SenderScreen
 import com.bettercast.receiver.sender.SenderState
 import com.bettercast.receiver.sender.SenderViewModel
@@ -57,8 +67,21 @@ enum class AppMode { RECEIVER, SENDER }
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        private const val TAG = "MainActivity"
+        // The system refuses PiP aspect ratios outside roughly 1:2.39 .. 2.39:1, so a
+        // very wide Mac desktop is clamped rather than throwing on transition.
+        private const val MIN_PIP_RATIO = 0.4184f
+        private const val MAX_PIP_RATIO = 2.39f
+    }
+
     private lateinit var receiverViewModel: ReceiverViewModel
     private lateinit var senderViewModel: SenderViewModel
+
+    /** Some low-memory devices report PiP as unavailable; entering would throw. */
+    private val supportsPip by lazy {
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -93,6 +116,32 @@ class MainActivity : ComponentActivity() {
         receiverViewModel = ViewModelProvider(this)[ReceiverViewModel::class.java]
         senderViewModel = ViewModelProvider(this)[SenderViewModel::class.java]
 
+        // PiP parameters are published while the activity is on screen: the system reads
+        // the aspect ratio and source rect when it animates the window out, and on 12+
+        // only honours auto-enter if it was set during a resumed frame.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(
+                    receiverViewModel.state,
+                    receiverViewModel.videoDecoder.videoSize,
+                    receiverViewModel.videoRect
+                ) { state, size, rect -> Triple(state, size, rect) }
+                    .collect { (state, size, rect) ->
+                        if (state == ReceiverState.CONNECTED) {
+                            applyPipParams(buildPipParams(size, rect))
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            // No stream to shrink: leaving the app must not drop the user
+                            // into an empty PiP window, so auto-enter goes back off.
+                            applyPipParams(
+                                PictureInPictureParams.Builder()
+                                    .setAutoEnterEnabled(false)
+                                    .build()
+                            )
+                        }
+                    }
+            }
+        }
+
         setContent {
             // Theme follows the persisted preference, so Settings can switch it live.
             val themeMode by receiverViewModel.settings.themeMode.collectAsState()
@@ -121,6 +170,75 @@ class MainActivity : ComponentActivity() {
         senderViewModel.onOrientationChanged()
     }
 
+    // ---- picture in picture ------------------------------------------------
+
+    /**
+     * Move a live stream into a PiP window.
+     *
+     * Called from the in-stream menu, and on Android 11 and below from onUserLeaveHint
+     * (12+ uses setAutoEnterEnabled instead, which animates from the video rect).
+     * Returns false when there is nothing to shrink or the device refuses.
+     */
+    fun enterPip(): Boolean {
+        if (!supportsPip || isInPictureInPictureMode) return false
+        if (receiverViewModel.state.value != ReceiverState.CONNECTED) return false
+        val params = buildPipParams(
+            receiverViewModel.videoDecoder.videoSize.value,
+            receiverViewModel.videoRect.value
+        )
+        return runCatching { enterPictureInPictureMode(params) }
+            .onFailure { Log.w(TAG, "Could not enter picture-in-picture", it) }
+            .getOrDefault(false)
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return // auto-enter handles it
+        if (receiverViewModel.state.value != ReceiverState.CONNECTED) return
+        if (!receiverViewModel.settings.autoPipEnabled.value) return
+        enterPip()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        receiverViewModel.setInPictureInPicture(isInPictureInPictureMode)
+        // Back to full screen: the stream is immersive again, but only if the stream is
+        // still what the activity is showing.
+        if (!isInPictureInPictureMode && isImmersive) applyImmersive(true)
+    }
+
+    private fun buildPipParams(
+        videoSize: Pair<Int, Int>?,
+        videoRect: Rect?
+    ): PictureInPictureParams {
+        val builder = PictureInPictureParams.Builder()
+        // Sized from the decoded picture, not the window: this is what the system makes
+        // the PiP window, so a 16:10 Mac desktop arrives 16:10 instead of being squashed
+        // into the phone's own shape.
+        videoSize?.let { (width, height) ->
+            if (width > 0 && height > 0) {
+                val ratio = (width.toFloat() / height.toFloat())
+                    .coerceIn(MIN_PIP_RATIO, MAX_PIP_RATIO)
+                builder.setAspectRatio(Rational((ratio * 1000).toInt(), 1000))
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(receiverViewModel.settings.autoPipEnabled.value)
+        }
+        // Where the video sits on screen — the rect the shrink animation starts from.
+        videoRect?.let { if (!it.isEmpty) builder.setSourceRectHint(it) }
+        return builder.build()
+    }
+
+    private fun applyPipParams(params: PictureInPictureParams) {
+        if (!supportsPip) return
+        runCatching { setPictureInPictureParams(params) }
+            .onFailure { Log.w(TAG, "Could not set picture-in-picture params", it) }
+    }
+
     /**
      * Hide the system bars only while the phone is actually showing a stream.
      *
@@ -130,6 +248,9 @@ class MainActivity : ComponentActivity() {
      */
     fun applyImmersive(immersive: Boolean) {
         isImmersive = immersive
+        // A PiP window has no system bars to hide, so the intent is recorded but nothing
+        // is touched until the activity is full screen again.
+        if (isInPictureInPictureMode) return
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (immersive) {
             controller.hide(WindowInsetsCompat.Type.systemBars())
@@ -146,7 +267,7 @@ class MainActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         // Transient bars come back on their own after an interaction; re-apply so a
         // stream returns to full screen, but never yank the bars off a setup screen.
-        if (hasFocus && isImmersive) applyImmersive(true)
+        if (hasFocus && isImmersive && !isInPictureInPictureMode) applyImmersive(true)
     }
 }
 
@@ -181,8 +302,10 @@ fun AppContent(
         )
     }
 
-    // Hide mode toggle when actively connected/casting
-    val showModeToggle = when (mode) {
+    // Hide mode toggle when actively connected/casting — and always in PiP, where the
+    // window is far too small for it.
+    val inPip by receiverViewModel.inPictureInPicture.collectAsState()
+    val showModeToggle = !inPip && when (mode) {
         AppMode.RECEIVER -> receiverState != ReceiverState.CONNECTED
         AppMode.SENDER -> senderState == SenderState.IDLE || senderState == SenderState.ERROR
     }

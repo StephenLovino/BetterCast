@@ -95,6 +95,10 @@ class VideoDecoder {
             // Surface changed (e.g. orientation flip) — switch codec output surface
             try {
                 codec?.setOutputSurface(surface)
+                // The new surface starts empty, and P-frames alone cannot paint it —
+                // without this the picture stays black until the encoder happens to emit
+                // an IDR. PiP transitions recreate the surface, so they land here too.
+                onKeyframeNeeded?.invoke()
                 Log.d(TAG, "Switched codec output to new surface")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to switch surface, resetting codec", e)

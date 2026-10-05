@@ -33,7 +33,10 @@ import androidx.compose.foundation.verticalScroll
 import android.Manifest
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.graphics.Rect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onGloballyPositioned
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -60,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -69,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.bettercast.receiver.MainActivity
 import com.bettercast.receiver.R
 import com.bettercast.receiver.input.TouchHandler
 import com.bettercast.receiver.ui.components.BCBadge
@@ -435,6 +440,14 @@ private fun ConnectedView(
     var revealTick by remember { mutableStateOf(0) }
 
     val videoSize by viewModel.videoDecoder.videoSize.collectAsState()
+    val inPip by viewModel.inPictureInPicture.collectAsState()
+
+    val context = LocalContext.current
+    // Offered only where the system can actually do it — some low-memory devices can't.
+    val pipSupported = remember {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
 
     LaunchedEffect(revealTick) {
         showStatus = true
@@ -462,7 +475,9 @@ private fun ConnectedView(
             if (matchWidth) maxWidth to (maxWidth / ratio) else (maxHeight * ratio) to maxHeight
         }
         val (videoW, videoH) = videoSizeDp
-        val videoModifier = Modifier.size(videoW, videoH)
+        // In PiP the window is already the stream's aspect ratio, so the picture fills it
+        // outright — letterboxing a 200dp window wastes most of it.
+        val videoModifier = if (inPip) Modifier.fillMaxSize() else Modifier.size(videoW, videoH).align(Alignment.Center)
 
         AndroidView(
             factory = { context ->
@@ -497,14 +512,27 @@ private fun ConnectedView(
                 }
             },
             update = { touchHandlerRef.value?.cursorMode = cursorMode },
-            modifier = videoModifier.align(Alignment.Center)
+            modifier = videoModifier
+                // Where the video actually sits on screen. PiP animates the window out of
+                // this rect, and it moves with the aspect mode, so report every layout.
+                .onGloballyPositioned { coords ->
+                    val position = coords.localToWindow(Offset.Zero)
+                    viewModel.setVideoRect(
+                        Rect(
+                            position.x.toInt(),
+                            position.y.toInt(),
+                            position.x.toInt() + coords.size.width,
+                            position.y.toInt() + coords.size.height
+                        )
+                    )
+                }
         )
 
         // Trackpad pointer. Drawn over the video rather than moved on the Mac, because
         // the Mac's own cursor is only visible once it has been told where to go — and
         // in trackpad mode the finger is nowhere near the target.
-        if (cursorMode) {
-            Box(modifier = videoModifier.align(Alignment.Center)) {
+        if (cursorMode && !inPip) {
+            Box(modifier = videoModifier) {
                 VirtualCursor(
                     modifier = Modifier.offset(
                         x = videoW * cursorPos.first - 2.dp,
@@ -516,7 +544,7 @@ private fun ConnectedView(
 
         // Status overlay
         AnimatedVisibility(
-            visible = showStatus,
+            visible = showStatus && !inPip,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)
@@ -541,7 +569,7 @@ private fun ConnectedView(
         // Settings button, mirroring the iOS receiver's floating gear. It stays put
         // rather than fading with the status pill: every touch on the video belongs
         // to the Mac, so a control that disappears on a timer would be unreachable.
-        if (!controlsHidden) {
+        if (!controlsHidden && !inPip) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -599,6 +627,12 @@ private fun ConnectedView(
                         text = { Text(stringResource(R.string.menu_hide_controls)) },
                         onClick = { menuOpen = false; controlsHidden = true }
                     )
+                    if (pipSupported) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.menu_picture_in_picture)) },
+                            onClick = { menuOpen = false; (context as? MainActivity)?.enterPip() }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.action_disconnect), color = Color(0xFFFF5252)) },
                         onClick = { menuOpen = false; viewModel.disconnect() }

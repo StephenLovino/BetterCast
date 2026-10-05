@@ -1,6 +1,7 @@
 package com.bettercast.receiver.viewmodel
 
 import android.app.Application
+import android.graphics.Rect
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
@@ -66,6 +67,24 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
 
     private val _hotspotError = MutableStateFlow<String?>(null)
     val hotspotError: StateFlow<String?> = _hotspotError.asStateFlow()
+
+    /**
+     * True while the activity is being displayed as a picture-in-picture window.
+     *
+     * Set from the activity's onPictureInPictureModeChanged and read by the UI to strip
+     * the chrome — at ~200dp wide there is room for the video and nothing else.
+     */
+    private val _inPictureInPicture = MutableStateFlow(false)
+    val inPictureInPicture: StateFlow<Boolean> = _inPictureInPicture.asStateFlow()
+
+    /**
+     * On-screen bounds of the video surface, in window coordinates.
+     *
+     * PiP needs this as its source rect so the window animates out of the picture rather
+     * than out of a corner. Published from layout, so only real changes are stored.
+     */
+    private val _videoRect = MutableStateFlow<Rect?>(null)
+    val videoRect: StateFlow<Rect?> = _videoRect.asStateFlow()
 
     /** Non-null while an invite is in flight, so the row can show progress. */
     private val _invitingSender = MutableStateFlow<String?>(null)
@@ -316,6 +335,14 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
                 Log.e(TAG, "Hotspot error: $message")
             }
         )
+    }
+
+    fun setInPictureInPicture(value: Boolean) {
+        _inPictureInPicture.value = value
+    }
+
+    fun setVideoRect(rect: Rect?) {
+        if (rect != _videoRect.value) _videoRect.value = rect
     }
 
     fun stopHotspot() {
