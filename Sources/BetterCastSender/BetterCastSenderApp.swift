@@ -5072,12 +5072,16 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     func resetScreenCapturePermissions() {
         LogManager.shared.log("Permissions: Resetting ScreenCapture and Accessibility permissions...")
 
+        // This build's own ID: a renamed side-by-side copy must not reset the
+        // permissions of the installed release.
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.bettercast.sender"
+
         var allSuccess = true
 
         // Reset Screen Recording
         let screenCapture = Process()
         screenCapture.executableURL = URL(fileURLWithPath: BCConstants.tccutilPath)
-        screenCapture.arguments = ["reset", "ScreenCapture", "com.bettercast.sender"]
+        screenCapture.arguments = ["reset", "ScreenCapture", bundleID]
         do {
             try screenCapture.run()
             screenCapture.waitUntilExit()
@@ -5095,7 +5099,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Reset Accessibility (for mouse/keyboard control)
         let accessibility = Process()
         accessibility.executableURL = URL(fileURLWithPath: BCConstants.tccutilPath)
-        accessibility.arguments = ["reset", "Accessibility", "com.bettercast.sender"]
+        accessibility.arguments = ["reset", "Accessibility", bundleID]
         do {
             try accessibility.run()
             accessibility.waitUntilExit()
