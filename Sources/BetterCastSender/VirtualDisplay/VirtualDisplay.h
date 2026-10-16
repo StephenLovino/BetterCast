@@ -14,4 +14,6 @@
 
 #import <Foundation/Foundation.h>
 
-id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate);
+/// `scaledModes` lists extra "looks like" sizes in points as @[@[@w, @h], ...], the first being
+/// the one the display starts in. Pass nil or an empty array for a single mode of width x height.
+id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate, NSArray<NSArray<NSNumber *> *> *scaledModes);

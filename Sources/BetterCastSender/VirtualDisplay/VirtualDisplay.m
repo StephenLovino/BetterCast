@@ -22,7 +22,7 @@
 
 #import "VirtualDisplay.h"
 
-id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate) {
+id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate, NSArray<NSArray<NSNumber *> *> *scaledModes) {
 
     CGVirtualDisplaySettings *settings = [[CGVirtualDisplaySettings alloc] init];
     settings.hiDPI = hiDPI;
@@ -36,8 +36,15 @@ id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *na
     descriptor.bluePrimary = CGPointMake(0.1494, 0.0557);
     descriptor.greenPrimary = CGPointMake(0.2559, 0.6983);
     descriptor.redPrimary = CGPointMake(0.6797, 0.3203);
-    descriptor.maxPixelsHigh = height;
-    descriptor.maxPixelsWide = width;
+    // The framebuffer must fit the largest mode: a HiDPI mode is backed at 2x its size.
+    int maxWide = width, maxHigh = height;
+    for (NSArray<NSNumber *> *m in scaledModes) {
+        int scale = hiDPI ? 2 : 1;
+        maxWide = MAX(maxWide, m[0].intValue * scale);
+        maxHigh = MAX(maxHigh, m[1].intValue * scale);
+    }
+    descriptor.maxPixelsHigh = maxHigh;
+    descriptor.maxPixelsWide = maxWide;
     descriptor.sizeInMillimeters = CGSizeMake(25.4 * width / ppi, 25.4 * height / ppi);
     descriptor.serialNum = serialNum;
     descriptor.productID = serialNum;
@@ -45,14 +52,27 @@ id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *na
 
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
 
-    if (settings.hiDPI) {
-        width /= 2;
-        height /= 2;
+    double hz = refreshRate > 0 ? refreshRate : 60;
+    if (scaledModes.count > 0) {
+        // Several modes show up in System Settings > Displays as "Larger Text ... More
+        // Space", so the UI size can change without changing the streamed resolution.
+        NSMutableArray *modes = [NSMutableArray arrayWithCapacity:scaledModes.count];
+        for (NSArray<NSNumber *> *m in scaledModes) {
+            [modes addObject:[[CGVirtualDisplayMode alloc] initWithWidth:m[0].unsignedIntValue
+                                                                  height:m[1].unsignedIntValue
+                                                             refreshRate:hz]];
+        }
+        settings.modes = modes;
+    } else {
+        if (settings.hiDPI) {
+            width /= 2;
+            height /= 2;
+        }
+        CGVirtualDisplayMode *mode = [[CGVirtualDisplayMode alloc] initWithWidth:width
+                                                                          height:height
+                                                                     refreshRate:hz];
+        settings.modes = @[mode];
     }
-    CGVirtualDisplayMode *mode = [[CGVirtualDisplayMode alloc] initWithWidth:width
-                                                                      height:height
-                                                                 refreshRate:(refreshRate > 0 ? refreshRate : 60)];
-    settings.modes = @[mode];
 
     if (![display applySettings:settings])
         return nil;

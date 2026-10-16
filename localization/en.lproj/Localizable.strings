@@ -274,3 +274,18 @@
 "Height" = "Height";
 "Set" = "Set";
 "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected.";
+"Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same." = "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same.";
+
+/* Native resolution and text size */
+"Screen" = "Screen";
+"Native Resolution" = "Native Resolution";
+"Reported by the device." = "Reported by the device.";
+"Change" = "Change";
+"Remove" = "Remove";
+"Register" = "Register";
+"Cancel" = "Cancel";
+"Text Size" = "Text Size";
+"Larger Text" = "Larger Text";
+"More Space" = "More Space";
+"Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below.";
+"How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays.";

@@ -273,3 +273,18 @@
 "Height" = "高";
 "Set" = "设定";
 "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "宽 x 高，单位像素 (640-5120)。与接收端屏幕一致即可消除黑边。已连接时请点按\"应用设置\"。";
+"Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same." = "以 2 倍渲染虚拟显示器，让文字更清晰。Apple 接收端会上报屏幕尺寸，按真实原生分辨率推流；其他设备按上面选择的分辨率推流（由 2 倍画面缩小而来）。可在「系统设置 → 显示器」里为这块屏选择更大或更小的文字，推流分辨率不变。";
+
+/* Native resolution and text size */
+"Screen" = "屏幕";
+"Native Resolution" = "原生分辨率";
+"Reported by the device." = "由设备自动上报。";
+"Change" = "更改";
+"Remove" = "移除";
+"Register" = "登记";
+"Cancel" = "取消";
+"Text Size" = "文字大小";
+"Larger Text" = "文字更大";
+"More Space" = "更多空间";
+"Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "输入这台设备屏幕的像素分辨率，例如 Galaxy Z TriFold 展开后是 2160 x 1584。之后按这个分辨率推流，并可在下方选择文字大小。";
+"How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "桌面在这台设备上看起来有多大。推流始终是原生分辨率，所以每个大小都清晰。也可以在「系统设置 → 显示器」里调整。";

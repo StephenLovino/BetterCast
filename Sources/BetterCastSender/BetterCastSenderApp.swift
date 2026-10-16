@@ -1388,7 +1388,7 @@ struct DetailPanelView: View {
                 HStack {
                     Toggle("Retina (HiDPI)", isOn: $client.isRetina)
                         .disabled(!client.useVirtualDisplay)
-                    InfoTip(text: "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer.")
+                    InfoTip(text: "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same.")
                 }
 
                 HStack {
@@ -2227,15 +2227,20 @@ struct DeviceDetailView: View {
 
     var body: some View {
         Form {
-            Section("Resolution") {
-                HStack {
-                    ResolutionPicker(label: "Dimensions", client: client)
-                    InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
-                }
+            DeviceScreenSection(serviceName: display.name, client: client)
 
-                HStack {
-                    Toggle("Retina (HiDPI)", isOn: $client.isRetina)
-                    InfoTip(text: "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer.")
+            // The global size only applies while this device's native size is unknown.
+            if client.nativeResolution(for: display.name) == nil {
+                Section("Resolution") {
+                    HStack {
+                        ResolutionPicker(label: "Dimensions", client: client)
+                        InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
+                    }
+
+                    HStack {
+                        Toggle("Retina (HiDPI)", isOn: $client.isRetina)
+                        InfoTip(text: "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same.")
+                    }
                 }
             }
 
@@ -2578,15 +2583,20 @@ struct DiscoveredDeviceView: View {
                 }
             }
 
-            Section("Resolution") {
-                HStack {
-                    ResolutionPicker(label: "Dimensions", client: client)
-                    InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
-                }
+            DeviceScreenSection(serviceName: service.name, client: client)
 
-                HStack {
-                    Toggle("Retina (HiDPI)", isOn: $client.isRetina)
-                    InfoTip(text: "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer.")
+            // The global size only applies while this device's native size is unknown.
+            if client.nativeResolution(for: service.name) == nil {
+                Section("Resolution") {
+                    HStack {
+                        ResolutionPicker(label: "Dimensions", client: client)
+                        InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
+                    }
+
+                    HStack {
+                        Toggle("Retina (HiDPI)", isOn: $client.isRetina)
+                        InfoTip(text: "Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same.")
+                    }
                 }
             }
 
@@ -2813,6 +2823,101 @@ struct ResolutionPicker: View {
     }
 }
 
+/// A device's native resolution and text size. Once the native size is known (reported
+/// by an iPhone, iPad or Mac receiver, or registered here for anything else) the device
+/// streams at it, and its UI size is chosen as a text size: a scaled display mode, the
+/// same thing as System Settings > Displays offers, applied without restarting the stream.
+struct DeviceScreenSection: View {
+    let serviceName: String
+    @ObservedObject var client: NetworkClient
+
+    @State private var editing = false
+    @State private var widthText = ""
+    @State private var heightText = ""
+
+    private var parsedSize: VirtualDisplayManager.Size? {
+        guard let w = Int(widthText.trimmingCharacters(in: .whitespaces)),
+              let h = Int(heightText.trimmingCharacters(in: .whitespaces)),
+              VirtualDisplayManager.customSizeRange.contains(w),
+              VirtualDisplayManager.customSizeRange.contains(h) else { return nil }
+        // Even sizes only: H.264/HEVC reject odd frame sizes.
+        return .init(width: w & ~1, height: h & ~1)
+    }
+
+    var body: some View {
+        Section("Screen") {
+            if let reported = client.reportedNativeResolution(for: serviceName) {
+                LabeledContent("Native Resolution") {
+                    Text("\(reported.width) x \(reported.height)")
+                }
+                Text(tr("Reported by the device."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let registered = client.registeredNativeResolution(for: serviceName), !editing {
+                LabeledContent("Native Resolution") {
+                    HStack(spacing: 8) {
+                        Text("\(registered.width) x \(registered.height)")
+                        Button("Change") {
+                            widthText = String(registered.width)
+                            heightText = String(registered.height)
+                            editing = true
+                        }
+                        Button("Remove") {
+                            client.setRegisteredNativeResolution(nil, for: serviceName)
+                        }
+                    }
+                }
+            } else {
+                LabeledContent("Native Resolution") {
+                    HStack(spacing: 6) {
+                        TextField("Width", text: $widthText)
+                            .frame(width: 70)
+                        Text("×")
+                        TextField("Height", text: $heightText)
+                            .frame(width: 70)
+                        Button("Register") {
+                            guard let size = parsedSize else { return }
+                            client.setRegisteredNativeResolution(size, for: serviceName)
+                            editing = false
+                        }
+                        .disabled(parsedSize == nil)
+                        if editing {
+                            Button("Cancel") { editing = false }
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                }
+                Text(tr("Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let native = client.nativeResolution(for: serviceName) {
+                let options = VirtualDisplayManager.textSizeOptions(native: native)
+                HStack {
+                    Picker("Text Size", selection: Binding(
+                        get: { client.textScale(for: serviceName) },
+                        set: { client.setTextScale($0, for: serviceName) }
+                    )) {
+                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                            Text(label(for: option.size, index: index, count: options.count))
+                                .tag(option.factor)
+                        }
+                    }
+                    InfoTip(text: "How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays.")
+                }
+            }
+        }
+    }
+
+    private func label(for size: VirtualDisplayManager.Size, index: Int, count: Int) -> String {
+        let dims = "\(size.width) x \(size.height)"
+        if index == 0 { return "\(dims) (\(tr("Larger Text")))" }
+        if index == count - 1 { return "\(dims) (\(tr("More Space")))" }
+        return dims
+    }
+}
+
 struct InfoTip: View {
     let text: LocalizedStringKey
     @State private var isShowing = false
@@ -2961,6 +3066,9 @@ struct ConnectionPipeline {
     // Receiver-reported screen dimensions (pixels) — used to match aspect ratio
     var reportedScreenWidth: Int? = nil
     var reportedScreenHeight: Int? = nil
+    // The device's native pixels when known (reported, or registered by the user). Such
+    // a display streams at this size and offers text sizes instead of a fixed resolution.
+    var nativeSize: VirtualDisplayManager.Size? = nil
 }
 
 class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegate {
@@ -3123,6 +3231,59 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     @Published var codecOverrides: [String: String] =
         UserDefaults.standard.dictionary(forKey: "codecOverrides") as? [String: String] ?? [:] {
         didSet { UserDefaults.standard.set(codecOverrides, forKey: "codecOverrides") }
+    }
+
+    /// Native screen sizes registered by the user for devices that don't report their own
+    /// (Android, Windows, Linux), keyed by service name. A device whose native size is
+    /// known streams at it, and its UI size is set with a text size instead of by
+    /// working out a smaller resolution.
+    @Published var registeredNativeResolutions: [String: [Int]] =
+        UserDefaults.standard.dictionary(forKey: "registeredNativeResolutions") as? [String: [Int]] ?? [:] {
+        didSet { UserDefaults.standard.set(registeredNativeResolutions, forKey: "registeredNativeResolutions") }
+    }
+
+    /// Per-device text size, as a divisor of the native size (see
+    /// `VirtualDisplayManager.scaleFactors`). Absent = the default for the Retina setting.
+    @Published var textScales: [String: Double] =
+        UserDefaults.standard.dictionary(forKey: "textScales") as? [String: Double] ?? [:] {
+        didSet { UserDefaults.standard.set(textScales, forKey: "textScales") }
+    }
+
+    func reportedNativeResolution(for serviceName: String) -> VirtualDisplayManager.Size? {
+        lastReportedScreen[screenSizeKey(serviceName)].map { .init(width: $0.width, height: $0.height) }
+    }
+
+    func registeredNativeResolution(for serviceName: String) -> VirtualDisplayManager.Size? {
+        guard let r = registeredNativeResolutions[screenSizeKey(serviceName)], r.count == 2 else { return nil }
+        return .init(width: r[0], height: r[1])
+    }
+
+    /// What the device reports wins over what was registered for it.
+    func nativeResolution(for serviceName: String) -> VirtualDisplayManager.Size? {
+        reportedNativeResolution(for: serviceName) ?? registeredNativeResolution(for: serviceName)
+    }
+
+    /// nil removes the registration. Rebuilds the displays, since the stream size changes.
+    func setRegisteredNativeResolution(_ size: VirtualDisplayManager.Size?, for serviceName: String) {
+        let key = screenSizeKey(serviceName)
+        if let size { registeredNativeResolutions[key] = [size.width, size.height] }
+        else { registeredNativeResolutions.removeValue(forKey: key) }
+        LogManager.shared.log("Sender: Native resolution for \(key): \(size.map { "\($0.width)x\($0.height)" } ?? "removed")")
+        updateStreamResolution()
+    }
+
+    func textScale(for serviceName: String) -> Double {
+        textScales[screenSizeKey(serviceName)] ?? (isRetina ? 2.0 : 1.0)
+    }
+
+    /// Applies live by switching the display's mode; the stream is not restarted.
+    func setTextScale(_ factor: Double, for serviceName: String) {
+        let key = screenSizeKey(serviceName)
+        textScales[key] = factor
+        for (_, pipeline) in pipelines where screenSizeKey(pipeline.service.name) == key {
+            guard let native = pipeline.nativeSize, let dm = pipeline.virtualDisplayManager else { continue }
+            dm.switchMode(to: VirtualDisplayManager.looksLike(native: native, factor: factor))
+        }
     }
 
     func codecFor(serviceName: String) -> StreamCodec {
@@ -3564,6 +3725,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     private func rememberScreenSize(width: Int, height: Int, for serviceName: String) {
         lastReportedScreen[screenSizeKey(serviceName)] = (width, height)
+        // Not @Published (a tuple), but the device page shows it.
+        DispatchQueue.main.async { self.objectWillChange.send() }
     }
 
     /// Invite connections being kept alive while a re-dial to the same device is in
@@ -5347,6 +5510,15 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 guard let displayID = pipeline.virtualDisplayManager?.displayID else { continue }
                 let bounds = CGDisplayBounds(displayID)
                 guard bounds.width > 0, bounds.height > 0 else { continue }
+                // A text size picked in System Settings > Displays becomes this device's
+                // saved one, so the two places never disagree.
+                if let native = pipeline.nativeSize,
+                   let current = pipeline.virtualDisplayManager?.currentLooksLike,
+                   let option = VirtualDisplayManager.textSizeOptions(native: native).first(where: { $0.size == current }),
+                   self.textScale(for: pipeline.service.name) != option.factor {
+                    self.textScales[self.screenSizeKey(pipeline.service.name)] = option.factor
+                    LogManager.shared.log("Sender: Text size for \(pipeline.service.name) changed in System Settings: \(current.width)x\(current.height)")
+                }
                 if InputHandler.shared.getDisplayBounds(for: connectionId) != bounds {
                     InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
                     moved.append("\(pipeline.service.name) -> \(bounds)")
@@ -5866,16 +6038,28 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 LogManager.shared.log("Sender: Reusing known screen size \(remembered.width)x\(remembered.height) for \(serviceName)")
             }
 
+            // The device's native pixels: what it reports, or else what the user
+            // registered for it on its device page.
+            var native: VirtualDisplayManager.Size? = nil
             if let rw = pipelines[connectionId]?.reportedScreenWidth,
                let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
-                // Reported dims are the device's native PIXELS: pass through unchanged.
-                // With hiDPI the mode is halved, landing on the device's point size.
                 LogManager.shared.log("Sender: Using device-reported resolution \(rw)x\(rh) for \(serviceName)")
+                native = .init(width: rw, height: rh)
+            } else if let registered = registeredNativeResolution(for: serviceName) {
+                LogManager.shared.log("Sender: Using registered native resolution \(registered.width)x\(registered.height) for \(serviceName)")
+                native = registered
+            }
+            pipelines[connectionId]?.nativeSize = native
+
+            if let native {
+                // Native PIXELS pass through unchanged and the display is always HiDPI:
+                // its UI size comes from the text size (a mode picked below), not from
+                // the Retina toggle, and the stream stays at the device's resolution.
                 resolution = VirtualDisplayManager.Resolution(
-                    width: rw,
-                    height: rh,
-                    ppi: isRetina ? min(220, selectedResolution.ppi * 2) : selectedResolution.ppi,
-                    hiDPI: isRetina,
+                    width: native.width,
+                    height: native.height,
+                    ppi: min(220, selectedResolution.ppi * 2),
+                    hiDPI: true,
                     name: "BetterCast Display (\(serviceName))"
                 )
             } else {
@@ -5896,11 +6080,38 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 )
             }
 
+            // With Retina on, offer a range of "looks like" sizes so the UI can be made
+            // bigger or smaller in System Settings > Displays. The stream stays at the
+            // size computed below for capture (the device's pixels, or the size picked
+            // above), so a foldable can be set to its native resolution once and then
+            // sized by eye instead of by working out a smaller resolution.
+            var scaledModes: [VirtualDisplayManager.Size] = []
+            var initialMode: VirtualDisplayManager.Size? = nil
+            if resolution.hiDPI {
+                let streamSize = native ?? .init(width: selectedResolution.width, height: selectedResolution.height)
+                // A device with a known native size starts at its saved text size.
+                let initial = native.map { VirtualDisplayManager.looksLike(native: $0, factor: textScale(for: serviceName)) }
+                    ?? .init(width: resolution.width / 2, height: resolution.height / 2)
+                initialMode = initial
+                scaledModes = VirtualDisplayManager.scaledModes(native: streamSize, initial: initial)
+                LogManager.shared.log("Sender: Scaled modes for \(serviceName): \(scaledModes.map { "\($0.width)x\($0.height)" }.joined(separator: ", "))")
+            }
+
             // High-refresh receivers: create the virtual display at 120Hz when the user
             // picked 120fps, so capture actually has 120 unique frames to deliver.
-            if let displayID = displayManager.createDisplay(resolution: resolution, refreshRate: selectedFPS >= 120 ? 120 : 60) {
+            if let displayID = displayManager.createDisplay(resolution: resolution, refreshRate: selectedFPS >= 120 ? 120 : 60, scaledModes: scaledModes) {
                 targetDisplayID = displayID
                 pipelines[connectionId]?.virtualDisplayManager = displayManager
+
+                // macOS restores the mode it last saw for this monitor, which may not be
+                // the text size BetterCast saved. Ours wins.
+                if native != nil, let initialMode {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        guard self.pipelines[connectionId]?.virtualDisplayManager?.displayID == displayID,
+                              let current = displayManager.currentLooksLike, current != initialMode else { return }
+                        displayManager.switchMode(to: initialMode)
+                    }
+                }
 
                 // Update InputHandler with this connection's display bounds
                 // Retry with increasing delays — macOS may take time to register the virtual display
@@ -5955,6 +6166,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
            let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
             captureWidth = rw
             captureHeight = rh
+        } else if let native = pipelines[connectionId]?.nativeSize {
+            // Registered native size: stream at the device's own pixels.
+            captureWidth = native.width
+            captureHeight = native.height
         } else {
             // Capture at the chosen resolution even when Retina is on. The virtual
             // display is still created at 2x so macOS renders crisply, but encoding

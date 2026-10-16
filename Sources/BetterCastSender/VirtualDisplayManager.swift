@@ -34,6 +34,43 @@ class VirtualDisplayManager {
     /// within what CGVirtualDisplay and the encoders accept.
     static let customSizeRange = 640...5120
     
+    struct Size: Equatable {
+        let width: Int
+        let height: Int
+    }
+
+    /// Divisors of the streamed pixel size offered as HiDPI "looks like" modes: 2.5 is
+    /// the largest text, 1.0 the most space (one point per streamed pixel).
+    static let scaleFactors: [Double] = [2.5, 2.0, 1.75, 1.5, 1.25, 1.0]
+
+    /// The "looks like" size, in points, of `native` pixels shown at `factor`.
+    static func looksLike(native: Size, factor: Double) -> Size {
+        Size(width: Int((Double(native.width) / factor).rounded()) & ~1,
+             height: Int((Double(native.height) / factor).rounded()) & ~1)
+    }
+
+    /// The text sizes a display streaming at `native` pixels can offer. Sizes too small
+    /// to be usable (a phone in landscape at 2.5x) are left out.
+    static func textSizeOptions(native: Size) -> [(factor: Double, size: Size)] {
+        scaleFactors
+            .map { ($0, looksLike(native: native, factor: $0)) }
+            .filter { min($0.1.width, $0.1.height) >= 480 }
+    }
+
+    /// The modes for a HiDPI display that streams at `native` pixels and starts at
+    /// `initial` points. Every mode keeps the native aspect ratio, and the encoder keeps
+    /// capturing at `native` whichever one is picked, so choosing a size only changes how
+    /// big the UI looks, never the stream's sharpness.
+    static func scaledModes(native: Size, initial: Size) -> [Size] {
+        var modes = [initial]
+        for option in textSizeOptions(native: native) {
+            // Rounding can land a pixel off the initial mode; don't list it twice.
+            guard !modes.contains(where: { abs($0.width - option.size.width) <= 2 && abs($0.height - option.size.height) <= 2 }) else { continue }
+            modes.append(option.size)
+        }
+        return modes
+    }
+
     private static var nextSerialNum: UInt32 = 1
 
     /// Serials handed out this session, so two live displays never collide.
@@ -119,19 +156,22 @@ class VirtualDisplayManager {
     
     /// Creates a virtual display with the specified resolution
     /// - Returns: The CGDirectDisplayID of the created virtual display, or nil if creation failed
-    func createDisplay(resolution: Resolution, refreshRate: Int = 60) -> CGDirectDisplayID? {
+    /// - Parameter scaledModes: "looks like" sizes in points to offer in System Settings,
+    ///   the first being the starting one; empty for the single mode `resolution` implies.
+    func createDisplay(resolution: Resolution, refreshRate: Int = 60, scaledModes: [Size] = []) -> CGDirectDisplayID? {
         return createDisplay(
             width: resolution.width,
             height: resolution.height,
             ppi: resolution.ppi,
             hiDPI: resolution.hiDPI,
             name: resolution.name,
-            refreshRate: refreshRate
+            refreshRate: refreshRate,
+            scaledModes: scaledModes
         )
     }
     
     /// Creates a virtual display with custom parameters
-    func createDisplay(width: Int, height: Int, ppi: Int, hiDPI: Bool, name: String, refreshRate: Int = 60) -> CGDirectDisplayID? {
+    func createDisplay(width: Int, height: Int, ppi: Int, hiDPI: Bool, name: String, refreshRate: Int = 60, scaledModes: [Size] = []) -> CGDirectDisplayID? {
         // Call the Objective-C function
         guard let display = createVirtualDisplay(
             Int32(width),
@@ -140,7 +180,8 @@ class VirtualDisplayManager {
             hiDPI,
             name,
             serialNum,
-            Int32(refreshRate)
+            Int32(refreshRate),
+            scaledModes.map { [NSNumber(value: $0.width), NSNumber(value: $0.height)] }
         ) else {
             LogManager.shared.log("VirtualDisplayManager: Failed to create virtual display")
             return nil
@@ -160,6 +201,30 @@ class VirtualDisplayManager {
         return nil
     }
     
+    /// The size the display currently looks like, in points.
+    var currentLooksLike: Size? {
+        guard let id = displayID, let mode = CGDisplayCopyDisplayMode(id) else { return nil }
+        return Size(width: mode.width, height: mode.height)
+    }
+
+    /// Switches to the mode that looks like `size`, preferring its HiDPI variant. Takes
+    /// effect without rebuilding the display, so the stream keeps running.
+    @discardableResult
+    func switchMode(to size: Size) -> Bool {
+        guard let id = displayID else { return false }
+        let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        let modes = (CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode]) ?? []
+        guard let mode = modes
+            .filter({ $0.width == size.width && $0.height == size.height })
+            .max(by: { $0.pixelWidth < $1.pixelWidth }) else {
+            LogManager.shared.log("VirtualDisplayManager: No \(size.width)x\(size.height) mode on display \(id)")
+            return false
+        }
+        let err = CGDisplaySetDisplayMode(id, mode, nil)
+        LogManager.shared.log("VirtualDisplayManager: Switch display \(id) to \(size.width)x\(size.height): \(err == .success ? "ok" : "error \(err.rawValue)")")
+        return err == .success
+    }
+
     /// Destroys the currently active virtual display
     func destroyDisplay() {
         activeDisplay = nil

@@ -272,3 +272,18 @@
 "Height" = "높이";
 "Set" = "설정";
 "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "너비 x 높이 (픽셀, 640-5120). 수신 기기 화면에 맞추면 검은 여백이 사라집니다. 연결 중에는 설정 적용을 클릭하세요.";
+"Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same." = "가상 디스플레이를 2배로 렌더링해 글자를 더 선명하게 합니다. Apple 수신 기기는 화면 크기를 알려 실제 기본 해상도로 스트리밍하고, 다른 기기는 위에서 선택한 해상도로 스트리밍합니다(2배 화면에서 축소). 시스템 설정 > 디스플레이에서 이 디스플레이의 글자 크기를 크게 또는 작게 고를 수 있으며, 스트리밍 해상도는 그대로입니다.";
+
+/* Native resolution and text size */
+"Screen" = "화면";
+"Native Resolution" = "기본 해상도";
+"Reported by the device." = "기기가 알려 준 값입니다.";
+"Change" = "변경";
+"Remove" = "제거";
+"Register" = "등록";
+"Cancel" = "취소";
+"Text Size" = "글자 크기";
+"Larger Text" = "글자 크게";
+"More Space" = "공간 넓게";
+"Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "이 기기 화면의 해상도를 픽셀로 입력하세요. 예: Galaxy Z TriFold를 펼쳤을 때 2160 x 1584. 이후 그 해상도로 스트리밍하며 아래에서 글자 크기를 고를 수 있습니다.";
+"How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "이 기기에서 데스크톱이 얼마나 크게 보이는지입니다. 스트리밍은 항상 기본 해상도라 어떤 크기든 선명합니다. 시스템 설정 > 디스플레이에서도 바꿀 수 있습니다.";

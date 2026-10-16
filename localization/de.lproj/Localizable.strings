@@ -274,3 +274,18 @@
 "Height" = "Höhe";
 "Set" = "Setzen";
 "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "Breite x Höhe in Pixeln (640-5120). An den Bildschirm des Empfängers anpassen, um schwarze Ränder zu entfernen. Bei bestehender Verbindung auf Einstellungen anwenden klicken.";
+"Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same." = "Rendert das virtuelle Display mit 2x, damit Text schärfer ist. Apple-Empfänger melden ihre Bildschirmgröße und streamen in ihrer echten nativen Auflösung; andere Geräte streamen in der oben gewählten Auflösung, herunterskaliert vom 2x-Bild. Unter Systemeinstellungen > Displays lässt sich für dieses Display größerer oder kleinerer Text wählen; die Stream-Auflösung bleibt gleich.";
+
+/* Native resolution and text size */
+"Screen" = "Bildschirm";
+"Native Resolution" = "Native Auflösung";
+"Reported by the device." = "Vom Gerät gemeldet.";
+"Change" = "Ändern";
+"Remove" = "Entfernen";
+"Register" = "Speichern";
+"Cancel" = "Abbrechen";
+"Text Size" = "Textgröße";
+"Larger Text" = "Größerer Text";
+"More Space" = "Mehr Platz";
+"Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "Gib die Bildschirmauflösung dieses Geräts in Pixeln ein, z. B. 2160 x 1584 für ein aufgeklapptes Galaxy Z TriFold. Danach wird in dieser Auflösung gestreamt und du wählst unten die Textgröße.";
+"How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "Wie groß der Schreibtisch auf diesem Gerät aussieht. Gestreamt wird immer in nativer Auflösung, daher ist jede Größe scharf. Auch unter Systemeinstellungen > Displays einstellbar.";

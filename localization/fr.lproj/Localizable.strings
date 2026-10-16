@@ -273,3 +273,18 @@
 "Height" = "Hauteur";
 "Set" = "Définir";
 "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "Largeur x hauteur en pixels (640-5120). Faites correspondre l'écran du récepteur pour supprimer les bandes noires. Cliquez sur Appliquer les réglages si connecté.";
+"Renders the virtual display at 2x so text is sharper. Apple receivers report their screen size and stream at their true native resolution; other devices stream at the resolution selected above, downsampled from the 2x framebuffer. Pick a larger or smaller text size for the display in System Settings > Displays; the stream resolution stays the same." = "Affiche l'écran virtuel en 2x pour un texte plus net. Les récepteurs Apple indiquent la taille de leur écran et diffusent dans leur vraie résolution native ; les autres appareils diffusent dans la résolution choisie ci-dessus, réduite depuis l'image 2x. Choisissez un texte plus grand ou plus petit pour cet écran dans Réglages Système > Moniteurs ; la résolution du flux ne change pas.";
+
+/* Native resolution and text size */
+"Screen" = "Écran";
+"Native Resolution" = "Résolution native";
+"Reported by the device." = "Indiquée par l'appareil.";
+"Change" = "Modifier";
+"Remove" = "Supprimer";
+"Register" = "Enregistrer";
+"Cancel" = "Annuler";
+"Text Size" = "Taille du texte";
+"Larger Text" = "Texte plus grand";
+"More Space" = "Plus d'espace";
+"Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "Saisissez la résolution de l'écran de cet appareil en pixels, par ex. 2160 x 1584 pour un Galaxy Z TriFold déplié. Le flux utilise alors cette résolution et vous choisissez la taille du texte ci-dessous.";
+"How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "Taille apparente du bureau sur cet appareil. Le flux reste en résolution native, chaque taille est donc nette. Réglable aussi dans Réglages Système > Moniteurs.";
