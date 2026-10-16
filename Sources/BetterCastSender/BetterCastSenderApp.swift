@@ -1380,12 +1380,8 @@ struct DetailPanelView: View {
                 }
 
                 HStack {
-                    Picker("Resolution", selection: $client.selectedResolution) {
-                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                            Text(res.name).tag(res)
-                        }
-                    }
-                    .disabled(!client.useVirtualDisplay)
+                    ResolutionPicker(label: "Resolution", client: client)
+                        .disabled(!client.useVirtualDisplay)
                     InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                 }
 
@@ -2233,11 +2229,7 @@ struct DeviceDetailView: View {
         Form {
             Section("Resolution") {
                 HStack {
-                    Picker("Dimensions", selection: $client.selectedResolution) {
-                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                            Text(res.name).tag(res)
-                        }
-                    }
+                    ResolutionPicker(label: "Dimensions", client: client)
                     InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                 }
 
@@ -2588,11 +2580,7 @@ struct DiscoveredDeviceView: View {
 
             Section("Resolution") {
                 HStack {
-                    Picker("Dimensions", selection: $client.selectedResolution) {
-                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                            Text(res.name).tag(res)
-                        }
-                    }
+                    ResolutionPicker(label: "Dimensions", client: client)
                     InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                 }
 
@@ -2740,6 +2728,86 @@ struct ConnectingBanner: View {
         .onReceive(timer) { _ in
             withAnimation(.easeInOut(duration: 0.25)) {
                 index = min(index + 1, ConnectingBanner.lines.count - 1)
+            }
+        }
+    }
+}
+
+/// Preset sizes plus a "Custom…" entry for receivers whose aspect ratio none of the
+/// presets match (e.g. a Galaxy Z TriFold unfolded at 2160x1584), which would
+/// otherwise be letterboxed.
+struct ResolutionPicker: View {
+    let label: LocalizedStringKey
+    @ObservedObject var client: NetworkClient
+
+    @State private var editingCustom = false
+    @State private var widthText = ""
+    @State private var heightText = ""
+
+    /// Picker tag for the "Custom…" row; never stored in `selectedResolution`.
+    private static let customTag = VirtualDisplayManager.Resolution(width: 0, height: 0, ppi: 0, hiDPI: false, name: "")
+
+    private var selection: Binding<VirtualDisplayManager.Resolution> {
+        Binding(
+            get: {
+                editingCustom || client.selectedResolution.isCustom ? Self.customTag : client.selectedResolution
+            },
+            set: { res in
+                if res == Self.customTag {
+                    widthText = String(client.selectedResolution.width)
+                    heightText = String(client.selectedResolution.height)
+                    editingCustom = true
+                } else {
+                    editingCustom = false
+                    client.selectedResolution = res
+                }
+            }
+        )
+    }
+
+    private var parsedSize: (Int, Int)? {
+        guard let w = Int(widthText.trimmingCharacters(in: .whitespaces)),
+              let h = Int(heightText.trimmingCharacters(in: .whitespaces)),
+              VirtualDisplayManager.customSizeRange.contains(w),
+              VirtualDisplayManager.customSizeRange.contains(h) else { return nil }
+        return (w, h)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker(label, selection: selection) {
+                ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
+                    Text(res.name).tag(res)
+                }
+                Divider()
+                Text(client.selectedResolution.isCustom ? client.selectedResolution.name : tr("Custom…"))
+                    .tag(Self.customTag)
+            }
+
+            if editingCustom || client.selectedResolution.isCustom {
+                HStack(spacing: 6) {
+                    TextField("Width", text: $widthText)
+                        .frame(width: 70)
+                    Text("×")
+                    TextField("Height", text: $heightText)
+                        .frame(width: 70)
+                    Button("Set") {
+                        guard let (w, h) = parsedSize else { return }
+                        client.selectedResolution = .custom(width: w, height: h)
+                        editingCustom = false
+                    }
+                    .disabled(parsedSize == nil)
+                }
+                .textFieldStyle(.roundedBorder)
+                .onAppear {
+                    if widthText.isEmpty {
+                        widthText = String(client.selectedResolution.width)
+                        heightText = String(client.selectedResolution.height)
+                    }
+                }
+                Text(tr("Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -3004,9 +3072,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     private static func loadResolution() -> VirtualDisplayManager.Resolution {
         let d = UserDefaults.standard
         if let w = d.object(forKey: SettingsKey.resWidth) as? Int,
-           let h = d.object(forKey: SettingsKey.resHeight) as? Int,
-           let match = VirtualDisplayManager.defaultResolutions.first(where: { $0.width == w && $0.height == h }) {
-            return match
+           let h = d.object(forKey: SettingsKey.resHeight) as? Int {
+            if let match = VirtualDisplayManager.defaultResolutions.first(where: { $0.width == w && $0.height == h }) {
+                return match
+            }
+            if w > 0 && h > 0 {
+                return .custom(width: w, height: h)
+            }
         }
         return VirtualDisplayManager.defaultResolutions[1]
     }

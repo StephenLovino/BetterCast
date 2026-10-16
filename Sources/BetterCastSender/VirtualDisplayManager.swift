@@ -28,6 +28,11 @@ class VirtualDisplayManager {
         Resolution(width: 5120, height: 2880, ppi: 218, hiDPI: true, name: "5120 x 2880 (5K Retina)"),
         Resolution(width: 1440, height: 900, ppi: 127, hiDPI: false, name: "1440 x 900 (16:10)"),
     ]
+
+    /// Bounds for a user-entered size. The floor keeps macOS from refusing the mode;
+    /// the ceiling is the 5K preset's long side so Retina (which doubles it) stays
+    /// within what CGVirtualDisplay and the encoders accept.
+    static let customSizeRange = 640...5120
     
     private static var nextSerialNum: UInt32 = 1
 
@@ -165,5 +170,22 @@ class VirtualDisplayManager {
     
     deinit {
         destroyDisplay()
+    }
+}
+
+extension VirtualDisplayManager.Resolution {
+    /// A size the presets don't cover — foldables and other odd aspect ratios that
+    /// would otherwise be letterboxed. Dimensions are clamped to `customSizeRange` and
+    /// rounded down to even, since H.264/HEVC reject odd frame sizes.
+    static func custom(width: Int, height: Int) -> Self {
+        let range = VirtualDisplayManager.customSizeRange
+        func fit(_ v: Int) -> Int { min(max(v, range.lowerBound), range.upperBound) & ~1 }
+        let w = fit(width), h = fit(height)
+        return Self(width: w, height: h, ppi: 110, hiDPI: false, name: "\(w) x \(h) (\(tr("Custom")))")
+    }
+
+    /// True when this size isn't one of `defaultResolutions`.
+    var isCustom: Bool {
+        !VirtualDisplayManager.defaultResolutions.contains { $0.width == width && $0.height == height }
     }
 }

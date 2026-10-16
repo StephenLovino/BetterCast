@@ -266,3 +266,11 @@
 /* Per-device codec picker */
 "Codec" = "Codec";
 "Default" = "Default";
+
+/* Custom resolution */
+"Custom" = "Custom";
+"Custom…" = "Custom…";
+"Width" = "Width";
+"Height" = "Height";
+"Set" = "Set";
+"Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected.";

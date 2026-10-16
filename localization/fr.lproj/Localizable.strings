@@ -265,3 +265,11 @@
 /* Per-device codec picker */
 "Codec" = "Codec";
 "Default" = "Par défaut";
+
+/* Custom resolution */
+"Custom" = "Personnalisée";
+"Custom…" = "Personnalisée…";
+"Width" = "Largeur";
+"Height" = "Hauteur";
+"Set" = "Définir";
+"Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "Largeur x hauteur en pixels (640-5120). Faites correspondre l'écran du récepteur pour supprimer les bandes noires. Cliquez sur Appliquer les réglages si connecté.";

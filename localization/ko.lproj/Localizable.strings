@@ -264,3 +264,11 @@
 /* Per-device codec picker */
 "Codec" = "코덱";
 "Default" = "기본값";
+
+/* Custom resolution */
+"Custom" = "사용자 지정";
+"Custom…" = "사용자 지정…";
+"Width" = "너비";
+"Height" = "높이";
+"Set" = "설정";
+"Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "너비 x 높이 (픽셀, 640-5120). 수신 기기 화면에 맞추면 검은 여백이 사라집니다. 연결 중에는 설정 적용을 클릭하세요.";

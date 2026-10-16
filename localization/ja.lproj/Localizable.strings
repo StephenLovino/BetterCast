@@ -264,3 +264,11 @@
 /* Per-device codec picker */
 "Codec" = "コーデック";
 "Default" = "デフォルト";
+
+/* Custom resolution */
+"Custom" = "カスタム";
+"Custom…" = "カスタム…";
+"Width" = "幅";
+"Height" = "高さ";
+"Set" = "設定";
+"Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "幅 x 高さ（ピクセル、640-5120）。受信側の画面に合わせると黒帯がなくなります。接続中は「設定を適用」をクリックしてください。";

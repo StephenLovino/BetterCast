@@ -266,3 +266,11 @@
 /* Per-device codec picker */
 "Codec" = "Codec";
 "Default" = "Standard";
+
+/* Custom resolution */
+"Custom" = "Eigene";
+"Custom…" = "Eigene…";
+"Width" = "Breite";
+"Height" = "Höhe";
+"Set" = "Setzen";
+"Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "Breite x Höhe in Pixeln (640-5120). An den Bildschirm des Empfängers anpassen, um schwarze Ränder zu entfernen. Bei bestehender Verbindung auf Einstellungen anwenden klicken.";

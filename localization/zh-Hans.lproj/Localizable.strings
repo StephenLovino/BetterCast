@@ -265,3 +265,11 @@
 /* Per-device codec picker */
 "Codec" = "编解码器";
 "Default" = "默认";
+
+/* Custom resolution */
+"Custom" = "自定义";
+"Custom…" = "自定义…";
+"Width" = "宽";
+"Height" = "高";
+"Set" = "设定";
+"Width x height in pixels (640-5120). Match your receiver's screen to remove black bars. Click Apply Settings while connected." = "宽 x 高，单位像素 (640-5120)。与接收端屏幕一致即可消除黑边。已连接时请点按\"应用设置\"。";
