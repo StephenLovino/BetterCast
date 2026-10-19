@@ -3082,6 +3082,9 @@ struct ConnectionPipeline {
     // The device's native pixels when known (reported, or registered by the user). Such
     // a display streams at this size and offers text sizes instead of a fixed resolution.
     var nativeSize: VirtualDisplayManager.Size? = nil
+    // True from the moment the display is (re)built or resized until BetterCast has put it
+    // back where the user had it; positions seen in between are macOS's guess, not theirs.
+    var placementPending: Bool = false
 }
 
 class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegate {
@@ -3285,6 +3288,56 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         updateStreamResolution()
     }
 
+    /// Where each device's display last sat (x, y, width, height in global points), keyed
+    /// like the other per-device settings. Rotating, or a new text size, rebuilds or resizes
+    /// the display, and macOS then places it wherever it likes: a display kept to the right
+    /// of the main screen came back on its left after rotating. This is what puts it back.
+    private var displayPlacements: [String: [Double]] =
+        UserDefaults.standard.dictionary(forKey: "displayPlacements") as? [String: [Double]] ?? [:] {
+        didSet { UserDefaults.standard.set(displayPlacements, forKey: "displayPlacements") }
+    }
+
+    private func savePlacement(_ bounds: CGRect, for serviceName: String) {
+        displayPlacements[screenSizeKey(serviceName)] =
+            [bounds.minX, bounds.minY, bounds.width, bounds.height].map { Double($0) }
+    }
+
+    /// Moves the display back beside the main screen on the side it was on before, keeping
+    /// the edge that faces the main screen where it was, since the display's size may have
+    /// changed. Clears `placementPending` either way.
+    private func restorePlacement(for connectionId: UUID) {
+        defer { pipelines[connectionId]?.placementPending = false }
+        guard let pipeline = pipelines[connectionId],
+              let displayID = pipeline.virtualDisplayManager?.displayID else { return }
+        guard let saved = displayPlacements[screenSizeKey(pipeline.service.name)], saved.count == 4 else {
+            // Nothing remembered yet: take where it settled now as the starting point.
+            // On a first connect that is macOS's own memory of this monitor.
+            let bounds = CGDisplayBounds(displayID)
+            if bounds.width > 0 { savePlacement(bounds, for: pipeline.service.name) }
+            return
+        }
+        let old = CGRect(x: saved[0], y: saved[1], width: saved[2], height: saved[3])
+        let current = CGDisplayBounds(displayID)
+        let main = CGDisplayBounds(CGMainDisplayID())
+        guard current.width > 0, displayID != CGMainDisplayID() else { return }
+
+        var target = old.origin
+        if old.minX >= main.maxX - 1 {
+            target = CGPoint(x: old.minX, y: old.minY)                  // right of main
+        } else if old.maxX <= main.minX + 1 {
+            target = CGPoint(x: old.maxX - current.width, y: old.minY)  // left
+        } else if old.maxY <= main.minY + 1 {
+            target = CGPoint(x: old.minX, y: old.maxY - current.height) // above
+        }
+        guard target != current.origin else { return }
+
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success, let config else { return }
+        CGConfigureDisplayOrigin(config, displayID, Int32(target.x.rounded()), Int32(target.y.rounded()))
+        let err = CGCompleteDisplayConfiguration(config, .permanently)
+        LogManager.shared.log("Sender: Restored \(pipeline.service.name) display to \(Int(target.x)),\(Int(target.y)) (was \(Int(current.minX)),\(Int(current.minY))): \(err == .success ? "ok" : "error \(err.rawValue)")")
+    }
+
     func textScale(for serviceName: String) -> Double {
         textScales[screenSizeKey(serviceName)] ?? (isRetina ? 2.0 : 1.0)
     }
@@ -3293,9 +3346,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     func setTextScale(_ factor: Double, for serviceName: String) {
         let key = screenSizeKey(serviceName)
         textScales[key] = factor
-        for (_, pipeline) in pipelines where screenSizeKey(pipeline.service.name) == key {
+        for (connectionId, pipeline) in pipelines where screenSizeKey(pipeline.service.name) == key {
             guard let native = pipeline.nativeSize, let dm = pipeline.virtualDisplayManager else { continue }
+            pipelines[connectionId]?.placementPending = true
             dm.switchMode(to: VirtualDisplayManager.looksLike(native: native, factor: factor))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.restorePlacement(for: connectionId) }
         }
     }
 
@@ -5532,6 +5587,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     self.textScales[self.screenSizeKey(pipeline.service.name)] = option.factor
                     LogManager.shared.log("Sender: Text size for \(pipeline.service.name) changed in System Settings: \(current.width)x\(current.height)")
                 }
+                // Remember where the user keeps it, but not where macOS dropped a display
+                // that was just rebuilt or resized and is about to be put back.
+                if !pipeline.placementPending {
+                    self.savePlacement(bounds, for: pipeline.service.name)
+                }
                 if InputHandler.shared.getDisplayBounds(for: connectionId) != bounds {
                     InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
                     moved.append("\(pipeline.service.name) -> \(bounds)")
@@ -6115,6 +6175,15 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             if let displayID = displayManager.createDisplay(resolution: resolution, refreshRate: selectedFPS >= 120 ? 120 : 60, scaledModes: scaledModes) {
                 targetDisplayID = displayID
                 pipelines[connectionId]?.virtualDisplayManager = displayManager
+
+                // A rebuilt display (after rotating, say) is a new size macOS has not seen,
+                // and it gets placed wherever macOS likes. Put it back where the user had it
+                // once the mode below has settled.
+                pipelines[connectionId]?.placementPending = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    guard self.pipelines[connectionId]?.virtualDisplayManager?.displayID == displayID else { return }
+                    self.restorePlacement(for: connectionId)
+                }
 
                 // macOS restores the mode it last saw for this monitor, which may not be
                 // the text size BetterCast saved. Ours wins.
