@@ -2893,6 +2893,9 @@ struct ConnectionPipeline {
     // Receiver-reported screen dimensions (pixels) — used to match aspect ratio
     var reportedScreenWidth: Int? = nil
     var reportedScreenHeight: Int? = nil
+    // Receiver reported (command 776) that it has no H.265 hardware decoder.
+    // Older iPhones and iPads (A8 and earlier) are the case: H.265 there is a black screen.
+    var receiverLacksHEVC: Bool = false
 }
 
 class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegate {
@@ -5561,6 +5564,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                                 } else if event.type == .command && event.keyCode == 777 {
                                     // Screen info from receiver: deltaX=width, deltaY=height (pixels)
                                     self?.handleScreenInfo(for: connectionId, width: Int(event.deltaX), height: Int(event.deltaY))
+                                } else if event.type == .command && event.keyCode == 776 {
+                                    // Decoder capabilities from receiver: deltaX=1 has H.265 hardware decode
+                                    self?.handleDecoderCapabilities(for: connectionId, hevcHardware: event.deltaX >= 0.5)
                                 } else if event.type == .command && event.keyCode == 770,
                                           let name = event.deviceName,
                                           !name.isEmpty {
@@ -5614,6 +5620,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                                 self?.pipelines[connectionId]?.videoEncoder?.forceKeyframe()
                             } else if event.type == .command && event.keyCode == 777 {
                                 self?.handleScreenInfo(for: connectionId, width: Int(event.deltaX), height: Int(event.deltaY))
+                            } else if event.type == .command && event.keyCode == 776 {
+                                self?.handleDecoderCapabilities(for: connectionId, hevcHardware: event.deltaX >= 0.5)
                             } else if event.type == .command && event.keyCode == 770,
                                       let name = event.deviceName,
                                       !name.isEmpty {
@@ -5705,6 +5713,25 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                   self.supersededByRedial[targetName] == connectionId else { return }
             self.supersededByRedial.removeValue(forKey: targetName)
             LogManager.shared.log("Sender: Re-dial to \(targetName) never landed — staying on the invite connection")
+        }
+    }
+
+    // Handle decoder capabilities from a receiver (command 776).
+    // The default codec is H.265, and A8-and-older iPhones and iPads have no H.265
+    // decoder: they showed a black screen until the user found the per-device codec
+    // setting. Receivers that report this get H.264 automatically. Older receivers never
+    // send it, so nothing changes for them.
+    private func handleDecoderCapabilities(for connectionId: UUID, hevcHardware: Bool) {
+        guard let pipeline = pipelines[connectionId] else { return }
+        let lacks = !hevcHardware
+        guard pipeline.receiverLacksHEVC != lacks else { return }
+        pipelines[connectionId]?.receiverLacksHEVC = lacks
+        LogManager.shared.log("Sender: \(pipeline.service.name) reports H.265 hardware decode: \(hevcHardware)")
+        // Already streaming H.265 to a device that can't play it: rebuild as H.264 now.
+        if lacks, pipeline.videoEncoder?.codec == .hevc {
+            LogManager.shared.log("Sender: \(pipeline.service.name) can't decode H.265 — restarting as H.264")
+            stopPipeline(for: connectionId)
+            startPipeline(for: connectionId)
         }
     }
 
@@ -5974,6 +6001,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // to 8K, so oversized pipelines are promoted rather than left to fail — which is
         // also why TargetBridge-class 5K streaming effectively requires HEVC.
         var resolvedCodec = codecFor(serviceName: serviceName)
+        if resolvedCodec == .hevc && pipelines[connectionId]?.receiverLacksHEVC == true
+            && max(captureWidth, captureHeight) <= 4096 {
+            resolvedCodec = .h264
+            LogManager.shared.log("Sender: \(serviceName) has no H.265 decoder — using H.264")
+        }
         if resolvedCodec == .h264 && max(captureWidth, captureHeight) > 4096 {
             resolvedCodec = .hevc
             LogManager.shared.log("Sender: \(serviceName) at \(captureWidth)x\(captureHeight) exceeds H.264 encoder limits — using H.265")
