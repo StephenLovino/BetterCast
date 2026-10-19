@@ -125,4 +125,9 @@
     <string name="donate_action">Kaffee spendieren</string>
     <string name="donate_later">Später</string>
     <string name="donate_already">Habe schon gespendet</string>
+    <string name="setting_rotation">Drehung</string>
+    <string name="setting_rotation_desc">Ausrichtung des Bildschirms beim Streamen. „Automatisch“ folgt dem Gerät und beachtet die Rotationssperre.</string>
+    <string name="rotation_landscape">Querformat</string>
+    <string name="rotation_portrait">Hochformat</string>
+    <string name="rotation_auto">Automatisch</string>
 </resources>

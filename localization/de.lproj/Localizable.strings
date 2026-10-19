@@ -266,3 +266,26 @@
 /* Per-device codec picker */
 "Codec" = "Codec";
 "Default" = "Standard";
+
+/* Screen fit: custom resolution, native size, text size */
+"Custom" = "Eigene";
+"Custom..." = "Eigene …";
+"Set" = "Festlegen";
+"Width" = "Breite";
+"Height" = "Höhe";
+"Screen" = "Bildschirm";
+"Native Resolution" = "Native Auflösung";
+"Change" = "Ändern";
+"Remove" = "Entfernen";
+"Portrait" = "Hochformat";
+"Save" = "Sichern";
+"Cancel" = "Abbrechen";
+"Text Size" = "Textgröße";
+"Larger Text" = "Größerer Text";
+"More Space" = "Mehr Platz";
+"Width and height in pixels, 640 to 5120. Match the receiver's screen to remove black bars. While connected, click Apply Settings." = "Breite und Höhe in Pixeln, 640 bis 5120. Passend zum Bildschirm des Empfängers verschwinden schwarze Balken. Während einer Verbindung auf „Einstellungen anwenden“ klicken.";
+"Reported by the device, and followed when it rotates." = "Vom Gerät gemeldet und folgt seiner Drehung.";
+"Stand the display upright for a device used in portrait. Devices that report their own size follow their rotation automatically." = "Stellt den Bildschirm hochkant für ein Gerät, das im Hochformat steht. Geräte, die ihre Größe selbst melden, folgen ihrer Drehung automatisch.";
+"This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "Dieses Gerät meldet seine Bildschirmgröße nicht. Gib sie in Pixeln ein (zum Beispiel 2160 x 1584), um in voller Schärfe ohne schwarze Balken zu streamen.";
+"How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "Wie groß der Schreibtisch auf diesem Gerät wirkt. Der Stream bleibt in nativer Auflösung, daher ist jede Größe scharf. Auch in Systemeinstellungen > Displays einstellbar.";
+"Turn on Retina (HiDPI) to choose a text size for this device." = "Aktiviere Retina (HiDPI), um eine Textgröße für dieses Gerät zu wählen.";

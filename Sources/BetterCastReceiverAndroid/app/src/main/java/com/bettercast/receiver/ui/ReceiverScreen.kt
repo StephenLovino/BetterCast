@@ -32,6 +32,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import android.Manifest
 import android.app.Activity
+import com.bettercast.receiver.data.StreamOrientation
+import androidx.lifecycle.Lifecycle
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalConfiguration
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Rect
@@ -101,14 +105,32 @@ fun ReceiverScreen(
     val state by viewModel.state.collectAsState()
 
     // Portrait while waiting — the setup text, hotspot details and QR all read
-    // better upright, and the QR gets far more room. Landscape only once a stream
-    // is live, which is when the phone is actually acting as a display.
+    // better upright, and the QR gets far more room. Once a stream is live the
+    // Rotation setting decides: landscape (default), portrait, or follow the device.
     val context = LocalContext.current
-    LaunchedEffect(state) {
+    val streamOrientation by viewModel.settings.streamOrientation.collectAsState()
+    LaunchedEffect(state, streamOrientation) {
         (context as? Activity)?.requestedOrientation = when (state) {
-            ReceiverState.CONNECTED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            ReceiverState.CONNECTED -> when (streamOrientation) {
+                StreamOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                StreamOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                StreamOrientation.AUTO -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+            }
             else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+    }
+
+    // When the panel changes shape mid-stream (rotated, folded, unfolded), tell the Mac
+    // once it has settled so the virtual display is rebuilt to match. The delay rides out
+    // the rotation animation and a quick back-and-forth. Skipped in PiP, where the window
+    // says nothing about the panel, and while the app is in the background.
+    val configuration = LocalConfiguration.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val pip by viewModel.inPictureInPicture.collectAsState()
+    LaunchedEffect(state, pip, configuration.orientation, configuration.screenWidthDp, configuration.screenHeightDp) {
+        if (state != ReceiverState.CONNECTED || pip) return@LaunchedEffect
+        delay(700)
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) viewModel.reportPanelAsShown()
     }
     val statusMessage by viewModel.statusMessage.collectAsState()
     val deviceIp by viewModel.deviceIp.collectAsState()

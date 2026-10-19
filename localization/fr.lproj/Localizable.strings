@@ -265,3 +265,26 @@
 /* Per-device codec picker */
 "Codec" = "Codec";
 "Default" = "Par défaut";
+
+/* Screen fit: custom resolution, native size, text size */
+"Custom" = "Personnalisée";
+"Custom..." = "Personnalisée…";
+"Set" = "Définir";
+"Width" = "Largeur";
+"Height" = "Hauteur";
+"Screen" = "Écran";
+"Native Resolution" = "Résolution native";
+"Change" = "Modifier";
+"Remove" = "Supprimer";
+"Portrait" = "Portrait";
+"Save" = "Enregistrer";
+"Cancel" = "Annuler";
+"Text Size" = "Taille du texte";
+"Larger Text" = "Texte plus grand";
+"More Space" = "Plus d’espace";
+"Width and height in pixels, 640 to 5120. Match the receiver's screen to remove black bars. While connected, click Apply Settings." = "Largeur et hauteur en pixels, de 640 à 5120. Faites-les correspondre à l’écran du récepteur pour supprimer les bandes noires. Une fois connecté, cliquez sur Appliquer les réglages.";
+"Reported by the device, and followed when it rotates." = "Indiquée par l’appareil, et suit sa rotation.";
+"Stand the display upright for a device used in portrait. Devices that report their own size follow their rotation automatically." = "Met l’écran à la verticale pour un appareil utilisé en portrait. Les appareils qui indiquent leur taille suivent leur rotation automatiquement.";
+"This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "Cet appareil n’indique pas la taille de son écran. Saisissez-la en pixels (par exemple 2160 x 1584) pour diffuser en pleine netteté, sans bandes noires.";
+"How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "La taille apparente du bureau sur cet appareil. Le flux reste à la résolution native, donc chaque taille est nette. Également réglable dans Réglages Système > Moniteurs.";
+"Turn on Retina (HiDPI) to choose a text size for this device." = "Activez Retina (HiDPI) pour choisir une taille de texte pour cet appareil.";

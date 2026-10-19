@@ -125,4 +125,9 @@
     <string name="donate_action">Offrir un café</string>
     <string name="donate_later">Plus tard</string>
     <string name="donate_already">J\'ai déjà fait un don</string>
+    <string name="setting_rotation">Rotation</string>
+    <string name="setting_rotation_desc">Orientation de l\'écran pendant la diffusion. Auto suit l\'appareil et respecte le verrouillage de la rotation.</string>
+    <string name="rotation_landscape">Paysage</string>
+    <string name="rotation_portrait">Portrait</string>
+    <string name="rotation_auto">Auto</string>
 </resources>

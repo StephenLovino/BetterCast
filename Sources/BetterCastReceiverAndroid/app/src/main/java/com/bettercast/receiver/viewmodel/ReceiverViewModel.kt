@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bettercast.receiver.R
 import com.bettercast.receiver.audio.AudioPlayer
+import com.bettercast.receiver.data.StreamOrientation
 import com.bettercast.receiver.data.SettingsStore
 import com.bettercast.receiver.input.InputEvent
 import com.bettercast.receiver.network.ConnectionState
@@ -318,9 +319,27 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun sendScreenInfo() {
-        val (width, height) = landscapePanelSize() ?: return
+        val (long, short) = landscapePanelSize() ?: return
+        // On connect the waiting screen is still pinned portrait, so the panel's current
+        // rotation says nothing yet. Report the shape the setting is about to put it in;
+        // the stream screen corrects it with reportPanelAsShown once it has settled.
+        val (width, height) =
+            if (settings.streamOrientation.value == StreamOrientation.PORTRAIT) short to long else long to short
         Log.i(TAG, "Sending screen info ${width}x$height")
         sendInputEvent(InputEvent.screenInfo(width, height))
+    }
+
+    /**
+     * Report the panel exactly as it is rotated right now. Called by the stream screen
+     * after a rotation, fold or unfold has settled, so the Mac rebuilds its display in
+     * the same shape. This also covers devices that ignore the app's orientation request
+     * (some large foldables do): the report follows what is on screen, not what was asked.
+     * The Mac ignores a report that matches the size it already has.
+     */
+    fun reportPanelAsShown() {
+        val size = currentPanelSize() ?: return
+        Log.i(TAG, "Panel now ${size.x}x${size.y}, reporting")
+        sendInputEvent(InputEvent.screenInfo(size.x, size.y))
     }
 
     /**
@@ -333,14 +352,18 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
      * so a phone set to a lower display resolution is not sent more pixels than it draws.
      */
     private fun landscapePanelSize(): Pair<Int, Int>? {
+        val size = currentPanelSize() ?: return null
+        return maxOf(size.x, size.y) to minOf(size.x, size.y)
+    }
+
+    private fun currentPanelSize(): Point? {
         val display = getApplication<Application>()
             .getSystemService(DisplayManager::class.java)
             ?.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
         val size = Point()
         @Suppress("DEPRECATION") // still the one call that reports the full panel on every API level we support
         display.getRealSize(size)
-        if (size.x <= 0 || size.y <= 0) return null
-        return maxOf(size.x, size.y) to minOf(size.x, size.y)
+        return if (size.x > 0 && size.y > 0) size else null
     }
 
     fun sendInputEvent(event: InputEvent) {

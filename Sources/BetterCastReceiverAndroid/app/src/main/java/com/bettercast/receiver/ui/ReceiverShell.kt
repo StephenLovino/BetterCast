@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
@@ -64,6 +65,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.bettercast.receiver.BuildConfig
 import com.bettercast.receiver.R
+import com.bettercast.receiver.data.StreamOrientation
 import com.bettercast.receiver.data.ThemeMode
 import com.bettercast.receiver.ui.components.DisclosureRow
 import com.bettercast.receiver.ui.components.RowDivider
@@ -313,6 +315,7 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
     val audioEnabled by settings.audioEnabled.collectAsState()
     val cursorMode by settings.cursorMode.collectAsState()
     val themeMode by settings.themeMode.collectAsState()
+    val streamOrientation by settings.streamOrientation.collectAsState()
     val autoPipEnabled by settings.autoPipEnabled.collectAsState()
     val state by viewModel.state.collectAsState()
 
@@ -378,6 +381,32 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
         Spacer(Modifier.height(20.dp))
 
         SettingsSection(stringResource(R.string.section_display), Icons.Filled.AspectRatio) {
+            SegmentedRow(
+                icon = Icons.Filled.ScreenRotation,
+                iconColor = BC.primaryDim,
+                title = stringResource(R.string.setting_rotation),
+                description = stringResource(R.string.setting_rotation_desc),
+                options = listOf(
+                    stringResource(R.string.rotation_landscape),
+                    stringResource(R.string.rotation_portrait),
+                    stringResource(R.string.rotation_auto)
+                ),
+                selectedIndex = when (streamOrientation) {
+                    StreamOrientation.LANDSCAPE -> 0
+                    StreamOrientation.PORTRAIT -> 1
+                    StreamOrientation.AUTO -> 2
+                },
+                onSelect = {
+                    settings.setStreamOrientation(
+                        when (it) {
+                            1 -> StreamOrientation.PORTRAIT
+                            2 -> StreamOrientation.AUTO
+                            else -> StreamOrientation.LANDSCAPE
+                        }
+                    )
+                }
+            )
+            RowDivider()
             SegmentedRow(
                 icon = Icons.Filled.AspectRatio,
                 iconColor = BC.primaryDim,

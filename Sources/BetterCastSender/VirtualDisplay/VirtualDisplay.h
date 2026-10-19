@@ -14,4 +14,7 @@
 
 #import <Foundation/Foundation.h>
 
-id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate);
+/// `pointModes`, when non-empty, replaces the single default mode with this list of
+/// sizes in points (NSValue-wrapped NSSize), first entry = the mode the display starts
+/// in. The framebuffer is sized to hold the largest of them.
+id createVirtualDisplay(int width, int height, int ppi, BOOL hiDPI, NSString *name, unsigned int serialNum, int refreshRate, NSArray<NSValue *> *pointModes);

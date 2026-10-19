@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** Which way the stream is held. AUTO follows the device and respects rotation lock. */
+enum class StreamOrientation { AUTO, LANDSCAPE, PORTRAIT }
+
 /**
  * Persisted receiver preferences, mirroring the iOS settings screen.
  *
@@ -25,6 +28,7 @@ class SettingsStore(context: Context) {
         private const val KEY_CURSOR_MODE = "cursorMode"
         private const val KEY_AUTO_PIP = "autoPipEnabled"
         private const val KEY_THEME = "themeMode"
+        private const val KEY_STREAM_ORIENTATION = "streamOrientation"
         private const val KEY_DONATE_SILENCED = "donatePromptSilenced"
         private const val KEY_LAUNCH_COUNT = "donatePromptLaunchCount"
 
@@ -67,6 +71,20 @@ class SettingsStore(context: Context) {
             .getOrDefault(ThemeMode.SYSTEM)
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    // Landscape stays the default: it is how the receiver has always behaved, and what
+    // a phone propped up beside a laptop wants. Portrait and Auto are for tablets and
+    // foldables that stand either way.
+    private val _streamOrientation = MutableStateFlow(
+        runCatching { StreamOrientation.valueOf(prefs.getString(KEY_STREAM_ORIENTATION, null) ?: "") }
+            .getOrDefault(StreamOrientation.LANDSCAPE)
+    )
+    val streamOrientation: StateFlow<StreamOrientation> = _streamOrientation.asStateFlow()
+
+    fun setStreamOrientation(value: StreamOrientation) {
+        _streamOrientation.value = value
+        prefs.edit().putString(KEY_STREAM_ORIENTATION, value.name).apply()
+    }
 
     fun setDeviceName(value: String) {
         val cleaned = value.trim().ifBlank { defaultDeviceName() }

@@ -266,3 +266,26 @@
 /* Per-device codec picker */
 "Codec" = "Codec";
 "Default" = "Default";
+
+/* Screen fit: custom resolution, native size, text size */
+"Custom" = "Custom";
+"Custom..." = "Custom...";
+"Set" = "Set";
+"Width" = "Width";
+"Height" = "Height";
+"Screen" = "Screen";
+"Native Resolution" = "Native Resolution";
+"Change" = "Change";
+"Remove" = "Remove";
+"Portrait" = "Portrait";
+"Save" = "Save";
+"Cancel" = "Cancel";
+"Text Size" = "Text Size";
+"Larger Text" = "Larger Text";
+"More Space" = "More Space";
+"Width and height in pixels, 640 to 5120. Match the receiver's screen to remove black bars. While connected, click Apply Settings." = "Width and height in pixels, 640 to 5120. Match the receiver's screen to remove black bars. While connected, click Apply Settings.";
+"Reported by the device, and followed when it rotates." = "Reported by the device, and followed when it rotates.";
+"Stand the display upright for a device used in portrait. Devices that report their own size follow their rotation automatically." = "Stand the display upright for a device used in portrait. Devices that report their own size follow their rotation automatically.";
+"This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars.";
+"How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays.";
+"Turn on Retina (HiDPI) to choose a text size for this device." = "Turn on Retina (HiDPI) to choose a text size for this device.";

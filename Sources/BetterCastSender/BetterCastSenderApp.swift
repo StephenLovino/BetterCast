@@ -1380,12 +1380,8 @@ struct DetailPanelView: View {
                 }
 
                 HStack {
-                    Picker("Resolution", selection: $client.selectedResolution) {
-                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                            Text(res.name).tag(res)
-                        }
-                    }
-                    .disabled(!client.useVirtualDisplay)
+                    ResolutionPicker(title: "Resolution", client: client)
+                        .disabled(!client.useVirtualDisplay)
                     InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                 }
 
@@ -2231,14 +2227,15 @@ struct DeviceDetailView: View {
 
     var body: some View {
         Form {
+            DeviceScreenSection(serviceName: display.name, client: client)
+
             Section("Resolution") {
-                HStack {
-                    Picker("Dimensions", selection: $client.selectedResolution) {
-                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                            Text(res.name).tag(res)
-                        }
+                // A device with a known native size streams at it; the picker would do nothing.
+                if client.nativeSize(for: display.name) == nil {
+                    HStack {
+                        ResolutionPicker(title: "Dimensions", client: client)
+                        InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                     }
-                    InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                 }
 
                 HStack {
@@ -2586,14 +2583,15 @@ struct DiscoveredDeviceView: View {
                 }
             }
 
+            DeviceScreenSection(serviceName: service.name, client: client)
+
             Section("Resolution") {
-                HStack {
-                    Picker("Dimensions", selection: $client.selectedResolution) {
-                        ForEach(VirtualDisplayManager.defaultResolutions, id: \.self) { res in
-                            Text(res.name).tag(res)
-                        }
+                // A device with a known native size streams at it; the picker would do nothing.
+                if client.nativeSize(for: service.name) == nil {
+                    HStack {
+                        ResolutionPicker(title: "Dimensions", client: client)
+                        InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                     }
-                    InfoTip(text: "Resolution of the virtual display. Higher resolutions use more bandwidth.")
                 }
 
                 HStack {
@@ -3007,9 +3005,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     private static func loadResolution() -> VirtualDisplayManager.Resolution {
         let d = UserDefaults.standard
         if let w = d.object(forKey: SettingsKey.resWidth) as? Int,
-           let h = d.object(forKey: SettingsKey.resHeight) as? Int,
-           let match = VirtualDisplayManager.defaultResolutions.first(where: { $0.width == w && $0.height == h }) {
-            return match
+           let h = d.object(forKey: SettingsKey.resHeight) as? Int, w > 0, h > 0 {
+            // A size that is not a preset was typed in by the user: keep it.
+            return VirtualDisplayManager.defaultResolutions.first(where: { $0.width == w && $0.height == h })
+                ?? .custom(PixelSize(width: w, height: h))
         }
         return VirtualDisplayManager.defaultResolutions[1]
     }
@@ -3495,6 +3494,124 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     private func rememberScreenSize(width: Int, height: Int, for serviceName: String) {
         lastReportedScreen[screenSizeKey(serviceName)] = (width, height)
+    }
+
+    // MARK: - Screen fit (native size, text size, placement)
+
+    private let screenPrefs = DeviceScreenPrefsStore()
+    private let placements = DisplayPlacementStore()
+
+    /// Pipelines whose display we are moving or rescaling ourselves. Their arrangement
+    /// is not recorded as the user's choice until it settles. Main thread only, and kept
+    /// out of `pipelines` on purpose (see the encoder-thread rules on that dictionary).
+    private var placementHold: Set<UUID> = []
+
+    /// Bumped whenever a device's screen preferences change, so the device pages redraw.
+    @Published private(set) var screenPrefsRevision = 0
+
+    /// The size the device reported itself (command 777), if it has.
+    func reportedNativeSize(for serviceName: String) -> PixelSize? {
+        lastReportedScreen[screenSizeKey(serviceName)].map { PixelSize(width: $0.width, height: $0.height) }
+    }
+
+    /// The size the user entered for a device that cannot report its own.
+    func registeredNativeSize(for serviceName: String) -> PixelSize? {
+        screenPrefs[screenSizeKey(serviceName)].registeredNative
+    }
+
+    func nativeSize(for serviceName: String) -> PixelSize? {
+        reportedNativeSize(for: serviceName) ?? registeredNativeSize(for: serviceName)
+    }
+
+    func setRegisteredNativeSize(_ size: PixelSize?, for serviceName: String) {
+        let key = screenSizeKey(serviceName)
+        screenPrefs[key].registeredNative = size
+        screenPrefsRevision += 1
+        LogManager.shared.log("Sender: Native size for \(key): \(size?.label ?? "cleared")")
+        // A reported size wins over a registered one, so there is nothing to rebuild.
+        if reportedNativeSize(for: serviceName) == nil { restartPipelines(forDevice: key) }
+    }
+
+    /// Text sizes on offer: only for a Retina display whose native size is known, since
+    /// that is the case where every size can be rendered sharp at the native resolution.
+    func textSizeOptions(for serviceName: String) -> [TextSizeOption] {
+        guard isRetina, useVirtualDisplay, let native = nativeSize(for: serviceName) else { return [] }
+        return TextSizing.options(native: native)
+    }
+
+    func selectedTextSize(for serviceName: String) -> TextSizeOption? {
+        let saved = screenPrefs[screenSizeKey(serviceName)].pixelsPerPoint ?? TextSizing.defaultPixelsPerPoint
+        return TextSizing.nearest(saved, in: textSizeOptions(for: serviceName))
+    }
+
+    /// Applies a text size to the live display at once, without a rebuild.
+    func setTextSize(_ option: TextSizeOption, for serviceName: String) {
+        let key = screenSizeKey(serviceName)
+        screenPrefs[key].pixelsPerPoint = option.pixelsPerPoint
+        screenPrefsRevision += 1
+        let targets = pipelines.compactMap { id, p -> (UUID, VirtualDisplayManager)? in
+            guard screenSizeKey(p.service.name) == key, let dm = p.virtualDisplayManager else { return nil }
+            return (id, dm)
+        }
+        for (id, dm) in targets {
+            holdPlacement(id)
+            dm.switchMode(toPoints: option.points)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.settlePlacement(id, expecting: dm.displayID)
+            }
+        }
+    }
+
+    private func holdPlacement(_ id: UUID) {
+        placementHold.insert(id)
+    }
+
+    /// Puts the display back on its remembered side, then, once macOS has finished
+    /// shuffling, records where it ended up and starts tracking the user's moves again.
+    private func settlePlacement(_ id: UUID, expecting displayID: CGDirectDisplayID?) {
+        guard let displayID, pipelines[id]?.virtualDisplayManager?.displayID == displayID,
+              let name = pipelines[id]?.service.name else {
+            placementHold.remove(id)
+            return
+        }
+        let key = screenSizeKey(name)
+        placements.restore(displayID, for: key)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            self.placementHold.remove(id)
+            guard self.pipelines[id]?.virtualDisplayManager?.displayID == displayID else { return }
+            self.placements.remember(CGDisplayBounds(displayID), for: key)
+        }
+    }
+
+    /// Rebuilds the displays of one device only, leaving other receivers alone.
+    private func restartPipelines(forDevice key: String) {
+        let ids = pipelines.filter { screenSizeKey($0.value.service.name) == key }.map(\.key)
+        for id in ids {
+            stopPipeline(for: id)
+            startPipeline(for: id)
+        }
+    }
+
+    /// Called when the arrangement changes: remembers where the user put each display,
+    /// and picks up a text size changed in System Settings > Displays.
+    private func trackArrangement() {
+        let live = pipelines.compactMap { id, p -> (UUID, String, VirtualDisplayManager)? in
+            guard let dm = p.virtualDisplayManager, dm.displayID != nil else { return nil }
+            return (id, p.service.name, dm)
+        }
+        for (id, name, dm) in live where !placementHold.contains(id) {
+            guard let displayID = dm.displayID else { continue }
+            let key = screenSizeKey(name)
+            placements.remember(CGDisplayBounds(displayID), for: key)
+
+            guard let current = dm.currentPointSize,
+                  let picked = textSizeOptions(for: name).first(where: { $0.points == current }),
+                  picked != selectedTextSize(for: name) else { continue }
+            screenPrefs[key].pixelsPerPoint = picked.pixelsPerPoint
+            screenPrefsRevision += 1
+            LogManager.shared.log("Sender: Text size for \(key) changed in System Settings to \(current.label) pt")
+        }
     }
 
     /// Invite connections being kept alive while a re-dial to the same device is in
@@ -5008,7 +5125,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Reset Screen Recording
         let screenCapture = Process()
         screenCapture.executableURL = URL(fileURLWithPath: BCConstants.tccutilPath)
-        screenCapture.arguments = ["reset", "ScreenCapture", "com.bettercast.sender"]
+        screenCapture.arguments = ["reset", "ScreenCapture", Bundle.main.bundleIdentifier ?? "com.bettercast.sender"]
         do {
             try screenCapture.run()
             screenCapture.waitUntilExit()
@@ -5026,7 +5143,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Reset Accessibility (for mouse/keyboard control)
         let accessibility = Process()
         accessibility.executableURL = URL(fileURLWithPath: BCConstants.tccutilPath)
-        accessibility.arguments = ["reset", "Accessibility", "com.bettercast.sender"]
+        accessibility.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.bettercast.sender"]
         do {
             try accessibility.run()
             accessibility.waitUntilExit()
@@ -5089,8 +5206,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Seamlessly update resolution while keeping connections alive.
         LogManager.shared.log("Sender: Updating Resolution dynamically for all pipelines...")
 
-        // 1. Stop all pipeline components
-        for (id, pipeline) in pipelines {
+        // 1. Stop all pipeline components. Iterate a snapshot: writing `pipelines`
+        // while iterating it is the pattern behind the v11 crash.
+        for (id, pipeline) in Array(pipelines) {
             pipeline.screenRecorder?.stopCapture()
             pipeline.virtualDisplayManager?.destroyDisplay()
             InputHandler.shared.removeDisplayBounds(for: id)
@@ -5102,7 +5220,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // 2. Restart all pipelines with new settings
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
-            for id in self.pipelines.keys {
+            for id in Array(self.pipelines.keys) {
                 self.startPipeline(for: id)
             }
         }
@@ -5283,6 +5401,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 LogManager.shared.log("Sender: Display arrangement changed, refreshed bounds: \(moved.joined(separator: ", "))")
                 self.updateConnectedDisplays()
             }
+            self.trackArrangement()
         }
     }
 
@@ -5774,6 +5893,16 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         }
     }
 
+    /// The pixel size to stream this connection at: what the device reported, else what
+    /// the user registered for it, else nil (use the resolution picker).
+    private func streamNativeSize(for connectionId: UUID) -> PixelSize? {
+        guard let pipeline = pipelines[connectionId] else { return nil }
+        if let w = pipeline.reportedScreenWidth, let h = pipeline.reportedScreenHeight, w > 0, h > 0 {
+            return PixelSize(width: w, height: h)
+        }
+        return registeredNativeSize(for: pipeline.service.name)
+    }
+
     func startPipeline(for connectionId: UUID) {
         guard pipelines[connectionId] != nil else { return }
 
@@ -5817,14 +5946,13 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 LogManager.shared.log("Sender: Reusing known screen size \(remembered.width)x\(remembered.height) for \(serviceName)")
             }
 
-            if let rw = pipelines[connectionId]?.reportedScreenWidth,
-               let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
-                // Reported dims are the device's native PIXELS: pass through unchanged.
-                // With hiDPI the mode is halved, landing on the device's point size.
-                LogManager.shared.log("Sender: Using device-reported resolution \(rw)x\(rh) for \(serviceName)")
+            if let native = streamNativeSize(for: connectionId) {
+                // Native dims are the device's PIXELS: pass through unchanged.
+                // With hiDPI the default mode is halved, landing on the device's point size.
+                LogManager.shared.log("Sender: Using native resolution \(native.label) for \(serviceName)")
                 resolution = VirtualDisplayManager.Resolution(
-                    width: rw,
-                    height: rh,
+                    width: native.width,
+                    height: native.height,
                     ppi: isRetina ? min(220, selectedResolution.ppi * 2) : selectedResolution.ppi,
                     hiDPI: isRetina,
                     name: "BetterCast Display (\(serviceName))"
@@ -5849,9 +5977,20 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
             // High-refresh receivers: create the virtual display at 120Hz when the user
             // picked 120fps, so capture actually has 120 unique frames to deliver.
-            if let displayID = displayManager.createDisplay(resolution: resolution, refreshRate: selectedFPS >= 120 ? 120 : 60) {
+            // With a known native size and Retina on, offer the text sizes as extra HiDPI
+            // modes, starting in the one the user picked for this device.
+            let textSizes = streamNativeSize(for: connectionId) != nil ? textSizeOptions(for: serviceName) : []
+            let startMode = selectedTextSize(for: serviceName).flatMap { textSizes.isEmpty ? nil : $0.points }
+            var pointModes: [PixelSize] = []
+            if let startMode {
+                pointModes = [startMode] + textSizes.map(\.points).filter { $0 != startMode }
+                LogManager.shared.log("Sender: Text sizes for \(serviceName): \(pointModes.map(\.label).joined(separator: ", ")) pt")
+            }
+
+            if let displayID = displayManager.createDisplay(resolution: resolution, refreshRate: selectedFPS >= 120 ? 120 : 60, pointModes: pointModes) {
                 targetDisplayID = displayID
                 pipelines[connectionId]?.virtualDisplayManager = displayManager
+                holdPlacement(connectionId)
 
                 // Update InputHandler with this connection's display bounds
                 // Retry with increasing delays — macOS may take time to register the virtual display
@@ -5866,6 +6005,12 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                     }
                     let bounds = CGDisplayBounds(displayID)
                     if bounds.width > 0 && bounds.height > 0 {
+                        // macOS does not always start a new display in the first listed mode.
+                        if let startMode, displayManager.currentPointSize != startMode {
+                            displayManager.switchMode(toPoints: startMode)
+                        }
+                        self.settlePlacement(connectionId, expecting: displayID)
+                        let bounds = CGDisplayBounds(displayID)
                         InputHandler.shared.updateDisplayBounds(bounds: bounds, for: connectionId)
                         LogManager.shared.log("Sender: Virtual display for \(serviceName) bounds: \(bounds) (attempt \(attempt))")
                         // The display is new after every restart, so its gamma is identity again.
@@ -5877,6 +6022,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                             pollDisplayBounds(attempt: attempt + 1)
                         }
                     } else {
+                        self.placementHold.remove(connectionId)
                         // Fallback: use the looks-like size of the display we requested
                         // (bounds are in points; hiDPI halves the pixel dimensions)
                         let scale = resolution.hiDPI ? 2 : 1
@@ -5902,10 +6048,9 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         // Use reported screen dimensions if available (already in pixels)
         let captureWidth: Int
         let captureHeight: Int
-        if let rw = pipelines[connectionId]?.reportedScreenWidth,
-           let rh = pipelines[connectionId]?.reportedScreenHeight, rw > 0 && rh > 0 {
-            captureWidth = rw
-            captureHeight = rh
+        if let native = streamNativeSize(for: connectionId) {
+            captureWidth = native.width
+            captureHeight = native.height
         } else {
             // Capture at the chosen resolution even when Retina is on. The virtual
             // display is still created at 2x so macOS renders crisply, but encoding

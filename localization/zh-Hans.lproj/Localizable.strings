@@ -265,3 +265,26 @@
 /* Per-device codec picker */
 "Codec" = "编解码器";
 "Default" = "默认";
+
+/* Screen fit: custom resolution, native size, text size */
+"Custom" = "自定义";
+"Custom..." = "自定义…";
+"Set" = "设定";
+"Width" = "宽";
+"Height" = "高";
+"Screen" = "屏幕";
+"Native Resolution" = "原生分辨率";
+"Change" = "更改";
+"Remove" = "移除";
+"Portrait" = "竖屏";
+"Save" = "保存";
+"Cancel" = "取消";
+"Text Size" = "文字大小";
+"Larger Text" = "较大文字";
+"More Space" = "更多空间";
+"Width and height in pixels, 640 to 5120. Match the receiver's screen to remove black bars. While connected, click Apply Settings." = "宽和高，单位像素，640 至 5120。与接收端屏幕一致即可消除黑边。已连接时请点按“应用设置”。";
+"Reported by the device, and followed when it rotates." = "由设备报告，旋转时自动跟随。";
+"Stand the display upright for a device used in portrait. Devices that report their own size follow their rotation automatically." = "为竖放使用的设备把显示器转为竖向。会自行报告尺寸的设备会自动跟随旋转。";
+"This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "此设备不会报告屏幕尺寸。请输入像素尺寸（例如 2160 x 1584），即可以全清晰度串流且无黑边。";
+"How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "桌面在此设备上看起来的大小。串流始终保持原生分辨率，因此每种大小都清晰。也可在“系统设置 > 显示器”中调整。";
+"Turn on Retina (HiDPI) to choose a text size for this device." = "打开 Retina (HiDPI) 以为此设备选择文字大小。";

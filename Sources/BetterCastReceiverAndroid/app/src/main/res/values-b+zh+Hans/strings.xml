@@ -125,4 +125,9 @@
     <string name="donate_action">请我喝杯咖啡</string>
     <string name="donate_later">以后再说</string>
     <string name="donate_already">我已经赞助过了</string>
+    <string name="setting_rotation">旋转</string>
+    <string name="setting_rotation_desc">串流时屏幕的方向。“自动”跟随设备方向，并遵循旋转锁定。</string>
+    <string name="rotation_landscape">横屏</string>
+    <string name="rotation_portrait">竖屏</string>
+    <string name="rotation_auto">自动</string>
 </resources>

@@ -264,3 +264,26 @@
 /* Per-device codec picker */
 "Codec" = "코덱";
 "Default" = "기본값";
+
+/* Screen fit: custom resolution, native size, text size */
+"Custom" = "사용자 지정";
+"Custom..." = "사용자 지정…";
+"Set" = "설정";
+"Width" = "너비";
+"Height" = "높이";
+"Screen" = "화면";
+"Native Resolution" = "기본 해상도";
+"Change" = "변경";
+"Remove" = "제거";
+"Portrait" = "세로";
+"Save" = "저장";
+"Cancel" = "취소";
+"Text Size" = "텍스트 크기";
+"Larger Text" = "더 큰 텍스트";
+"More Space" = "더 많은 공간";
+"Width and height in pixels, 640 to 5120. Match the receiver's screen to remove black bars. While connected, click Apply Settings." = "너비와 높이(픽셀, 640~5120). 수신 기기 화면에 맞추면 검은 여백이 사라집니다. 연결 중에는 설정 적용을 클릭하세요.";
+"Reported by the device, and followed when it rotates." = "기기가 보고한 값이며, 회전하면 따라갑니다.";
+"Stand the display upright for a device used in portrait. Devices that report their own size follow their rotation automatically." = "세로로 세워 쓰는 기기에 맞게 디스플레이를 세로로 바꿉니다. 크기를 직접 보고하는 기기는 회전을 자동으로 따라갑니다.";
+"This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "이 기기는 화면 크기를 보고하지 않습니다. 픽셀 단위로 입력하면(예: 2160 x 1584) 검은 여백 없이 최대 선명도로 스트리밍합니다.";
+"How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "이 기기에서 데스크톱이 보이는 크기입니다. 스트림은 기본 해상도를 유지하므로 어떤 크기든 선명합니다. 시스템 설정 > 디스플레이에서도 바꿀 수 있습니다.";
+"Turn on Retina (HiDPI) to choose a text size for this device." = "이 기기의 텍스트 크기를 고르려면 Retina (HiDPI)를 켜세요.";
