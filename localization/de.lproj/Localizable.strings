@@ -289,3 +289,5 @@
 "More Space" = "Mehr Platz";
 "Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "Gib die Bildschirmauflösung dieses Geräts in Pixeln ein, z. B. 2160 x 1584 für ein aufgeklapptes Galaxy Z TriFold. Danach wird in dieser Auflösung gestreamt und du wählst unten die Textgröße.";
 "How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "Wie groß der Schreibtisch auf diesem Gerät aussieht. Gestreamt wird immer in nativer Auflösung, daher ist jede Größe scharf. Auch unter Systemeinstellungen > Displays einstellbar.";
+"Portrait" = "Hochformat";
+"Turn the display upright for a device that stands in portrait. Devices that report their own size (iPhone, iPad, Android 1.4 and later) follow their own rotation instead." = "Stellt das Display hochkant, für Geräte, die hochkant stehen. Geräte, die ihre Größe selbst melden (iPhone, iPad, Android 1.4 und neuer), folgen stattdessen ihrer eigenen Drehung.";

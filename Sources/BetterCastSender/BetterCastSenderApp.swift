@@ -2867,6 +2867,19 @@ struct DeviceScreenSection: View {
                         }
                     }
                 }
+                // Swapping the registered size is all portrait takes: the display, the
+                // stream and the text sizes all follow from it.
+                HStack {
+                    Toggle("Portrait", isOn: Binding(
+                        get: { registered.height > registered.width },
+                        set: { portrait in
+                            guard portrait != (registered.height > registered.width) else { return }
+                            client.setRegisteredNativeResolution(
+                                .init(width: registered.height, height: registered.width), for: serviceName)
+                        }
+                    ))
+                    InfoTip(text: "Turn the display upright for a device that stands in portrait. Devices that report their own size (iPhone, iPad, Android 1.4 and later) follow their own rotation instead.")
+                }
             } else {
                 LabeledContent("Native Resolution") {
                     HStack(spacing: 6) {

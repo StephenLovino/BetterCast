@@ -287,3 +287,5 @@
 "More Space" = "スペースを広く";
 "Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "このデバイスの画面解像度をピクセルで入力します（例：Galaxy Z TriFold を開いた状態は 2160 x 1584）。その解像度でストリーミングし、下で文字サイズを選べます。";
 "How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "このデバイスでデスクトップがどのくらいの大きさに見えるか。ストリーミングは常にネイティブ解像度なので、どのサイズでも鮮明です。「システム設定 > ディスプレイ」でも調整できます。";
+"Portrait" = "縦向き";
+"Turn the display upright for a device that stands in portrait. Devices that report their own size (iPhone, iPad, Android 1.4 and later) follow their own rotation instead." = "縦置きのデバイス向けに、ディスプレイを縦向きにします。サイズを自分で報告するデバイス（iPhone、iPad、Android 1.4 以降）はデバイス自身の回転に従います。";

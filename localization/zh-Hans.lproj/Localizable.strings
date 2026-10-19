@@ -288,3 +288,5 @@
 "More Space" = "更多空间";
 "Enter this device's screen resolution in pixels, e.g. 2160 x 1584 for a Galaxy Z TriFold unfolded. It then streams at that resolution and you choose its text size below." = "输入这台设备屏幕的像素分辨率，例如 Galaxy Z TriFold 展开后是 2160 x 1584。之后按这个分辨率推流，并可在下方选择文字大小。";
 "How big the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "桌面在这台设备上看起来有多大。推流始终是原生分辨率，所以每个大小都清晰。也可以在「系统设置 → 显示器」里调整。";
+"Portrait" = "竖屏";
+"Turn the display upright for a device that stands in portrait. Devices that report their own size (iPhone, iPad, Android 1.4 and later) follow their own rotation instead." = "让这块显示器竖起来，适合竖着放的设备。会自己上报尺寸的设备（iPhone、iPad、Android 1.4 及以上）则跟随设备自身的旋转。";
