@@ -39,6 +39,7 @@
     <string name="menu_hide_nav">내비게이션 숨기기</string>
     <string name="menu_show_nav">내비게이션 표시</string>
     <string name="menu_hide_controls">컨트롤 숨기기</string>
+    <string name="menu_picture_in_picture">PIP 모드</string>
 
     <string name="error_title">문제가 발생했습니다</string>
     <string name="action_try_again">다시 시도</string>
@@ -81,6 +82,8 @@
     <string name="theme_system">시스템 설정</string>
     <string name="theme_light">라이트</string>
     <string name="theme_dark">다크</string>
+    <string name="setting_auto_pip">자동 PIP 모드</string>
+    <string name="setting_auto_pip_desc">앱을 나가도 스트림을 작은 창에서 계속 표시합니다.</string>
     <string name="section_input">입력</string>
     <string name="setting_mode">모드</string>
     <string name="setting_mode_desc">터치는 탭 위치를 그대로 전달하고, 커서는 트랙패드처럼 포인터를 움직입니다.</string>
@@ -92,6 +95,10 @@
     <string name="section_connection">연결</string>
     <string name="action_disconnect">연결 해제</string>
     <string name="action_disconnect_desc">현재 스트림을 끝내고 대기 상태로 돌아갑니다.</string>
+    <string name="notif_channel_session">진행 중인 스트림</string>
+    <string name="notif_session_title">%1$s에서 스트리밍 중</string>
+    <string name="notif_session_title_generic">스트리밍 중</string>
+    <string name="notif_session_text">앱을 닫아도 스트림이 계속됩니다. 탭하여 열기.</string>
     <string name="section_help">도움말</string>
     <string name="help_setup_guide">설정 가이드</string>
     <string name="help_setup_guide_desc">페어링과 스트리밍 과정을 안내합니다.</string>

@@ -1,8 +1,11 @@
 package com.bettercast.receiver.viewmodel
 
 import android.app.Application
+import android.graphics.Point
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
 import android.util.Log
+import android.view.Display
 import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -194,6 +197,19 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
             settings.audioEnabled.collect { enabled -> if (!enabled) audioPlayer.stop() }
         }
 
+        // Tell the sender how big this panel is, every time a stream comes up. The Mac
+        // builds its virtual display at the size a receiver reports (command 777), and
+        // only falls back to the resolution picker when none arrives. iOS always sent it;
+        // Android never did, so an Android screen got one of nine fixed presets and was
+        // either letterboxed or stretched to fill (issue #62). The Mac skips a report that
+        // matches what it already has and remembers it per device, so only the very first
+        // connection from a given phone restarts its pipeline.
+        viewModelScope.launch {
+            state.collect { current ->
+                if (current == ReceiverState.CONNECTED) sendScreenInfo()
+            }
+        }
+
         // Start the server and advertise
         startReceiver()
     }
@@ -299,6 +315,32 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
                 if (failure == null) _statusMessage.value = str(R.string.status_invited, sender.name)
             }
         }
+    }
+
+    private fun sendScreenInfo() {
+        val (width, height) = landscapePanelSize() ?: return
+        Log.i(TAG, "Sending screen info ${width}x$height")
+        sendInputEvent(InputEvent.screenInfo(width, height))
+    }
+
+    /**
+     * The panel's current resolution in pixels, long edge first.
+     *
+     * Long edge first because a stream is always shown in landscape (ReceiverScreen locks
+     * it there), whatever way the phone happens to be held when the report goes out. The
+     * real size rather than the window size, because the stream runs edge to edge under
+     * hidden system bars. And the current mode rather than the panel's physical maximum,
+     * so a phone set to a lower display resolution is not sent more pixels than it draws.
+     */
+    private fun landscapePanelSize(): Pair<Int, Int>? {
+        val display = getApplication<Application>()
+            .getSystemService(DisplayManager::class.java)
+            ?.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
+        val size = Point()
+        @Suppress("DEPRECATION") // still the one call that reports the full panel on every API level we support
+        display.getRealSize(size)
+        if (size.x <= 0 || size.y <= 0) return null
+        return maxOf(size.x, size.y) to minOf(size.x, size.y)
     }
 
     fun sendInputEvent(event: InputEvent) {

@@ -39,6 +39,7 @@
     <string name="menu_hide_nav">Masquer la navigation</string>
     <string name="menu_show_nav">Afficher la navigation</string>
     <string name="menu_hide_controls">Masquer les commandes</string>
+    <string name="menu_picture_in_picture">Image dans l\'image</string>
 
     <string name="error_title">Un problème est survenu</string>
     <string name="action_try_again">Réessayer</string>
@@ -81,6 +82,8 @@
     <string name="theme_system">Système</string>
     <string name="theme_light">Clair</string>
     <string name="theme_dark">Sombre</string>
+    <string name="setting_auto_pip">Image dans l\'image automatique</string>
+    <string name="setting_auto_pip_desc">Garder le flux dans une petite fenêtre lorsque vous quittez l\'app.</string>
     <string name="section_input">SAISIE</string>
     <string name="setting_mode">Mode</string>
     <string name="setting_mode_desc">Le mode tactile reproduit les appuis directement. Le mode curseur déplace un pointeur comme un trackpad.</string>
@@ -92,6 +95,10 @@
     <string name="section_connection">CONNEXION</string>
     <string name="action_disconnect">Déconnecter</string>
     <string name="action_disconnect_desc">Met fin au flux en cours et revient en attente.</string>
+    <string name="notif_channel_session">Flux en cours</string>
+    <string name="notif_session_title">Diffusion depuis %1$s</string>
+    <string name="notif_session_title_generic">Diffusion en cours</string>
+    <string name="notif_session_text">Le flux continue même lorsque l\'app est fermée. Touchez pour l\'ouvrir.</string>
     <string name="section_help">AIDE</string>
     <string name="help_setup_guide">Guide de configuration</string>
     <string name="help_setup_guide_desc">Découvrez l\'appairage et la diffusion pas à pas.</string>

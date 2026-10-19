@@ -95,6 +95,10 @@
     <string name="section_connection">连接</string>
     <string name="action_disconnect">断开连接</string>
     <string name="action_disconnect_desc">结束当前串流并返回等待状态。</string>
+    <string name="notif_channel_session">进行中的串流</string>
+    <string name="notif_session_title">正在接收 %1$s 的串流</string>
+    <string name="notif_session_title_generic">正在串流</string>
+    <string name="notif_session_text">关闭应用后串流仍会继续。点按即可打开。</string>
     <string name="section_help">帮助</string>
     <string name="help_setup_guide">设置向导</string>
     <string name="help_setup_guide_desc">了解配对与串流的完整步骤。</string>

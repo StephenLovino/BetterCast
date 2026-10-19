@@ -87,7 +87,20 @@ class VideoDecoder {
     fun setSurface(surface: Surface?) {
         val oldSurface = this.surface
         this.surface = surface
-        if (surface != null && cachedSps != null && cachedPps != null && !isConfigured) {
+        if (surface == null) {
+            // The screen showing the stream is gone: the app was closed with the session
+            // kept alive, or sent to the background without PiP. Rendering on into the
+            // abandoned surface only burns power and invites codec errors, so stop the
+            // codec. The parameter sets stay cached, and frames are dropped until a new
+            // surface arrives, at which point the branch below rebuilds the codec and
+            // asks the sender for a keyframe.
+            if (isConfigured || isStarted) {
+                stop()
+                Log.d(TAG, "Surface released, decoder paused until a new one arrives")
+            }
+            return
+        }
+        if (cachedSps != null && cachedPps != null && !isConfigured) {
             configureCodec(cachedSps!!, cachedPps!!)
             // IDR frame likely arrived before surface was ready — request new one
             onKeyframeNeeded?.invoke()
@@ -266,53 +279,120 @@ class VideoDecoder {
             } else {
                 Log.i(TAG, "SPS reports ${codedWidth}x$codedHeight")
             }
-            val format = MediaFormat.createVideoFormat(mime, codedWidth, codedHeight)
+            // Two attempts: the tuned low-latency setup first, then a plain one. The tuned
+            // path is built around Qualcomm (its vendor keys, an unthrottled operating rate,
+            // the dedicated .low_latency decoder), and a chip that refuses any of it makes
+            // configure() or start() throw. There used to be no second attempt, so on such a
+            // device the codec never came up: the Mac saw a connected display and streamed
+            // into it, and the receiver showed black for good (issue #63, a Kirin tablet).
+            // Once the plain setup is the one that works, later rebuilds go straight to it.
+            val attempts = if (preferPlainDecoder) listOf(true) else listOf(false, true)
+            for (plain in attempts) {
+                try {
+                    val format = buildFormat(mime, codedWidth, codedHeight, hevc, sps, pps, plain)
+                    decoder = createDecoder(mime, plain)
+                    decoder!!.configure(format, surface, null, 0)
+                    decoder!!.start()
 
-            val startCode = byteArrayOf(0x00, 0x00, 0x00, 0x01)
-            if (hevc) {
-                // HEVC wants one csd-0 holding VPS, SPS and PPS back to back — not the
-                // csd-0/csd-1 split H.264 uses. Getting this wrong is a silent failure:
-                // configure() succeeds and no picture ever appears.
-                val vps = cachedVps ?: ByteArray(0)
-                val csd = ByteBuffer.allocate(12 + vps.size + sps.size + pps.size)
-                if (vps.isNotEmpty()) { csd.put(startCode); csd.put(vps) }
-                csd.put(startCode); csd.put(sps)
-                csd.put(startCode); csd.put(pps)
-                csd.flip()
-                format.setByteBuffer("csd-0", csd)
-            } else {
-                val csd0 = ByteBuffer.allocate(4 + sps.size)
-                csd0.put(startCode); csd0.put(sps); csd0.flip()
-                format.setByteBuffer("csd-0", csd0)
+                    codec = decoder
+                    isConfigured = true
+                    isStarted = true
+                    lastRenderNs = 0
+                    if (plain && !preferPlainDecoder) {
+                        Log.w(TAG, "Tuned decoder setup refused; running with the plain one")
+                        preferPlainDecoder = true
+                    }
 
-                val csd1 = ByteBuffer.allocate(4 + pps.size)
-                csd1.put(startCode); csd1.put(pps); csd1.flip()
-                format.setByteBuffer("csd-1", csd1)
+                    Log.d(TAG, "Codec configured and started${if (plain) " (plain setup)" else ""}")
+                    startDecoderLoop()
+                    startDrainLoop()
+                    return
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to configure codec${if (plain) " (plain setup)" else " (tuned setup)"}", e)
+                    // The instance exists even when configure/start throws. Without releasing
+                    // it here, every failure permanently consumes a codec slot — which is how
+                    // a single bad attempt snowballs into NO_MEMORY on all later ones.
+                    try { decoder?.release() } catch (_: Exception) {}
+                    decoder = null
+                }
             }
+            codec = null
+            isConfigured = false
+            isStarted = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prepare codec", e)
+            try { decoder?.release() } catch (_: Exception) {}
+            codec = null
+            isConfigured = false
+            isStarted = false
+        }
+    }
 
-            // Keyframes scale with resolution, and a frame larger than the input buffer
-            // is dropped outright in feedDataToDecoder — at 1440p/4K a fixed 1MB ceiling
-            // throws away exactly the IDR the decoder is waiting for, so the picture
-            // never starts. Half a luma plane is comfortably above any real keyframe.
-            format.setInteger(
-                MediaFormat.KEY_MAX_INPUT_SIZE,
-                maxOf(1_000_000, codedWidth * codedHeight / 2)
-            )
-            format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-            format.setInteger(MediaFormat.KEY_PRIORITY, 0)
-            format.setInteger("vendor.low-latency.enable", 1)
-            // Qualcomm's actual vendor key (the generic one above is a no-op on QTI parts).
-            // Same set Moonlight uses for game-streaming latency.
-            format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
-            // Output frames in DECODE order, skipping the H.264 reorder buffer. Our encoder
-            // sends no B-frames, but the SPS doesn't advertise zero reordering, so the
-            // decoder reserves ~4 frames of DPB "just in case" — measured as ~130ms dwell.
-            // Decode order == display order for this stream. Same key Moonlight uses.
-            format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
-            // Hint the codec to run unthrottled instead of pacing to the nominal frame rate.
-            // Cloud-gaming/RTC apps use this to shave decoder dwell time on Qualcomm parts.
-            format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
+    /**
+     * Set after the tuned setup has been refused once, so reconnects and surface changes
+     * do not pay for a failing attempt every time. Lives as long as the decoder.
+     */
+    @Volatile private var preferPlainDecoder = false
 
+    private fun buildFormat(
+        mime: String, codedWidth: Int, codedHeight: Int,
+        hevc: Boolean, sps: ByteArray, pps: ByteArray, plain: Boolean
+    ): MediaFormat {
+        val format = MediaFormat.createVideoFormat(mime, codedWidth, codedHeight)
+
+        val startCode = byteArrayOf(0x00, 0x00, 0x00, 0x01)
+        if (hevc) {
+            // HEVC wants one csd-0 holding VPS, SPS and PPS back to back — not the
+            // csd-0/csd-1 split H.264 uses. Getting this wrong is a silent failure:
+            // configure() succeeds and no picture ever appears.
+            val vps = cachedVps ?: ByteArray(0)
+            val csd = ByteBuffer.allocate(12 + vps.size + sps.size + pps.size)
+            if (vps.isNotEmpty()) { csd.put(startCode); csd.put(vps) }
+            csd.put(startCode); csd.put(sps)
+            csd.put(startCode); csd.put(pps)
+            csd.flip()
+            format.setByteBuffer("csd-0", csd)
+        } else {
+            val csd0 = ByteBuffer.allocate(4 + sps.size)
+            csd0.put(startCode); csd0.put(sps); csd0.flip()
+            format.setByteBuffer("csd-0", csd0)
+
+            val csd1 = ByteBuffer.allocate(4 + pps.size)
+            csd1.put(startCode); csd1.put(pps); csd1.flip()
+            format.setByteBuffer("csd-1", csd1)
+        }
+
+        // Keyframes scale with resolution, and a frame larger than the input buffer
+        // is dropped outright in feedDataToDecoder — at 1440p/4K a fixed 1MB ceiling
+        // throws away exactly the IDR the decoder is waiting for, so the picture
+        // never starts. Half a luma plane is comfortably above any real keyframe.
+        // Kept in the plain setup too: it is a standard key, and without it a large
+        // keyframe is lost whichever decoder is running.
+        format.setInteger(
+            MediaFormat.KEY_MAX_INPUT_SIZE,
+            maxOf(1_000_000, codedWidth * codedHeight / 2)
+        )
+        if (plain) return format
+
+        format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+        format.setInteger(MediaFormat.KEY_PRIORITY, 0)
+        format.setInteger("vendor.low-latency.enable", 1)
+        // Qualcomm's actual vendor key (the generic one above is a no-op on QTI parts).
+        // Same set Moonlight uses for game-streaming latency.
+        format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+        // Output frames in DECODE order, skipping the H.264 reorder buffer. Our encoder
+        // sends no B-frames, but the SPS doesn't advertise zero reordering, so the
+        // decoder reserves ~4 frames of DPB "just in case" — measured as ~130ms dwell.
+        // Decode order == display order for this stream. Same key Moonlight uses.
+        format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
+        // Hint the codec to run unthrottled instead of pacing to the nominal frame rate.
+        // Cloud-gaming/RTC apps use this to shave decoder dwell time on Qualcomm parts.
+        format.setInteger(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toInt())
+        return format
+    }
+
+    private fun createDecoder(mime: String, plain: Boolean): MediaCodec {
+        if (!plain) {
             // Prefer a dedicated low-latency hardware decoder when the vendor ships one
             // (e.g. c2.qti.avc.decoder.low_latency on Qualcomm). createDecoderByType picks
             // the regular variant, which buffers 2-4 frames internally.
@@ -321,37 +401,13 @@ class VideoDecoder {
                 it.name.endsWith(".low_latency") && !it.name.contains(".secure") &&
                 it.supportedTypes.any { t -> t.equals(mime, ignoreCase = true) }
             }?.name
-
-            decoder = if (lowLatencyName != null) {
+            if (lowLatencyName != null) {
                 Log.i(TAG, "Using low-latency decoder: $lowLatencyName")
-                MediaCodec.createByCodecName(lowLatencyName)
-            } else {
-                Log.i(TAG, "No low-latency decoder variant; using default for $mime")
-                MediaCodec.createDecoderByType(mime)
+                return MediaCodec.createByCodecName(lowLatencyName)
             }
-            decoder.configure(format, surface, null, 0)
-            decoder.start()
-
-            codec = decoder
-            isConfigured = true
-            isStarted = true
-            lastRenderNs = 0
-
-            Log.d(TAG, "Codec configured and started")
-            startDecoderLoop()
-            startDrainLoop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to configure codec", e)
-            // The instance exists even when configure/start throws. Without releasing
-            // it here, every failure permanently consumes a codec slot — which is how
-            // a single bad attempt snowballs into NO_MEMORY on all later ones.
-            try { decoder?.release() } catch (_: Exception) {}
-            codec = null
-            isConfigured = false
-            isStarted = false
-            isConfigured = false
-            isStarted = false
+            Log.i(TAG, "No low-latency decoder variant; using default for $mime")
         }
+        return MediaCodec.createDecoderByType(mime)
     }
 
     private fun startDecoderLoop() {

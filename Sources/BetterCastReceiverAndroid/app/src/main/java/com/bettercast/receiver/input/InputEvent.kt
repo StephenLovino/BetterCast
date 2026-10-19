@@ -26,6 +26,8 @@ data class InputEvent(
 
         const val COMMAND_HEARTBEAT = 888
         const val COMMAND_REQUEST_KEYFRAME = 999
+        /** Panel size in native pixels (deltaX = width, deltaY = height), as the iOS receiver sends it. */
+        const val COMMAND_SCREEN_INFO = 777
 
         private val idCounter = AtomicLong(0)
 
@@ -48,6 +50,16 @@ data class InputEvent(
             keyCode = COMMAND_REQUEST_KEYFRAME,
             deltaX = 0.0,
             deltaY = 0.0,
+            eventId = nextId()
+        )
+
+        fun screenInfo(width: Int, height: Int): InputEvent = InputEvent(
+            type = TYPE_COMMAND,
+            x = 0.0,
+            y = 0.0,
+            keyCode = COMMAND_SCREEN_INFO,
+            deltaX = width.toDouble(),
+            deltaY = height.toDouble(),
             eventId = nextId()
         )
 
