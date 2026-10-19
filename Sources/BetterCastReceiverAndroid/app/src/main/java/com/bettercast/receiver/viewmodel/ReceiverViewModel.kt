@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bettercast.receiver.R
 import com.bettercast.receiver.audio.AudioPlayer
+import com.bettercast.receiver.data.RotationMode
 import com.bettercast.receiver.data.SettingsStore
 import com.bettercast.receiver.input.InputEvent
 import com.bettercast.receiver.network.ConnectionState
@@ -317,22 +318,33 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun sendScreenInfo() {
-        val (width, height) = landscapePanelSize() ?: return
+    /**
+     * Report the panel size to the sender, oriented the way the stream will be shown.
+     *
+     * @param followCurrentRotation set by the stream screen once its layout has settled.
+     *   The panel is then reported exactly as the stream is being shown, whatever the
+     *   rotation setting asked for: large-screen devices (a Galaxy Z TriFold unfolded)
+     *   may ignore an app's orientation lock, and a report that assumes the lock held
+     *   gets a landscape picture letterboxed into a portrait screen. Without it (on
+     *   connect, while the idle screen is still pinned portrait) the setting is the best
+     *   guess, and the stream screen corrects it a moment later if needed.
+     */
+    fun sendScreenInfo(followCurrentRotation: Boolean = false) {
+        val (width, height) = panelSize(settings.rotationMode.value, followCurrentRotation) ?: return
         Log.i(TAG, "Sending screen info ${width}x$height")
         sendInputEvent(InputEvent.screenInfo(width, height))
     }
 
     /**
-     * The panel's current resolution in pixels, long edge first.
-     *
-     * Long edge first because a stream is always shown in landscape (ReceiverScreen locks
-     * it there), whatever way the phone happens to be held when the report goes out. The
-     * real size rather than the window size, because the stream runs edge to edge under
-     * hidden system bars. And the current mode rather than the panel's physical maximum,
-     * so a phone set to a lower display resolution is not sent more pixels than it draws.
+     * The panel's current resolution in pixels, in the orientation the stream is shown in:
+     * as the panel is currently rotated once the stream screen has settled, and otherwise
+     * short edge first for portrait and long edge first for landscape and Auto.
+     * The real size rather than the window size, because the stream runs edge to edge
+     * under hidden system bars. And the current mode rather than the panel's physical
+     * maximum, so a phone set to a lower display resolution is not sent more pixels than
+     * it draws.
      */
-    private fun landscapePanelSize(): Pair<Int, Int>? {
+    private fun panelSize(mode: RotationMode, followCurrentRotation: Boolean): Pair<Int, Int>? {
         val display = getApplication<Application>()
             .getSystemService(DisplayManager::class.java)
             ?.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
@@ -340,7 +352,10 @@ class ReceiverViewModel(application: Application) : AndroidViewModel(application
         @Suppress("DEPRECATION") // still the one call that reports the full panel on every API level we support
         display.getRealSize(size)
         if (size.x <= 0 || size.y <= 0) return null
-        return maxOf(size.x, size.y) to minOf(size.x, size.y)
+        val long = maxOf(size.x, size.y)
+        val short = minOf(size.x, size.y)
+        if (followCurrentRotation) return size.x to size.y
+        return if (mode == RotationMode.PORTRAIT) short to long else long to short
     }
 
     fun sendInputEvent(event: InputEvent) {

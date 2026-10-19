@@ -125,4 +125,9 @@
     <string name="donate_action">コーヒーをおごる</string>
     <string name="donate_later">あとで</string>
     <string name="donate_already">寄付済みです</string>
+    <string name="setting_rotation">画面の向き</string>
+    <string name="setting_rotation_desc">ストリーミング中の画面の向き。自動はデバイスの回転に合わせ、Mac のディスプレイも追従します。</string>
+    <string name="rotation_auto">自動</string>
+    <string name="rotation_landscape">横向き</string>
+    <string name="rotation_portrait">縦向き</string>
 </resources>

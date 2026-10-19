@@ -143,4 +143,9 @@
     <string name="donate_action">Buy me a coffee</string>
     <string name="donate_later">Maybe later</string>
     <string name="donate_already">I already donated</string>
+    <string name="setting_rotation">Rotation</string>
+    <string name="setting_rotation_desc">How to hold the screen while streaming. Auto follows the device; the Mac display turns to match.</string>
+    <string name="rotation_auto">Auto</string>
+    <string name="rotation_landscape">Landscape</string>
+    <string name="rotation_portrait">Portrait</string>
 </resources>

@@ -125,4 +125,9 @@
     <string name="donate_action">Offrir un café</string>
     <string name="donate_later">Plus tard</string>
     <string name="donate_already">J\'ai déjà fait un don</string>
+    <string name="setting_rotation">Orientation</string>
+    <string name="setting_rotation_desc">Orientation de l\'écran pendant la diffusion. Auto suit l\'appareil ; l\'écran du Mac s\'adapte.</string>
+    <string name="rotation_auto">Auto</string>
+    <string name="rotation_landscape">Paysage</string>
+    <string name="rotation_portrait">Portrait</string>
 </resources>

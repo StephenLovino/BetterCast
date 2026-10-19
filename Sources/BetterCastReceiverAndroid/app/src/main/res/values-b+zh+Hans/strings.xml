@@ -125,4 +125,9 @@
     <string name="donate_action">请我喝杯咖啡</string>
     <string name="donate_later">以后再说</string>
     <string name="donate_already">我已经赞助过了</string>
+    <string name="setting_rotation">屏幕方向</string>
+    <string name="setting_rotation_desc">串流时屏幕怎么放。自动会跟随设备旋转，Mac 上的显示器也随之调整。</string>
+    <string name="rotation_auto">自动</string>
+    <string name="rotation_landscape">横屏</string>
+    <string name="rotation_portrait">竖屏</string>
 </resources>

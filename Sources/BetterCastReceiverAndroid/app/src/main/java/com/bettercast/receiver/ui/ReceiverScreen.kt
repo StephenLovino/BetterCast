@@ -35,6 +35,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.graphics.Rect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import android.os.Build
@@ -87,6 +88,7 @@ import com.bettercast.receiver.ui.components.IconTile
 import com.bettercast.receiver.ui.components.StepCard
 import com.bettercast.receiver.ui.theme.BC
 import com.bettercast.receiver.ui.theme.BCType
+import com.bettercast.receiver.data.RotationMode
 import com.bettercast.receiver.viewmodel.ReceiverState
 import com.bettercast.receiver.viewmodel.ReceiverViewModel
 import kotlinx.coroutines.delay
@@ -101,14 +103,34 @@ fun ReceiverScreen(
     val state by viewModel.state.collectAsState()
 
     // Portrait while waiting — the setup text, hotspot details and QR all read
-    // better upright, and the QR gets far more room. Landscape only once a stream
-    // is live, which is when the phone is actually acting as a display.
+    // better upright, and the QR gets far more room. Once a stream is live, the
+    // rotation setting decides: landscape (the default), portrait, or Auto, which
+    // follows the phone and honours the system rotation lock.
     val context = LocalContext.current
-    LaunchedEffect(state) {
+    val rotationMode by viewModel.settings.rotationMode.collectAsState()
+    LaunchedEffect(state, rotationMode) {
         (context as? Activity)?.requestedOrientation = when (state) {
-            ReceiverState.CONNECTED -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            ReceiverState.CONNECTED -> when (rotationMode) {
+                RotationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+                RotationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                RotationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            }
             else -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+    }
+
+    // Tell the Mac whenever the screen settles in a new shape, so it rebuilds the virtual
+    // display to match, the way the iOS receiver does. That covers rotating, and folding
+    // or unfolding a foldable, which changes the size without necessarily changing the
+    // orientation. Waits for the change to settle (and rides out a quick back-and-forth),
+    // and stays quiet in PiP, where the window shape says nothing about the panel.
+    val configuration = LocalConfiguration.current
+    val screenShape = Triple(configuration.orientation, configuration.screenWidthDp, configuration.screenHeightDp)
+    val inPip by viewModel.inPictureInPicture.collectAsState()
+    LaunchedEffect(state, rotationMode, screenShape, inPip) {
+        if (state != ReceiverState.CONNECTED || inPip) return@LaunchedEffect
+        delay(600)
+        viewModel.sendScreenInfo(followCurrentRotation = true)
     }
     val statusMessage by viewModel.statusMessage.collectAsState()
     val deviceIp by viewModel.deviceIp.collectAsState()

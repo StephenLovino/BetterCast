@@ -125,4 +125,9 @@
     <string name="donate_action">Kaffee spendieren</string>
     <string name="donate_later">Später</string>
     <string name="donate_already">Habe schon gespendet</string>
+    <string name="setting_rotation">Ausrichtung</string>
+    <string name="setting_rotation_desc">Wie der Bildschirm beim Streamen steht. Automatisch folgt dem Gerät; das Mac-Display dreht sich mit.</string>
+    <string name="rotation_auto">Automatisch</string>
+    <string name="rotation_landscape">Quer</string>
+    <string name="rotation_portrait">Hoch</string>
 </resources>

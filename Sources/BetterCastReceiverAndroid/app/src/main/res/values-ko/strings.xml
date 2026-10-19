@@ -125,4 +125,9 @@
     <string name="donate_action">커피 한 잔 사주기</string>
     <string name="donate_later">나중에</string>
     <string name="donate_already">이미 후원했습니다</string>
+    <string name="setting_rotation">화면 방향</string>
+    <string name="setting_rotation_desc">스트리밍 중 화면 방향입니다. 자동은 기기 회전을 따르며 Mac 디스플레이도 함께 바뀝니다.</string>
+    <string name="rotation_auto">자동</string>
+    <string name="rotation_landscape">가로</string>
+    <string name="rotation_portrait">세로</string>
 </resources>

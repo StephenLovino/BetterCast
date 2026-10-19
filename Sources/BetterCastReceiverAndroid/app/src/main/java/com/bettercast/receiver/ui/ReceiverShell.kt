@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
@@ -64,6 +65,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.bettercast.receiver.BuildConfig
 import com.bettercast.receiver.R
+import com.bettercast.receiver.data.RotationMode
 import com.bettercast.receiver.data.ThemeMode
 import com.bettercast.receiver.ui.components.DisclosureRow
 import com.bettercast.receiver.ui.components.RowDivider
@@ -313,6 +315,7 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
     val audioEnabled by settings.audioEnabled.collectAsState()
     val cursorMode by settings.cursorMode.collectAsState()
     val themeMode by settings.themeMode.collectAsState()
+    val rotationMode by settings.rotationMode.collectAsState()
     val autoPipEnabled by settings.autoPipEnabled.collectAsState()
     val state by viewModel.state.collectAsState()
 
@@ -389,6 +392,20 @@ private fun SettingsTab(viewModel: ReceiverViewModel, onShowSetup: () -> Unit) {
                 ),
                 selectedIndex = if (aspectFill) 0 else 1,
                 onSelect = { settings.setAspectFill(it == 0) }
+            )
+            RowDivider()
+            SegmentedRow(
+                icon = Icons.Filled.ScreenRotation,
+                iconColor = BC.primaryDim,
+                title = stringResource(R.string.setting_rotation),
+                description = stringResource(R.string.setting_rotation_desc),
+                options = listOf(
+                    stringResource(R.string.rotation_auto),
+                    stringResource(R.string.rotation_landscape),
+                    stringResource(R.string.rotation_portrait)
+                ),
+                selectedIndex = rotationMode.ordinal,
+                onSelect = { settings.setRotationMode(RotationMode.values()[it]) }
             )
             RowDivider()
             SegmentedRow(

@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** How the screen is held while a stream is live. AUTO follows the phone's rotation. */
+enum class RotationMode { AUTO, LANDSCAPE, PORTRAIT }
+
 /**
  * Persisted receiver preferences, mirroring the iOS settings screen.
  *
@@ -25,6 +28,7 @@ class SettingsStore(context: Context) {
         private const val KEY_CURSOR_MODE = "cursorMode"
         private const val KEY_AUTO_PIP = "autoPipEnabled"
         private const val KEY_THEME = "themeMode"
+        private const val KEY_ROTATION = "rotationMode"
         private const val KEY_DONATE_SILENCED = "donatePromptSilenced"
         private const val KEY_LAUNCH_COUNT = "donatePromptLaunchCount"
 
@@ -68,6 +72,17 @@ class SettingsStore(context: Context) {
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    /**
+     * Landscape by default: that is how the receiver always behaved, and it is what a
+     * phone propped up as a second display usually wants. Portrait and Auto exist for
+     * tablets and foldables that stand both ways.
+     */
+    private val _rotationMode = MutableStateFlow(
+        runCatching { RotationMode.valueOf(prefs.getString(KEY_ROTATION, null) ?: "") }
+            .getOrDefault(RotationMode.LANDSCAPE)
+    )
+    val rotationMode: StateFlow<RotationMode> = _rotationMode.asStateFlow()
+
     fun setDeviceName(value: String) {
         val cleaned = value.trim().ifBlank { defaultDeviceName() }
         _deviceName.value = cleaned
@@ -92,6 +107,11 @@ class SettingsStore(context: Context) {
     fun setAutoPipEnabled(value: Boolean) {
         _autoPipEnabled.value = value
         prefs.edit().putBoolean(KEY_AUTO_PIP, value).apply()
+    }
+
+    fun setRotationMode(value: RotationMode) {
+        _rotationMode.value = value
+        prefs.edit().putString(KEY_ROTATION, value.name).apply()
     }
 
     fun setThemeMode(value: ThemeMode) {
