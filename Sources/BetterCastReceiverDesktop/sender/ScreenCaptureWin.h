@@ -58,7 +58,9 @@ private:
     bool initGdiFallback();
     void captureLoop();               // runs on m_thread
     bool captureFrameDxgi();          // one blocking acquire + convert + emit
-    bool recoverDuplication(HRESULT cause);  // retry until the desktop is back or stopped
+    // Retry until the desktop is back or capture stops. `cause` is the failing
+    // HRESULT, as long because this header avoids pulling in windows.h.
+    bool recoverDuplication(long cause);
     void captureFrameGdi();
     void convertAndEmit(const uint8_t* bgra, int pitch, qint64 ptsNanos);
     void cleanup();

@@ -736,7 +736,7 @@ void ScreenCaptureWin::convertAndEmit(const uint8_t* bgra, int pitch, qint64 pts
 // there, which can be minutes. Meanwhile the last frame keeps being re-sent once
 // a second, so the receiver holds the picture instead of timing out.
 // Returns false only when the capture is being stopped.
-bool ScreenCaptureWin::recoverDuplication(HRESULT cause) {
+bool ScreenCaptureWin::recoverDuplication(long cause) {
     const QString name = m_displayName.isEmpty() ? QStringLiteral("primary") : m_displayName;
     LogManager::instance().log(
         QString("Sender: Desktop duplication lost on %1 (hr=0x%2), recovering")
