@@ -58,6 +58,7 @@ private:
     bool initGdiFallback();
     void captureLoop();               // runs on m_thread
     bool captureFrameDxgi();          // one blocking acquire + convert + emit
+    bool recoverDuplication(HRESULT cause);  // retry until the desktop is back or stopped
     void captureFrameGdi();
     void convertAndEmit(const uint8_t* bgra, int pitch, qint64 ptsNanos);
     void cleanup();
@@ -95,6 +96,9 @@ private:
     // False until a desktop image has been copied into staging since the last
     // (re)initialisation. Until then a pointer-only frame has nothing to draw on.
     bool m_haveDesktop = false;
+    // Set while recoverDuplication retries, so a long UAC prompt doesn't fill the
+    // log with one failure line per attempt.
+    bool m_quietDuplicationLog = false;
 
     // GDI fallback objects
     HDC m_gdiDC = nullptr;

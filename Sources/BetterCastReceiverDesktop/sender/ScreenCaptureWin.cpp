@@ -178,7 +178,7 @@ bool ScreenCaptureWin::initDuplication() {
 
         hr = output1->DuplicateOutput(m_device, &m_duplication);
         if (SUCCEEDED(hr)) break;
-        LogManager::instance().log(
+        if (!m_quietDuplicationLog) LogManager::instance().log(
             QString("Sender: DuplicateOutput on %1 failed (attempt %2, hr=0x%3)")
                 .arg(m_displayName.isEmpty() ? QStringLiteral("primary") : m_displayName)
                 .arg(attempt + 1).arg(static_cast<quint32>(hr), 8, 16, QChar('0')));
@@ -192,7 +192,7 @@ bool ScreenCaptureWin::initDuplication() {
                 hr = hr1;
                 break;
             }
-            LogManager::instance().log(
+            if (!m_quietDuplicationLog) LogManager::instance().log(
                 QString("Sender: DuplicateOutput1 failed too (hr=0x%1)")
                     .arg(static_cast<quint32>(hr1), 8, 16, QChar('0')));
         }
@@ -340,24 +340,13 @@ bool ScreenCaptureWin::captureFrameDxgi() {
         }
 
         if (FAILED(hr)) {
-            if (hr == DXGI_ERROR_ACCESS_LOST) {
-                // Into the log file, not just qDebug: this is what a display
-                // mode change, UAC prompt or Win+P does to a running capture,
-                // and it is the prime suspect when receivers flicker.
-                LogManager::instance().log(
-                    QString("Sender: Desktop duplication lost on %1 — reinitializing")
-                        .arg(m_displayName.isEmpty() ? QStringLiteral("primary") : m_displayName));
-                if (m_duplication) { m_duplication->Release(); m_duplication = nullptr; }
-                for (int i = 0; i < kStagingCount; i++) {
-                    if (m_stagingTex[i]) { m_stagingTex[i]->Release(); m_stagingTex[i] = nullptr; }
-                }
-                if (!initDuplication()) {
-                    emit error("Failed to reinitialize desktop duplication");
-                    return false;
-                }
-                return true;
-            }
-            return false;
+            // Lost the desktop: a UAC prompt, the lock screen, Ctrl+Alt+Del, a
+            // display mode change or Win+P. Recover rather than give up. This used
+            // to make one reinit attempt and, if that was refused, end the capture
+            // thread for good: the receiver froze with no cursor until the user
+            // reconnected (#66). A UAC prompt refuses every attempt for as long as
+            // it is on screen, so it reliably took the stream down.
+            return recoverDuplication(hr);
         }
 
         // The pointer rides along with the frame and has to be read while the
@@ -739,6 +728,56 @@ void ScreenCaptureWin::convertAndEmit(const uint8_t* bgra, int pitch, qint64 pts
 
     m_lastEmitNs = ptsNanos;
     emit frameCaptured(m_nv12, w, h, ptsNanos);
+}
+
+// Re-create the duplication after the desktop was taken away, retrying until it
+// comes back or the capture is stopped. While a secure desktop (UAC, lock screen)
+// is up, DuplicateOutput is refused with E_ACCESSDENIED for as long as it stays
+// there, which can be minutes. Meanwhile the last frame keeps being re-sent once
+// a second, so the receiver holds the picture instead of timing out.
+// Returns false only when the capture is being stopped.
+bool ScreenCaptureWin::recoverDuplication(HRESULT cause) {
+    const QString name = m_displayName.isEmpty() ? QStringLiteral("primary") : m_displayName;
+    LogManager::instance().log(
+        QString("Sender: Desktop duplication lost on %1 (hr=0x%2), recovering")
+            .arg(name).arg(static_cast<quint32>(cause), 8, 16, QChar('0')));
+
+    const qint64 startedNs = nowNanos();
+    bool rebuildDevice = cause == DXGI_ERROR_DEVICE_REMOVED || cause == DXGI_ERROR_DEVICE_RESET;
+    m_quietDuplicationLog = true;
+
+    for (int attempt = 0; m_running; attempt++) {
+        if (m_duplication) { m_duplication->Release(); m_duplication = nullptr; }
+        for (int i = 0; i < kStagingCount; i++) {
+            if (m_stagingTex[i]) { m_stagingTex[i]->Release(); m_stagingTex[i] = nullptr; }
+        }
+        // Every few failures, start over from the device as well: after a GPU
+        // reset or a display change the old device can be the thing refusing.
+        if (rebuildDevice || (attempt > 0 && attempt % 5 == 0)) {
+            if (m_context) { m_context->Release(); m_context = nullptr; }
+            if (m_device)  { m_device->Release();  m_device = nullptr; }
+            rebuildDevice = false;
+        }
+
+        if ((m_device || initD3DForOutput()) && initDuplication()) {
+            m_quietDuplicationLog = false;
+            LogManager::instance().log(
+                QString("Sender: Desktop duplication on %1 recovered after %2 ms")
+                    .arg(name).arg((nowNanos() - startedNs) / 1000000));
+            return true;
+        }
+
+        // Keep the receiver's picture alive while we wait.
+        if (m_lastEmitNs != 0 && !m_nv12.isEmpty() && nowNanos() - m_lastEmitNs > kKeepAliveIntervalNs) {
+            m_lastEmitNs = nowNanos();
+            emit frameCaptured(m_nv12, m_resolution.width(), m_resolution.height(), m_lastEmitNs);
+        }
+        // Back off to one try a second; sleep in slices so stop() isn't held up.
+        const int waitMs = attempt < 4 ? 250 : 1000;
+        for (int slept = 0; slept < waitMs && m_running; slept += 50) Sleep(50);
+    }
+    m_quietDuplicationLog = false;
+    return false;
 }
 
 void ScreenCaptureWin::cleanup() {
