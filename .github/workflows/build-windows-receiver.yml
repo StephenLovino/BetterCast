@@ -70,6 +70,12 @@ jobs:
           # sender silently falls back to libx264 for every stream — three
           # concurrent 1080p60 software encodes will bury a laptop CPU, which
           # showed up as a black screen on the third receiver.
+          # The runner image's vcpkg predates the fix for AMD re-uploading the AMF
+          # 1.5.3 headers archive, so a cold build failed on its checksum. Take only
+          # that port from the vcpkg commit that fixed it; everything else (FFmpeg
+          # included) stays at the image's version.
+          git -C $env:VCPKG_ROOT fetch --depth 1 origin f02d946abddc239688a43aadcb6d6404d035c834
+          git -C $env:VCPKG_ROOT checkout f02d946abddc239688a43aadcb6d6404d035c834 -- ports/amd-amf
           vcpkg install "$env:VCPKG_SPEC" --recurse
         env:
           VCPKG_ROOT: C:/vcpkg
