@@ -27,6 +27,10 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var height: Int
     private var captureFPS: Int32
 
+    /// Called on the main queue when capture stops on its own (not via stopCapture),
+    /// typically because the Mac put its displays to sleep. The owner restarts it.
+    var onStreamStopped: (() -> Void)?
+
     init(videoEncoder: VideoEncoder, targetDisplayID: CGDirectDisplayID? = nil, width: Int = 1920, height: Int = 1080, captureFPS: Int32 = 120) {
         self.videoEncoder = videoEncoder
         self.targetDisplayID = targetDisplayID
@@ -356,5 +360,10 @@ class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // SCStreamDelegate
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         LogManager.shared.log("ScreenRecorder: Stream stopped with error: \(error.localizedDescription)")
+        // Only logged until now, so a display-sleep cycle left the receiver black
+        // until the user reconnected (#68). Hand it to the owner to restart.
+        guard !stopRequested else { return }
+        self.stream = nil
+        DispatchQueue.main.async { [weak self] in self?.onStreamStopped?() }
     }
 }

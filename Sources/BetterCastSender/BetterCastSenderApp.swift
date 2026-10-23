@@ -3086,6 +3086,26 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     }
 
     /// Per-device brightness, keyed by service name. 1.0 = untouched.
+    /// Per-device Audio Streaming and Smooth Motion, by device name. Before these were
+    /// saved, every new session started from the app-wide defaults, so a device the
+    /// user always runs muted had to be muted again on every connect (#68).
+    @Published var audioOverrides: [String: Bool] =
+        UserDefaults.standard.dictionary(forKey: "audioOverrides") as? [String: Bool] ?? [:] {
+        didSet { UserDefaults.standard.set(audioOverrides, forKey: "audioOverrides") }
+    }
+    @Published var smoothMotionOverrides: [String: Bool] =
+        UserDefaults.standard.dictionary(forKey: "smoothMotionOverrides") as? [String: Bool] ?? [:] {
+        didSet { UserDefaults.standard.set(smoothMotionOverrides, forKey: "smoothMotionOverrides") }
+    }
+
+    func savedAudioEnabled(for serviceName: String) -> Bool {
+        audioOverrides[screenSizeKey(serviceName)] ?? audioStreamingEnabled
+    }
+
+    func savedSmoothMotion(for serviceName: String) -> Bool {
+        smoothMotionOverrides[screenSizeKey(serviceName)] ?? false
+    }
+
     @Published var brightnessOverrides: [String: Double] =
         UserDefaults.standard.dictionary(forKey: "brightnessOverrides") as? [String: Double] ?? [:] {
         didSet { UserDefaults.standard.set(brightnessOverrides, forKey: "brightnessOverrides") }
@@ -3703,6 +3723,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     init() {
         LogManager.shared.log("Sender: App Starting")
         observeScreenArrangement()
+        observeDisplayWake()
         
         // We can't monitor recursively in init easily, but we can start it.
         interfaceMonitor.pathUpdateHandler = { [weak self] path in
@@ -5358,6 +5379,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         if let idx = connectedDisplays.firstIndex(where: { $0.id == connectionId }) {
             connectedDisplays[idx].audioEnabled = enabled
             let name = connectedDisplays[idx].name
+            audioOverrides[screenSizeKey(name)] = enabled
             LogManager.shared.log("Sender: Audio \(enabled ? "enabled" : "disabled") for \(name)")
         }
     }
@@ -5367,6 +5389,7 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         if let idx = connectedDisplays.firstIndex(where: { $0.id == connectionId }) {
             connectedDisplays[idx].smoothMotion = enabled
             let name = connectedDisplays[idx].name
+            smoothMotionOverrides[screenSizeKey(name)] = enabled
             pipelines[connectionId]?.videoEncoder?.setBurstMultiplier(enabled ? 3.0 : 1.5)
             LogManager.shared.log("Sender: Smooth motion \(enabled ? "on (3.0x burst)" : "off (1.5x burst)") for \(name)")
         }
@@ -5380,6 +5403,58 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
     ///
     /// Iterating `pipelines` here is safe for the same reason updateConnectedDisplays is:
     /// this runs on the main queue, and it only reads.
+    // MARK: - Recovering capture after display sleep
+
+    /// Connections whose capture stopped while the displays slept, waiting for wake.
+    /// Main thread only, and kept out of `pipelines` (see its threading rules).
+    private var stalledCaptures: Set<UUID> = []
+    private var captureRestartAttempts: [UUID: Int] = [:]
+
+    /// Capture stopped without being asked to. While the displays are asleep there is
+    /// nothing to capture, so wait for them to wake; otherwise retry shortly.
+    private func captureStopped(_ connectionId: UUID, recorder: ScreenRecorder) {
+        guard pipelines[connectionId]?.screenRecorder === recorder else { return }
+        stalledCaptures.insert(connectionId)
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 {
+            LogManager.shared.log("Sender: Capture stopped while the displays sleep; will resume on wake")
+            return
+        }
+        let attempt = (captureRestartAttempts[connectionId] ?? 0) + 1
+        captureRestartAttempts[connectionId] = attempt
+        guard attempt <= 5 else {
+            LogManager.shared.log("Sender: Capture keeps stopping; giving up after 5 restarts until the next wake")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.restartCapture(connectionId)
+        }
+    }
+
+    private func restartCapture(_ connectionId: UUID) {
+        guard stalledCaptures.remove(connectionId) != nil,
+              let pipeline = pipelines[connectionId], let recorder = pipeline.screenRecorder else { return }
+        LogManager.shared.log("Sender: Restarting capture for \(pipeline.service.name)")
+        let encoder = pipeline.videoEncoder
+        Task {
+            await recorder.startCapture()
+            // The receiver's decoder has been idle; give it a fresh reference frame.
+            encoder?.forceKeyframe(silent: true)
+        }
+    }
+
+    private func observeDisplayWake() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, !self.stalledCaptures.isEmpty else { return }
+            self.captureRestartAttempts.removeAll()
+            // Give WindowServer a moment to bring the virtual displays back first.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                for id in Array(self.stalledCaptures) { self.restartCapture(id) }
+            }
+        }
+    }
+
     private func observeScreenArrangement() {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -5414,8 +5489,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
                 name: pipeline.service.name,
                 resolution: res,
                 displayBounds: bounds,
-                audioEnabled: connectedDisplays.first(where: { $0.id == id })?.audioEnabled ?? audioStreamingEnabled,
-                smoothMotion: connectedDisplays.first(where: { $0.id == id })?.smoothMotion ?? false,
+                audioEnabled: connectedDisplays.first(where: { $0.id == id })?.audioEnabled
+                    ?? savedAudioEnabled(for: pipeline.service.name),
+                smoothMotion: connectedDisplays.first(where: { $0.id == id })?.smoothMotion
+                    ?? savedSmoothMotion(for: pipeline.service.name),
                 cgDisplayID: pipeline.virtualDisplayManager?.displayID
             )
         }
@@ -6182,7 +6259,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         if !isP2P && !isLoopback {
             encoder.burstMultiplier = 2.0
         }
-        if connectedDisplays.first(where: { $0.id == connectionId })?.smoothMotion == true {
+        if connectedDisplays.first(where: { $0.id == connectionId })?.smoothMotion
+            ?? savedSmoothMotion(for: serviceName) {
             encoder.burstMultiplier = 3.0
         }
         pipelines[connectionId]?.videoEncoder = encoder
@@ -6190,7 +6268,8 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
         encoder.maxBitrate = bitrate // ceiling; encoder.currentBitrate already starts here
 
         // Audio encoder (if audio streaming enabled for this connection)
-        let audioEnabled = connectedDisplays.first(where: { $0.id == connectionId })?.audioEnabled ?? audioStreamingEnabled
+        let audioEnabled = connectedDisplays.first(where: { $0.id == connectionId })?.audioEnabled
+            ?? savedAudioEnabled(for: serviceName)
         var audioEnc: AudioEncoder? = nil
         if audioEnabled {
             let ae = AudioEncoder(connectionId: connectionId)
@@ -6217,6 +6296,10 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
             LogManager.shared.log("Sender: Audio requested for \(serviceName) but Compatibility Mode is on — legacy capture carries no audio, so none will be sent")
         }
         recorder.audioEncoder = audioEnc
+        recorder.onStreamStopped = { [weak self, weak recorder] in
+            guard let self, let recorder else { return }
+            self.captureStopped(connectionId, recorder: recorder)
+        }
         pipelines[connectionId]?.screenRecorder = recorder
 
         Task {
