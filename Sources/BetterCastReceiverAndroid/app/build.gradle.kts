@@ -14,8 +14,8 @@ android {
         applicationId = "com.bettercast.receiver"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.4.1"
     }
 
     // Release signing. Credentials come from keystore.properties (gitignored) or,

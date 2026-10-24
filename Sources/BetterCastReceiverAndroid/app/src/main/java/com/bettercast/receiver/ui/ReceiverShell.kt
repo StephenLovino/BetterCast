@@ -51,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -95,8 +96,10 @@ enum class ReceiverTab(@StringRes val labelRes: Int, val icon: ImageVector) {
 fun ReceiverShell(viewModel: ReceiverViewModel) {
     val state by viewModel.state.collectAsState()
 
-    var tab by remember { mutableStateOf(ReceiverTab.CONNECT) }
-    var navVisible by remember { mutableStateOf(true) }
+    // Saveable, so the tab survives the activity being recreated in the background
+    // (some OEM builds, Xiaomi's among them, do this freely).
+    var tab by rememberSaveable { mutableStateOf(ReceiverTab.CONNECT) }
+    var navVisible by rememberSaveable { mutableStateOf(true) }
     val inPip by viewModel.inPictureInPicture.collectAsState()
 
     // A live stream takes the whole panel: the phone is a display at that point, and
@@ -133,7 +136,10 @@ fun ReceiverShell(viewModel: ReceiverViewModel) {
 
         AnimatedVisibility(
             // Nothing but the video fits in a PiP window.
-            visible = navVisible && !inPip,
+            // Only the stream screen may hide the bar: it is the only screen with a way
+            // to bring it back. A reconnect while Settings was open used to hide it there
+            // and strand the user on that tab until the app was killed (#62, Xiaomi K60).
+            visible = (navVisible || tab != ReceiverTab.CONNECT) && !inPip,
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
             modifier = Modifier.align(Alignment.BottomCenter)
