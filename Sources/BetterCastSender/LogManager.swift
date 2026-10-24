@@ -46,6 +46,10 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v23", date: "2026-10-25", highlights: [
+            "Arrange your screens right in Overview: drag a display to where it sits on your desk and it snaps into place, no System Settings needed",
+            "Overview shows each screen where it really is, and the preview of a BetterCast screen shows what's on that screen",
+        ]),
         Entry(version: "v22", date: "2026-10-24", highlights: [
             "Updates install themselves: BetterCast checks in the background, downloads the new version and relaunches into it. Check for Updates is in the BetterCast menu",
             "Type in any resolution under Custom, so screens that aren't 16:9 or 16:10 fill edge to edge",
