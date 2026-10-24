@@ -46,6 +46,17 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v22", date: "2026-10-24", highlights: [
+            "Updates install themselves: BetterCast checks in the background, downloads the new version and relaunches into it. Check for Updates is in the BetterCast menu",
+            "Type in any resolution under Custom, so screens that aren't 16:9 or 16:10 fill edge to edge",
+            "Tell BetterCast a device's real screen size once and it streams at full sharpness, with a Portrait switch for devices that stand upright",
+            "Pick a text size per device: larger text or more space, without making the picture any softer",
+            "A screen you dragged to one side of your Mac stays there after it rotates or changes size",
+            "Audio and Smooth Motion are remembered for each device, instead of resetting every time it connects",
+            "After your Mac's displays sleep, streams come back by themselves instead of staying black until you reconnect",
+            "Older iPhones and iPads that can't decode H.265 get H.264 automatically, instead of a black screen",
+            "Reset Permissions works on any build of the app",
+        ]),
         Entry(version: "v21", date: "2026-09-07", highlights: [
             "Compatibility Mode no longer shows a copy of your Mac's screen instead of the extra desktop, and the pointer is visible on the receiver again",
             "Compatibility Mode is now set per device, so watching protected video on one screen no longer costs every other screen its sound",
