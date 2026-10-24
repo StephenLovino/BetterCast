@@ -16,15 +16,14 @@ class LogManager: ObservableObject {
     }
 }
 
-// MARK: - Update Checker
+// MARK: - Version
 
-class UpdateChecker: ObservableObject {
-    static let shared = UpdateChecker()
-
-    /// Reads version from Info.plist (CFBundleShortVersionString), prefixed with "v"
+/// The running version, for display. Checking for and installing updates is
+/// AppUpdater's job (Sparkle).
+enum UpdateChecker {
+    /// Major version from CFBundleShortVersionString, matching the release tags ("21.0" -> "v21").
     static var currentVersion: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        // Extract major version number to match GitHub tag format (e.g., "8.0" → "v8")
         let major = short.components(separatedBy: ".").first ?? short
         return "v\(major)"
     }
@@ -33,135 +32,6 @@ class UpdateChecker: ObservableObject {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
         return "\(short) (\(build))"
-    }
-
-    private static let repoOwner = "StephenLovino"
-    private static let repoName = "BetterCast"
-
-    @Published var latestVersion: String?
-    @Published var downloadURL: String?
-    /// Direct link to the .dmg asset, as opposed to `downloadURL` which is the
-    /// release page. Opening a web page and leaving the user to find the file, save
-    /// it and mount it is four steps to install a fix they already agreed to.
-    @Published var assetURL: String?
-    @Published var downloadProgress: Double = 0
-    @Published var isDownloading = false
-    @Published var downloadError: String?
-    @Published var releaseNotes: String?
-    @Published var updateAvailable = false
-    @Published var checkedOnce = false
-    fileprivate var progressObservation: NSKeyValueObservation?
-
-    /// Extracts the leading integer from a version tag like "v8", "V7", "v10.2" → 8, 7, 10
-    static func versionNumber(from tag: String) -> Int {
-        let digits = tag.drop(while: { !$0.isNumber })
-        return Int(digits.prefix(while: { $0.isNumber })) ?? 0
-    }
-
-    func checkForUpdates() {
-        let urlString = "https://api.github.com/repos/\(Self.repoOwner)/\(Self.repoName)/releases/latest"
-        guard let url = URL(string: urlString) else { return }
-
-        var request = URLRequest(url: url)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 10
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let data = data, error == nil else { return }
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-
-            let tagName = json["tag_name"] as? String ?? ""
-            let htmlURL = json["html_url"] as? String ?? ""
-            let body = json["body"] as? String ?? ""
-
-            // Prefer the Mac disk image. A release also carries the Android and
-            // Windows assets, so pick by extension rather than taking the first.
-            let assets = json["assets"] as? [[String: Any]] ?? []
-            let dmg = assets.first { ($0["name"] as? String)?.hasSuffix(".dmg") == true }
-            let dmgURL = dmg?["browser_download_url"] as? String
-
-            DispatchQueue.main.async {
-                self?.latestVersion = tagName
-                self?.downloadURL = htmlURL
-                self?.assetURL = dmgURL
-                self?.releaseNotes = body
-
-                // Numeric comparison: only show update if remote version > local version
-                let remoteNum = Self.versionNumber(from: tagName)
-                let localNum = Self.versionNumber(from: Self.currentVersion)
-                self?.updateAvailable = remoteNum > localNum
-
-                self?.checkedOnce = true
-                if self?.updateAvailable == true {
-                    LogManager.shared.log("Update: \(tagName) available (current: \(Self.currentVersion))")
-                }
-            }
-        }.resume()
-    }
-}
-
-extension UpdateChecker {
-
-    /// Fetch the new version and open it, so updating is one click rather than a
-    /// trip to a web page.
-    ///
-    /// Deliberately stops at opening the mounted image rather than replacing the
-    /// running app in place. Swapping a running bundle needs a helper process and a
-    /// relaunch dance, and getting that subtly wrong leaves someone with no working
-    /// app at all. Finder's copy is the step people already know.
-    func downloadAndOpen() {
-        guard !isDownloading else { return }
-        guard let urlString = assetURL, let url = URL(string: urlString) else {
-            // No .dmg on the release: fall back to the page rather than doing nothing.
-            if let page = downloadURL, let u = URL(string: page) { NSWorkspace.shared.open(u) }
-            return
-        }
-
-        isDownloading = true
-        downloadProgress = 0
-        downloadError = nil
-        LogManager.shared.log("Update: downloading \(url.lastPathComponent)")
-
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmp, response, error in
-            DispatchQueue.main.async { self?.isDownloading = false }
-
-            if let error = error {
-                DispatchQueue.main.async {
-                    self?.downloadError = error.localizedDescription
-                    LogManager.shared.log("Update: download failed — \(error.localizedDescription)")
-                }
-                return
-            }
-            guard let tmp = tmp else { return }
-
-            // Move out of the temporary directory, which is emptied from under us,
-            // and into Downloads where the file is findable if anything goes wrong.
-            let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? FileManager.default.temporaryDirectory
-            let dest = downloads.appendingPathComponent(url.lastPathComponent)
-            try? FileManager.default.removeItem(at: dest)
-            do {
-                try FileManager.default.moveItem(at: tmp, to: dest)
-            } catch {
-                DispatchQueue.main.async {
-                    self?.downloadError = error.localizedDescription
-                    LogManager.shared.log("Update: could not save — \(error.localizedDescription)")
-                }
-                return
-            }
-
-            DispatchQueue.main.async {
-                LogManager.shared.log("Update: saved to \(dest.path), opening it")
-                NSWorkspace.shared.open(dest)
-            }
-        }
-
-        // Progress is worth showing: the disk image is several megabytes and a button
-        // that does nothing visible for ten seconds reads as broken.
-        progressObservation = task.progress.observe(\.fractionCompleted) { [weak self] p, _ in
-            DispatchQueue.main.async { self?.downloadProgress = p.fractionCompleted }
-        }
-        task.resume()
     }
 }
 
@@ -288,57 +158,12 @@ struct Changelog {
 
 struct LogView: View {
     @ObservedObject var logManager = LogManager.shared
-    @ObservedObject var updateChecker = UpdateChecker.shared
 
     private static let repoOwner = "StephenLovino"
     private static let repoName = "BetterCast"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Update banner
-            if updateChecker.checkedOnce {
-                if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
-                    HStack {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Update available: \(version)")
-                            .font(.system(size: 13, weight: .medium))
-                        Spacer()
-                        if updateChecker.isDownloading {
-                            ProgressView(value: updateChecker.downloadProgress)
-                                .frame(width: 90)
-                            Text("\(Int(updateChecker.downloadProgress * 100))%")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Button("Update Now") {
-                                updateChecker.downloadAndOpen()
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                        }
-                    }
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.green.opacity(0.1))
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                } else {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("You're on the latest version (\(UpdateChecker.currentVersion))")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(12)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                }
-            }
-
             // Action buttons
             HStack {
                 Spacer()
@@ -390,9 +215,6 @@ struct LogView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Logs")
-        .onAppear {
-            updateChecker.checkForUpdates()
-        }
     }
 
     private func openReportIssue() {

@@ -66,6 +66,9 @@ struct BetterCastSenderApp: App {
                 )
             }
         }
+        .commands {
+            CommandGroup(after: .appInfo) { CheckForUpdatesCommand() }
+        }
     }
 
     enum SidebarSelection: Hashable {
@@ -112,7 +115,8 @@ struct BetterCastSenderApp: App {
             if !receiver.isRunning {
                 receiver.start()
             }
-            UpdateChecker.shared.checkForUpdates()
+            // Starts Sparkle, which then checks on its own schedule.
+            _ = AppUpdater.shared
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 InputHandler.shared.checkAccessibility()
             }
@@ -1562,31 +1566,7 @@ struct DetailPanelView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if updateChecker.checkedOnce {
-                    if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
-                        HStack {
-                            Label("Update available: \(version)", systemImage: "arrow.down.circle.fill")
-                                .foregroundColor(.green)
-                            Spacer()
-                            if updateChecker.isDownloading {
-                                ProgressView(value: updateChecker.downloadProgress)
-                                    .frame(width: 90)
-                                Text("\(Int(updateChecker.downloadProgress * 100))%")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Button("Update Now") {
-                                    updateChecker.downloadAndOpen()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                            }
-                        }
-                    } else {
-                        Label("You're on the latest version", systemImage: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    }
-                }
+                UpdateSettingsRows()
             }
 
             Section("What's New") {
@@ -1616,10 +1596,7 @@ struct DetailPanelView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
-        .onAppear { updateChecker.checkForUpdates() }
     }
-
-    @ObservedObject private var updateChecker = UpdateChecker.shared
 
     private func deviceIcon(for service: DiscoveredService) -> String {
         let name = service.name.lowercased()

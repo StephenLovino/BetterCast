@@ -54,3 +54,5 @@ Sources/BetterCastReceiverAndroid/keystore.properties
 *.keystore
 LegacyMacReceiver/.build/
 Sources/BetterCastReceiverAndroid/local.properties.bak
+appcast.xml
+updater-test-A/

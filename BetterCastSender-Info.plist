@@ -39,5 +39,13 @@
 	<string>BetterCast uses this to send your Mac's sound to a connected device, and to play the sound of an iPhone or iPad connected by cable. Nothing is recorded or sent anywhere else.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>BetterCast needs to capture your screen to stream it to the receiver.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/StephenLovino/BetterCast/releases/download/mac-updates/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>fUOEqL6SxUBeIDjEJgKUJGvWBMB9pGeIQBD/qsZseVI=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>21600</integer>
 </dict>
 </plist>

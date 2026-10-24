@@ -14,6 +14,11 @@ let package = Package(
         .executable(name: "BetterCastReceiver", targets: ["BetterCastReceiver"]),
         .executable(name: "BetterCastReceiverIOS", targets: ["BetterCastReceiverIOS"]),
     ],
+    dependencies: [
+        // In-app updates for the Mac app: signed feed, background download, install
+        // and relaunch. Only the macOS sender target links it.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         // Static library for Objective-C VirtualDisplay code
         .target(
@@ -26,7 +31,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "BetterCastSender",
-            dependencies: ["VirtualDisplayLib"],
+            dependencies: [
+                "VirtualDisplayLib",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             exclude: ["VirtualDisplay"],
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),

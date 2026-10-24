@@ -47,6 +47,16 @@ cp "$BUILD_DIR/BetterCastSender" "$APP_NAME/Contents/MacOS/BetterCastSender"
 cp "BetterCastSender-Info.plist" "$APP_NAME/Contents/Info.plist"
 cp "assets/branding/BetterCastIcon.icns" "$APP_NAME/Contents/Resources/AppIcon.icns"
 
+# Sparkle (in-app updates). SwiftPM links it as @rpath/Sparkle.framework but only
+# adds @loader_path to the search path, which in a bundle is Contents/MacOS.
+if [ ! -d "$BUILD_DIR/Sparkle.framework" ]; then
+    echo "error: Sparkle.framework missing from $BUILD_DIR" >&2
+    exit 1
+fi
+mkdir -p "$APP_NAME/Contents/Frameworks"
+cp -R "$BUILD_DIR/Sparkle.framework" "$APP_NAME/Contents/Frameworks/"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_NAME/Contents/MacOS/BetterCastSender"
+
 # Localizations: NSLocalizedString / SwiftUI LocalizedStringKey resolve through
 # Bundle.main, so shipping the .lproj folders in Contents/Resources is all it
 # takes for the app to follow the system language.
@@ -54,8 +64,17 @@ for lproj in localization/*.lproj; do
     cp -R "$lproj" "$APP_NAME/Contents/Resources/"
 done
 
-# Code sign with entitlements
-codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" --entitlements "BetterCastSender-Release.entitlements" "$APP_NAME"
+# Code sign. Sparkle's helpers are signed one by one, inside out, as Sparkle's docs
+# require: --deep would stamp the app's entitlements onto them, and the Downloader
+# XPC service has to keep its own.
+SPARKLE="$APP_NAME/Contents/Frameworks/Sparkle.framework/Versions/B"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE/XPCServices/Installer.xpc"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" --preserve-metadata=entitlements "$SPARKLE/XPCServices/Downloader.xpc"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE/Autoupdate"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE/Updater.app"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_NAME/Contents/Frameworks/Sparkle.framework"
+codesign --force --options runtime --sign "$SIGN_IDENTITY" --entitlements "BetterCastSender-Release.entitlements" "$APP_NAME"
+codesign --verify --deep --strict "$APP_NAME"
 
 # ============================================
 # Create DMG (with custom install background)
