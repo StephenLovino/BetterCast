@@ -287,3 +287,4 @@
 "This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "このデバイスは画面サイズを報告しません。ピクセル単位で入力すると（例: 2160 x 1584）、黒帯なしでフル解像度でストリーミングします。";
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "このデバイスでのデスクトップの見た目の大きさです。ストリームはネイティブ解像度のままなので、どのサイズでも鮮明です。システム設定 > ディスプレイでも変更できます。";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "このデバイスの文字サイズを選ぶには Retina (HiDPI) をオンにしてください。";
+"Custom Size" = "カスタムサイズ";

@@ -48,13 +48,15 @@ struct ResolutionPicker: View {
             }
 
             if customOpen || !client.selectedResolution.isPreset {
-                SizeFields(widthText: $widthText, heightText: $heightText) {
-                    Button("Set") {
-                        guard let size = typedSize else { return }
-                        client.selectedResolution = .custom(size)
-                        customOpen = false
+                LabeledContent("Custom Size") {
+                    SizeFields(widthText: $widthText, heightText: $heightText) {
+                        Button("Set") {
+                            guard let size = typedSize else { return }
+                            client.selectedResolution = .custom(size)
+                            customOpen = false
+                        }
+                        .disabled(typedSize == nil)
                     }
-                    .disabled(typedSize == nil)
                 }
                 .onAppear {
                     if widthText.isEmpty {
@@ -77,13 +79,23 @@ private struct SizeFields<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
+        // Labels hidden and shown as placeholders: in a grouped Form, a titled
+        // TextField puts its title beside the box, which wrapped to "Wid / th".
         HStack(spacing: 6) {
-            TextField("Width", text: $widthText).frame(width: 64)
-            Text("x")
-            TextField("Height", text: $heightText).frame(width: 64)
+            TextField("Width", text: $widthText, prompt: Text("Width"))
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 72)
+            Text(verbatim: "\u{00D7}")
+                .foregroundStyle(.secondary)
+            TextField("Height", text: $heightText, prompt: Text("Height"))
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 72)
             trailing()
         }
         .textFieldStyle(.roundedBorder)
+        .fixedSize()
     }
 }
 

@@ -288,3 +288,4 @@
 "This device does not report its screen size. Enter it in pixels (for example 2160 x 1584) to stream at full sharpness with no black bars." = "此设备不会报告屏幕尺寸。请输入像素尺寸（例如 2160 x 1584），即可以全清晰度串流且无黑边。";
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "桌面在此设备上看起来的大小。串流始终保持原生分辨率，因此每种大小都清晰。也可在“系统设置 > 显示器”中调整。";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "打开 Retina (HiDPI) 以为此设备选择文字大小。";
+"Custom Size" = "自定义尺寸";
