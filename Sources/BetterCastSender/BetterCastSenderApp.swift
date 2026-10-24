@@ -1732,12 +1732,17 @@ struct DisplayItem: Identifiable {
 class DisplayThumbnailProvider: ObservableObject {
     @Published var thumbnails: [String: NSImage] = [:] // keyed by DisplayItem.id
     private var timer: Timer?
+    private var capturing = false
+
+    /// Long edge of a preview, in pixels: plenty for a card a few hundred points wide.
+    private static let previewSize: CGFloat = 640
 
     func start(displays: [DisplayItem]) {
-        capture(displays: displays)
+        let targets = displays.compactMap { d in d.cgDisplayID.map { (d.id, $0) } }
+        capture(targets)
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.capture(displays: displays)
+            self?.capture(targets)
         }
     }
 
@@ -1746,38 +1751,41 @@ class DisplayThumbnailProvider: ObservableObject {
         timer = nil
     }
 
-    private func capture(displays: [DisplayItem]) {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            var newThumbs: [String: NSImage] = [:]
-
-            for display in displays {
-                let displayID: CGDirectDisplayID
-                if display.isBuiltIn {
-                    displayID = CGMainDisplayID()
-                    // Try to find actual built-in display
-                    var onlineDisplays = [CGDirectDisplayID](repeating: 0, count: 16)
-                    var displayCount: UInt32 = 0
-                    CGGetOnlineDisplayList(16, &onlineDisplays, &displayCount)
-                    let builtIn = onlineDisplays.prefix(Int(displayCount)).first { CGDisplayIsBuiltin($0) != 0 }
-                    if let builtIn = builtIn {
-                        if let cgImage = CGDisplayCreateImage(builtIn) {
-                            newThumbs[display.id] = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    private func capture(_ targets: [(key: String, displayID: CGDirectDisplayID)]) {
+        guard !capturing, !targets.isEmpty else { return }
+        capturing = true
+        Task { [weak self] in
+            var images: [String: NSImage] = [:]
+            if #available(macOS 14.0, *) {
+                // CGDisplayCreateImage, used here before, is unavailable from macOS 15 on
+                // and handed back the wrong picture for a virtual display: a BetterCast
+                // screen's preview showed the main display's windows.
+                if let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) {
+                    for (key, id) in targets {
+                        guard let display = content.displays.first(where: { $0.displayID == id }) else { continue }
+                        let config = SCStreamConfiguration()
+                        let scale = min(1, Self.previewSize / CGFloat(max(display.width, display.height)))
+                        config.width = max(1, Int(CGFloat(display.width) * scale * 2))
+                        config.height = max(1, Int(CGFloat(display.height) * scale * 2))
+                        config.showsCursor = false
+                        let filter = SCContentFilter(display: display, excludingWindows: [])
+                        if let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) {
+                            images[key] = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
                         }
-                        continue
                     }
-                } else if let did = display.cgDisplayID {
-                    displayID = did
-                } else {
-                    continue
                 }
-
-                if let cgImage = CGDisplayCreateImage(displayID) {
-                    newThumbs[display.id] = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            } else {
+                for (key, id) in targets {
+                    if let image = CGDisplayCreateImage(id) {
+                        images[key] = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+                    }
                 }
             }
-
-            DispatchQueue.main.async {
-                self?.thumbnails = newThumbs
+            let result = images
+            let owner = self
+            await MainActor.run {
+                owner?.thumbnails = result
+                owner?.capturing = false
             }
         }
     }
@@ -2001,6 +2009,10 @@ struct DisplayOverviewView: View {
         .onAppear { thumbProvider.start(displays: displays) }
         .onDisappear { thumbProvider.stop() }
         .onChange(of: client.connectedDisplays.count) { _ in
+            thumbProvider.start(displays: displays)
+        }
+        // A moved or resized display: capture it again from its new state.
+        .onChange(of: arrangementRevision) { _ in
             thumbProvider.start(displays: displays)
         }
     }
