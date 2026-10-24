@@ -15,7 +15,7 @@
 "A few permissions are needed to get started" = "Zum Loslegen werden einige Berechtigungen benötigt";
 "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "Machen wir eine kurze Tour durch die App. BetterCast verwandelt jedes Gerät in ein kabelloses erweitertes Display für deinen Mac.";
 "Overview" = "Übersicht";
-"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "Dies ist dein Dashboard. Sieh alle verbundenen Displays mit Live-Vorschau, verwalte Verbindungen und nutze \"Anordnen...\", um Displays in den Systemeinstellungen zu positionieren.";
+"This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings." = "Dies ist dein Dashboard. Sieh alle verbundenen Displays mit Live-Vorschau, verwalte Verbindungen und ziehe Displays, um sie anzuordnen, oder nutze \"Anordnen...\" für die Systemeinstellungen.";
 "Device Settings" = "Geräteeinstellungen";
 "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "Klicke auf ein verbundenes Gerät in der Seitenleiste, um Auflösung, Bitrate, Retina-Modus und Audio-Streaming für dieses Display anzupassen.";
 "Receive Screen" = "Bildschirm empfangen";
@@ -290,3 +290,6 @@
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "Wie groß der Schreibtisch auf diesem Gerät wirkt. Der Stream bleibt in nativer Auflösung, daher ist jede Größe scharf. Auch in Systemeinstellungen > Displays einstellbar.";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "Aktiviere Retina (HiDPI), um eine Textgröße für dieses Gerät zu wählen.";
 "Custom Size" = "Eigene Größe";
+
+"Drag to arrange" = "Zum Anordnen ziehen";
+"The main display stays in place; drag the others around it" = "Der Hauptbildschirm bleibt an seinem Platz; ziehe die anderen um ihn herum";

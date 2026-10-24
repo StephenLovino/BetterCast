@@ -203,7 +203,7 @@ struct GuidedTourOverlay: View {
         ),
         TourStep(
             title: "Overview",
-            description: "This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings.",
+            description: "This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings.",
             icon: "rectangle.on.rectangle",
             sidebarTarget: .devices,
             anchorKey: "sidebar_overview"
@@ -1790,13 +1790,26 @@ struct DisplayOverviewView: View {
     @State private var selectedDisplayId: String? = nil
     @StateObject private var thumbProvider = DisplayThumbnailProvider()
 
+    // Dragging a display to rearrange it, as in System Settings > Displays.
+    @State private var draggingId: String?
+    @State private var dragOffset: CGSize = .zero
+    /// Bumped when the arrangement changes, so positions are read again.
+    @State private var arrangementRevision = 0
+
     private var displays: [DisplayItem] {
         var items: [DisplayItem] = []
         let bcCGIDs = Set(client.connectedDisplays.compactMap { $0.cgDisplayID })
 
+        // Everything here is in CoreGraphics coordinates (y down, from the main display's
+        // top-left), which is what CGDisplayBounds reports for the BetterCast displays and
+        // what moving a display takes. NSScreen.frame is AppKit's y-up flip of the same
+        // space, and mixing the two drew displays at the wrong height.
+        _ = arrangementRevision
+
         // Built-in display
-        if let builtinScreen = NSScreen.builtin ?? NSScreen.main {
-            let frame = builtinScreen.frame
+        if let builtinScreen = NSScreen.builtin ?? NSScreen.main,
+           let num = builtinScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+            let frame = CGDisplayBounds(num)
             items.append(DisplayItem(
                 id: "builtin",
                 name: builtinScreen.localizedName,
@@ -1804,7 +1817,8 @@ struct DisplayOverviewView: View {
                 height: frame.height,
                 originX: frame.origin.x,
                 originY: frame.origin.y,
-                isBuiltIn: true
+                isBuiltIn: true,
+                cgDisplayID: num
             ))
         }
 
@@ -1815,7 +1829,7 @@ struct DisplayOverviewView: View {
             guard let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { continue }
             if CGDisplayIsBuiltin(num) != 0 { continue }   // built-in already added
             if bcCGIDs.contains(num) { continue }          // BetterCast virtual added below
-            let frame = screen.frame
+            let frame = CGDisplayBounds(num)
             items.append(DisplayItem(
                 id: "ext-\(num)",
                 name: screen.localizedName,
@@ -1870,6 +1884,11 @@ struct DisplayOverviewView: View {
                         }
 
                         displayArrangementView
+                            // Rearranged in System Settings, or by us: read positions again.
+                            .onReceive(NotificationCenter.default.publisher(
+                                for: NSApplication.didChangeScreenParametersNotification)) { _ in
+                                arrangementRevision += 1
+                            }
                             .frame(height: 240)
                             .frame(maxWidth: .infinity)
                     }
@@ -1996,13 +2015,32 @@ struct DisplayOverviewView: View {
             ZStack {
                 ForEach(allDisplays) { display in
                     if let info = layout.positions[display.id] {
+                        let dragging = draggingId == display.id
                         displayThumbnail(display: display, width: info.thumbW, height: info.thumbH)
-                            .position(x: info.centerX, y: info.centerY)
+                            .position(x: info.centerX + (dragging ? dragOffset.width : 0),
+                                      y: info.centerY + (dragging ? dragOffset.height : 0))
+                            .zIndex(dragging ? 1 : 0)
+                            .opacity(dragging ? 0.85 : 1)
                             .onTapGesture {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     selectedDisplayId = display.id
                                 }
                             }
+                            // The main display defines the coordinate space, so it stays put
+                            // and the others move around it, as in System Settings.
+                            .gesture(
+                                DragGesture(minimumDistance: 3)
+                                    .onChanged { value in
+                                        draggingId = display.id
+                                        dragOffset = value.translation
+                                    }
+                                    .onEnded { value in
+                                        finishDrag(display, translation: value.translation,
+                                                   scale: layout.scale, among: allDisplays)
+                                    },
+                                including: isMovable(display) ? .all : .subviews
+                            )
+                            .help(isMovable(display) ? Text("Drag to arrange") : Text("The main display stays in place; drag the others around it"))
                     }
                 }
             }
@@ -2114,6 +2152,31 @@ struct DisplayOverviewView: View {
             )
         }
         return info
+    }
+
+    private func isMovable(_ display: DisplayItem) -> Bool {
+        guard let id = display.cgDisplayID else { return false }
+        return id != CGMainDisplayID()
+    }
+
+    private func finishDrag(_ display: DisplayItem, translation: CGSize, scale: CGFloat, among all: [DisplayItem]) {
+        defer {
+            withAnimation(.easeOut(duration: 0.2)) {
+                draggingId = nil
+                dragOffset = .zero
+            }
+        }
+        guard let id = display.cgDisplayID, scale > 0 else { return }
+        let proposed = CGRect(x: display.originX + translation.width / scale,
+                              y: display.originY + translation.height / scale,
+                              width: display.width, height: display.height)
+        let others = all.filter { $0.id != display.id }
+            .map { CGRect(x: $0.originX, y: $0.originY, width: $0.width, height: $0.height) }
+        let target = DisplayArrangement.snap(proposed, against: others)
+        guard target.origin != CGPoint(x: display.originX, y: display.originY) else { return }
+        DisplayArrangement.move(id, to: target.origin)
+        // macOS settles the new layout asynchronously; read it back once it has.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { arrangementRevision += 1 }
     }
 
     private func openDisplaySettings() {

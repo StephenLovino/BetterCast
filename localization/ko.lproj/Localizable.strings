@@ -13,7 +13,7 @@
 "A few permissions are needed to get started" = "시작하려면 몇 가지 권한이 필요합니다";
 "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "앱을 간단히 둘러보겠습니다. BetterCast는 어떤 기기든 Mac의 무선 확장 디스플레이로 만들어 줍니다.";
 "Overview" = "개요";
-"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "여기는 대시보드입니다. 연결된 모든 디스플레이를 실시간 미리보기로 확인하고, 연결을 관리하고, \"정렬...\"을 사용해 시스템 설정에서 디스플레이 위치를 조정할 수 있습니다.";
+"This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings." = "여기는 대시보드입니다. 연결된 모든 디스플레이를 실시간 미리보기로 확인하고, 연결을 관리하고, 디스플레이를 드래그해 배치하거나 \"정렬...\"로 시스템 설정을 열 수 있습니다.";
 "Device Settings" = "기기 설정";
 "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "사이드바에서 연결된 기기를 클릭하면 해당 디스플레이의 해상도, 비트레이트, Retina 모드, 오디오 스트리밍을 조정할 수 있습니다.";
 "Receive Screen" = "화면 수신";
@@ -288,3 +288,6 @@
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "이 기기에서 데스크톱이 보이는 크기입니다. 스트림은 기본 해상도를 유지하므로 어떤 크기든 선명합니다. 시스템 설정 > 디스플레이에서도 바꿀 수 있습니다.";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "이 기기의 텍스트 크기를 고르려면 Retina (HiDPI)를 켜세요.";
 "Custom Size" = "사용자 지정 크기";
+
+"Drag to arrange" = "드래그하여 배치";
+"The main display stays in place; drag the others around it" = "메인 디스플레이는 고정됩니다. 다른 디스플레이를 그 주위로 드래그하세요";

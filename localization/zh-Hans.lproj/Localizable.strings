@@ -14,7 +14,7 @@
 "A few permissions are needed to get started" = "开始使用前需要授予一些权限";
 "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "让我们快速了解一下这款应用。BetterCast 可将任何设备变成 Mac 的无线扩展显示器。";
 "Overview" = "概览";
-"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "这是你的仪表盘。可查看所有已连接显示器的实时预览、管理连接，并使用\"排列…\"在系统设置中调整显示器位置。";
+"This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings." = "这是你的仪表盘。可查看所有已连接显示器的实时预览、管理连接，拖动显示器即可排列，或使用\"排列…\"打开系统设置。";
 "Device Settings" = "设备设置";
 "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "点按边栏中任意已连接的设备，即可调整该显示器的分辨率、码率、Retina 模式和音频串流。";
 "Receive Screen" = "接收屏幕";
@@ -289,3 +289,6 @@
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "桌面在此设备上看起来的大小。串流始终保持原生分辨率，因此每种大小都清晰。也可在“系统设置 > 显示器”中调整。";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "打开 Retina (HiDPI) 以为此设备选择文字大小。";
 "Custom Size" = "自定义尺寸";
+
+"Drag to arrange" = "拖动以排列";
+"The main display stays in place; drag the others around it" = "主显示器保持不动；请将其他显示器拖到它周围";

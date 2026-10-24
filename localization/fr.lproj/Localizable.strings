@@ -14,7 +14,7 @@
 "A few permissions are needed to get started" = "Quelques autorisations sont nécessaires pour commencer";
 "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "Faisons un tour rapide de l'app. BetterCast transforme n'importe quel appareil en écran étendu sans fil pour votre Mac.";
 "Overview" = "Vue d'ensemble";
-"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "Voici votre tableau de bord. Affichez tous les écrans connectés avec des aperçus en direct, gérez les connexions et utilisez « Disposer… » pour positionner les écrans dans Réglages Système.";
+"This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings." = "Voici votre tableau de bord. Affichez tous les écrans connectés avec des aperçus en direct, gérez les connexions et faites glisser les écrans pour les disposer, ou utilisez « Disposer… » pour Réglages Système.";
 "Device Settings" = "Réglages de l'appareil";
 "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "Cliquez sur un appareil connecté dans la barre latérale pour régler la résolution, le débit, le mode Retina et la diffusion audio de cet écran.";
 "Receive Screen" = "Recevoir un écran";
@@ -289,3 +289,6 @@
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "La taille apparente du bureau sur cet appareil. Le flux reste à la résolution native, donc chaque taille est nette. Également réglable dans Réglages Système > Moniteurs.";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "Activez Retina (HiDPI) pour choisir une taille de texte pour cet appareil.";
 "Custom Size" = "Taille personnalisée";
+
+"Drag to arrange" = "Faites glisser pour disposer";
+"The main display stays in place; drag the others around it" = "L’écran principal reste en place ; faites glisser les autres autour de lui";

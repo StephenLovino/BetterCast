@@ -237,3 +237,70 @@ extension VirtualDisplayManager.Resolution {
         VirtualDisplayManager.defaultResolutions.contains { $0.width == width && $0.height == height }
     }
 }
+
+// MARK: - Arranging displays from the Overview
+
+/// Moving displays the way System Settings > Displays does, from BetterCast's Overview.
+/// All rects are CoreGraphics global display coordinates: points, origin at the main
+/// display's top-left corner, y growing downwards.
+enum DisplayArrangement {
+    /// Edges closer than this line up with the neighbour's matching edge.
+    private static let alignThreshold: CGFloat = 32
+
+    /// Where macOS would accept `proposed`: flush against the nearest edge of one of
+    /// `others`, sharing at least one point of that edge, and overlapping none of them.
+    /// macOS insists displays touch, and nudges anything that doesn't somewhere of its
+    /// own choosing; snapping first keeps the result where the user dropped it.
+    static func snap(_ proposed: CGRect, against others: [CGRect]) -> CGRect {
+        let size = proposed.size
+        var best: CGRect?
+        var bestDistance = CGFloat.infinity
+
+        func consider(_ origin: CGPoint) {
+            let candidate = CGRect(origin: origin, size: size)
+            guard !others.contains(where: { $0.intersection(candidate).width > 0.5 && $0.intersection(candidate).height > 0.5 }) else { return }
+            let distance = hypot(origin.x - proposed.minX, origin.y - proposed.minY)
+            if distance < bestDistance {
+                best = candidate
+                bestDistance = distance
+            }
+        }
+
+        for other in others {
+            // Left or right of `other`: slide vertically, keeping a shared edge.
+            let y = aligned(proposed.minY, length: size.height, along: other.minY, other.maxY)
+            consider(CGPoint(x: other.maxX, y: y))
+            consider(CGPoint(x: other.minX - size.width, y: y))
+            // Above or below: slide horizontally.
+            let x = aligned(proposed.minX, length: size.width, along: other.minX, other.maxX)
+            consider(CGPoint(x: x, y: other.maxY))
+            consider(CGPoint(x: x, y: other.minY - size.height))
+        }
+        return (best ?? proposed).integral
+    }
+
+    /// A position along a neighbour's edge: kept touching it, and pulled into line with
+    /// its start, end or centre when close, which is how people usually want them.
+    private static func aligned(_ start: CGFloat, length: CGFloat, along lo: CGFloat, _ hi: CGFloat) -> CGFloat {
+        var value = min(max(start, lo - length + 1), hi - 1)
+        let targets = [lo, hi - length, (lo + hi - length) / 2]
+        if let nearest = targets.min(by: { abs($0 - value) < abs($1 - value) }),
+           abs(nearest - value) < alignThreshold {
+            value = nearest
+        }
+        return value
+    }
+
+    /// Moves a display, saved permanently so macOS remembers it like an arrangement made
+    /// in System Settings. The main display can't be moved this way: it defines (0, 0).
+    @discardableResult
+    static func move(_ displayID: CGDirectDisplayID, to origin: CGPoint) -> Bool {
+        guard displayID != CGMainDisplayID() else { return false }
+        var config: CGDisplayConfigRef?
+        guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
+        CGConfigureDisplayOrigin(config, displayID, Int32(origin.x.rounded()), Int32(origin.y.rounded()))
+        let err = CGCompleteDisplayConfiguration(config, .permanently)
+        LogManager.shared.log("Overview: moved display \(displayID) to \(Int(origin.x)),\(Int(origin.y)): \(err == .success ? "ok" : "error \(err.rawValue)")")
+        return err == .success
+    }
+}

@@ -15,7 +15,7 @@
 "A few permissions are needed to get started" = "A few permissions are needed to get started";
 "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac.";
 "Overview" = "Overview";
-"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings.";
+"This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings." = "This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings.";
 "Device Settings" = "Device Settings";
 "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display.";
 "Receive Screen" = "Receive Screen";
@@ -290,3 +290,6 @@
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays.";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "Turn on Retina (HiDPI) to choose a text size for this device.";
 "Custom Size" = "Custom Size";
+
+"Drag to arrange" = "Drag to arrange";
+"The main display stays in place; drag the others around it" = "The main display stays in place; drag the others around it";

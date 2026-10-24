@@ -13,7 +13,7 @@
 "A few permissions are needed to get started" = "開始するにはいくつかの権限が必要です";
 "Let's take a quick tour of the app. BetterCast turns any device into a wireless extended display for your Mac." = "アプリを簡単にご案内します。BetterCastは、あらゆるデバイスをMacのワイヤレス拡張ディスプレイに変えます。";
 "Overview" = "概要";
-"This is your dashboard. See all connected displays with live previews, manage connections, and use \"Arrange...\" to position displays in System Settings." = "これはダッシュボードです。接続中のすべてのディスプレイをライブプレビューで確認し、接続を管理できます。「配置...」を使うとシステム設定でディスプレイの位置を調整できます。";
+"This is your dashboard. See all connected displays with live previews, manage connections, and drag displays to arrange them, or use \"Arrange...\" for System Settings." = "これはダッシュボードです。接続中のすべてのディスプレイをライブプレビューで確認し、接続を管理できます。ディスプレイをドラッグして配置するか、「配置...」でシステム設定を開けます。";
 "Device Settings" = "デバイス設定";
 "Click any connected device in the sidebar to adjust resolution, bitrate, Retina mode, and audio streaming for that specific display." = "サイドバーの接続済みデバイスをクリックすると、そのディスプレイの解像度、ビットレート、Retinaモード、オーディオストリーミングを調整できます。";
 "Receive Screen" = "画面を受信";
@@ -288,3 +288,6 @@
 "How large the desktop looks on this device. The stream stays at the native resolution, so every size is sharp. Also adjustable in System Settings > Displays." = "このデバイスでのデスクトップの見た目の大きさです。ストリームはネイティブ解像度のままなので、どのサイズでも鮮明です。システム設定 > ディスプレイでも変更できます。";
 "Turn on Retina (HiDPI) to choose a text size for this device." = "このデバイスの文字サイズを選ぶには Retina (HiDPI) をオンにしてください。";
 "Custom Size" = "カスタムサイズ";
+
+"Drag to arrange" = "ドラッグして配置";
+"The main display stays in place; drag the others around it" = "メインディスプレイは固定です。ほかのディスプレイをその周りにドラッグしてください";
