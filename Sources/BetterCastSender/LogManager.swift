@@ -46,6 +46,9 @@ struct Changelog {
     }
 
     static let entries: [Entry] = [
+        Entry(version: "v24", date: "2026-10-27", highlights: [
+            "An Android on a USB cable is offered over USB however you installed adb: Android Studio, Homebrew on an Intel Mac, MacPorts, or a downloaded platform-tools folder",
+        ]),
         Entry(version: "v23", date: "2026-10-25", highlights: [
             "Arrange your screens right in Overview: drag a display to where it sits on your desk and it snaps into place, no System Settings needed",
             "Overview shows each screen where it really is, and the preview of a BetterCast screen shows what's on that screen",
