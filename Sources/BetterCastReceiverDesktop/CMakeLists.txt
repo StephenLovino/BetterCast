@@ -5,7 +5,7 @@ project(BetterCastReceiver VERSION 17.0.0 LANGUAGES CXX)
 # a line of their own beside the macOS vNN tags, and on Windows this is the
 # version the app reports and the update checker compares. CI reads the
 # installer version from this line too - keep it on one line in this form.
-set(BETTERCAST_WINDOWS_VERSION 1.1.0)
+set(BETTERCAST_WINDOWS_VERSION 1.1.1)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
