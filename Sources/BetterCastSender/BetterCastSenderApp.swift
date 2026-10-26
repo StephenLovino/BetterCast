@@ -4327,8 +4327,11 @@ class NetworkClient: ObservableObject, VideoEncoderDelegate, AudioEncoderDelegat
 
     /// Run an ADB shell command and return trimmed stdout
     private func runAdb(_ args: [String]) -> (output: String, success: Bool) {
+        guard let adb = ADBLocator.path else {
+            return ("adb not found. Install Android platform-tools (for example `brew install android-platform-tools`), then try again.", false)
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/adb")
+        process.executableURL = URL(fileURLWithPath: adb)
         process.arguments = args
         // adb's default Openscreen mDNS backend finds nothing on macOS — verified
         // side by side: `dns-sd` and the Bonjour backend both list the pairing

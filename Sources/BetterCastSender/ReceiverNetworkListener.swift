@@ -97,13 +97,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let adbPaths = [
-                "/usr/local/bin/adb",
-                "/opt/homebrew/bin/adb",
-                "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb",
-                "/Users/\(NSUserName())/Library/Android/sdk/platform-tools/adb"
-            ]
-            let adbPath = adbPaths.first { FileManager.default.fileExists(atPath: $0) }
+            let adbPath = ADBLocator.path
 
             guard let adb = adbPath else {
                 DispatchQueue.main.async {
@@ -662,13 +656,7 @@ class ReceiverNetworkListener: ObservableObject, ReceiverVideoDecoderDelegate {
             if let saved = self.lastADBPath, FileManager.default.fileExists(atPath: saved) {
                 adb = saved
             } else {
-                let adbPaths = [
-                    "/usr/local/bin/adb",
-                    "/opt/homebrew/bin/adb",
-                    "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb",
-                    "/Users/\(NSUserName())/Library/Android/sdk/platform-tools/adb"
-                ]
-                guard let found = adbPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+                guard let found = ADBLocator.path else {
                     return
                 }
                 adb = found
